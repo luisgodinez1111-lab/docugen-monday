@@ -339,3 +339,18 @@ app.listen(PORT, async () => {
 });
 
 module.exports = app;
+
+// Endpoint temporal de migración
+app.post('/migrate', async (req, res) => {
+  if (req.body.secret !== 'docugen2026') return res.status(403).json({ error: 'No autorizado' });
+  try {
+    await pool.query('ALTER TABLE tokens ADD COLUMN IF NOT EXISTS user_id TEXT');
+    await pool.query('ALTER TABLE documents ADD COLUMN IF NOT EXISTS board_id TEXT');
+    await pool.query('ALTER TABLE documents ADD COLUMN IF NOT EXISTS item_id TEXT');
+    await pool.query('ALTER TABLE documents ADD COLUMN IF NOT EXISTS item_name TEXT');
+    await pool.query('ALTER TABLE documents ADD COLUMN IF NOT EXISTS template_name TEXT');
+    res.json({ success: true, message: 'Migración completada' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
