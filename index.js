@@ -16,14 +16,12 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Crear carpeta de plantillas si no existe
 const templatesDir = path.join(__dirname, 'templates');
 if (!fs.existsSync(templatesDir)) fs.mkdirSync(templatesDir);
 
 const outputsDir = path.join(__dirname, 'outputs');
 if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir);
 
-// Multer config
 const storage = multer.diskStorage({
   destination: templatesDir,
   filename: (req, file, cb) => cb(null, file.originalname)
@@ -90,23 +88,16 @@ app.get('/boards', async (req, res) => {
   }
 });
 
-// Subir plantilla
 app.post('/templates/upload', upload.single('template'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
-  res.json({
-    success: true,
-    message: 'Plantilla subida correctamente',
-    filename: req.file.originalname
-  });
+  res.json({ success: true, message: 'Plantilla subida correctamente', filename: req.file.originalname });
 });
 
-// Listar plantillas
 app.get('/templates', (req, res) => {
   const files = fs.readdirSync(templatesDir).filter(f => f.endsWith('.docx'));
   res.json({ templates: files });
 });
 
-// Generar documento
 app.post('/generate', async (req, res) => {
   const { template_name, data } = req.body;
 
@@ -124,7 +115,8 @@ app.post('/generate', async (req, res) => {
     const zip = new PizZip(content);
     const doc = new Docxtemplater(zip, {
       paragraphLoop: true,
-      linebreaks: true
+      linebreaks: true,
+      delimiters: { start: '{{', end: '}}' }  // ← soporte para doble llave
     });
 
     doc.render(data);
@@ -146,7 +138,6 @@ app.post('/generate', async (req, res) => {
   }
 });
 
-// Descargar documento
 app.get('/download/:filename', (req, res) => {
   const filePath = path.join(outputsDir, req.params.filename);
   if (!fs.existsSync(filePath)) {
