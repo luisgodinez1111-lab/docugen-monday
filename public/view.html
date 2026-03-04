@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DocuGen</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #F5F4F0; --surface: #FFFFFF; --border: #E2E0D8; --text: #1A1916;
+      --muted: #8A8880; --accent: #2D5BE3; --accent-light: #EEF2FD;
+      --success: #1A7A4A; --success-light: #EDFBF3; --error: #C0392B;
+      --error-light: #FDF0EE; --mono: 'DM Mono', monospace; --sans: 'DM Sans', sans-serif;
+    }
+    body { font-family: var(--sans); background: var(--bg); color: var(--text); min-height: 100vh; }
+    .app { max-width: 680px; margin: 0 auto; padding: 32px 24px; }
+    .header { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
+    .logo { width: 36px; height: 36px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+    .logo svg { width: 20px; height: 20px; fill: white; }
+    .header-text h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+    .header-text p { font-size: 13px; color: var(--muted); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+    .card-label { font-size: 11px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; font-family: var(--mono); }
+    .section-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .section-desc { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+    .badge { display: inline-flex; padding: 2px 8px; background: var(--accent-light); color: var(--accent); border-radius: 20px; font-size: 11px; font-weight: 500; font-family: var(--mono); }
+    .template-list, .items-list { display: flex; flex-direction: column; gap: 8px; }
+    .items-list { max-height: 200px; overflow-y: auto; }
+    .template-item, .item-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; transition: all 0.15s; font-size: 13px; }
+    .template-item:hover, .item-row:hover { border-color: var(--accent); background: var(--accent-light); }
+    .template-item.selected, .item-row.selected { border-color: var(--accent); background: var(--accent-light); color: var(--accent); font-weight: 500; }
+    .item-id { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-left: auto; }
+    .divider { display: flex; align-items: center; gap: 12px; margin: 16px 0; color: var(--muted); font-size: 11px; font-family: var(--mono); text-transform: uppercase; }
+    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+    .upload-area { border: 2px dashed var(--border); border-radius: 8px; padding: 24px; text-align: center; cursor: pointer; transition: all 0.2s; position: relative; }
+    .upload-area:hover { border-color: var(--accent); background: var(--accent-light); }
+    .upload-area.has-file { border-color: var(--success); background: var(--success-light); }
+    .upload-area input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+    .upload-icon { font-size: 24px; margin-bottom: 8px; }
+    .upload-text { font-size: 13px; color: var(--muted); }
+    .upload-text strong { color: var(--accent); }
+    .upload-filename { font-family: var(--mono); font-size: 12px; color: var(--success); margin-top: 4px; }
+    .btn { width: 100%; padding: 13px 20px; border: none; border-radius: 10px; font-family: var(--sans); font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover:not(:disabled) { background: #1E44C2; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(45,91,227,0.3); }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+    .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .status { padding: 12px 16px; border-radius: 8px; font-size: 13px; margin-top: 12px; }
+    .status.success { background: var(--success-light); color: var(--success); border: 1px solid #C3EDD8; }
+    .status.error { background: var(--error-light); color: var(--error); border: 1px solid #F5C6C2; }
+    .download-btn { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 8px 16px; background: var(--success); color: white; border-radius: 8px; text-decoration: none; font-size: 13px; font-weight: 500; }
+    .empty { text-align: center; padding: 20px; color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div class="logo">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM6 20V4h5v7h7v9H6z"/></svg>
+    </div>
+    <div class="header-text">
+      <h1>DocuGen</h1>
+      <p>Genera documentos Word desde tus tableros</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Paso 1 — Plantilla</div>
+    <div class="section-title">Selecciona una plantilla</div>
+    <div class="section-desc">Elige una plantilla con variables <span class="badge">{{variable}}</span></div>
+    <div id="template-list" class="template-list"><div class="empty">Cargando...</div></div>
+    <div class="divider">o sube nueva</div>
+    <div class="upload-area" id="upload-area">
+      <input type="file" accept=".docx" id="file-input" onchange="handleFileUpload(event)">
+      <div class="upload-icon">📄</div>
+      <div class="upload-text"><strong>Click para subir</strong> un .docx</div>
+      <div class="upload-filename" id="upload-filename"></div>
+    </div>
+    <div id="upload-status"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Paso 2 — Item</div>
+    <div class="section-title">Selecciona un item</div>
+    <div class="section-desc">Elige el item del tablero cuyos datos llenarán la plantilla.</div>
+    <div id="items-list" class="items-list"><div class="empty">Cargando items...</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Paso 3 — Generar</div>
+    <div class="section-title">Genera el documento</div>
+    <div class="section-desc">Los datos del item seleccionado se insertarán en la plantilla.</div>
+    <button class="btn btn-primary" id="generate-btn" onclick="generateDocument()" disabled>Generar documento</button>
+    <div id="generate-status"></div>
+  </div>
+</div>
+
+<script>
+  const API = 'https://docugen-monday-production.up.railway.app';
+  let selectedTemplate = null;
+  let selectedItem = null;
+  let boardId = '18402459185';
+
+  async function init() {
+    await loadTemplates();
+    await loadBoardItems(boardId);
+  }
+
+  async function loadTemplates() {
+    try {
+      const res = await fetch(API + '/templates');
+      const data = await res.json();
+      const list = document.getElementById('template-list');
+      if (!data.templates.length) { list.innerHTML = '<div class="empty">No hay plantillas. Sube una.</div>'; return; }
+      list.innerHTML = data.templates.map(t => `
+        <div class="template-item" onclick="selectTemplate('${t}')" id="tpl-${t.replace(/\./g,'-')}">
+          <span>📄</span><span>${t}</span>
+        </div>`).join('');
+    } catch(e) { document.getElementById('template-list').innerHTML = '<div class="empty">Error al cargar</div>'; }
+  }
+
+  async function loadBoardItems(bid) {
+    try {
+      const res = await fetch(API + '/board-items', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ account_id: 'default', board_id: bid })
+      });
+      const data = await res.json();
+      const items = data.data?.boards?.[0]?.items_page?.items || [];
+      const list = document.getElementById('items-list');
+      if (!items.length) { list.innerHTML = '<div class="empty">No hay items</div>'; return; }
+      list.innerHTML = items.map(item => `
+        <div class="item-row" onclick="selectItem('${item.id}', '${item.name.replace(/'/g,"\\'")}') " id="item-${item.id}">
+          <span>📋</span><span>${item.name}</span>
+          <span class="item-id">#${item.id}</span>
+        </div>`).join('');
+    } catch(e) { document.getElementById('items-list').innerHTML = '<div class="empty">Error al cargar</div>'; }
+  }
+
+  function selectTemplate(name) {
+    selectedTemplate = name;
+    document.querySelectorAll('.template-item').forEach(el => el.classList.remove('selected'));
+    const el = document.getElementById('tpl-' + name.replace(/\./g,'-'));
+    if (el) el.classList.add('selected');
+    checkReady();
+  }
+
+  function selectItem(id, name) {
+    selectedItem = { id, name };
+    document.querySelectorAll('.item-row').forEach(el => el.classList.remove('selected'));
+    document.getElementById('item-' + id).classList.add('selected');
+    checkReady();
+  }
+
+  function checkReady() {
+    document.getElementById('generate-btn').disabled = !(selectedTemplate && selectedItem);
+  }
+
+  async function handleFileUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('template', file);
+    document.getElementById('upload-filename').textContent = 'Subiendo...';
+    document.getElementById('upload-area').classList.add('has-file');
+    try {
+      await fetch(API + '/templates/upload', { method: 'POST', body: formData });
+      document.getElementById('upload-filename').textContent = '✓ ' + file.name;
+      document.getElementById('upload-status').innerHTML = '<div class="status success">✓ Plantilla subida</div>';
+      await loadTemplates();
+      selectTemplate(file.name);
+    } catch(e) {
+      document.getElementById('upload-status').innerHTML = '<div class="status error">✗ Error al subir</div>';
+    }
+  }
+
+  async function generateDocument() {
+    if (!selectedTemplate || !selectedItem) return;
+    const btn = document.getElementById('generate-btn');
+    const status = document.getElementById('generate-status');
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner"></div> Generando...';
+    status.innerHTML = '';
+    try {
+      const res = await fetch(API + '/generate-from-monday', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ account_id: 'default', board_id: boardId, item_id: selectedItem.id, template_name: selectedTemplate })
+      });
+      const data = await res.json();
+      if (data.success) {
+        status.innerHTML = `<div class="status success"><strong>✓ Documento generado</strong><br><span style="font-size:12px">${selectedItem.name}</span><br><a class="download-btn" href="${API}${data.download_url}" target="_blank">⬇ Descargar ${data.filename}</a></div>`;
+      } else {
+        status.innerHTML = '<div class="status error">✗ ' + (data.error || 'Error') + '</div>';
+      }
+    } catch(e) {
+      status.innerHTML = '<div class="status error">✗ Error de conexión</div>';
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = 'Generar documento';
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>

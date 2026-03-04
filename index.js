@@ -252,3 +252,8 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
+app.use(express.static(require('path').join(__dirname, 'public')));
+app.get('/view', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'public', 'view.html'));
+});
