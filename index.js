@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const PizZip = require('pizzip');
 const Docxtemplater = require('docxtemplater');
+const { Pool } = require('pg');
 
 dotenv.config();
 
@@ -16,26 +17,64 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-const templatesDir = path.join(__dirname, 'templates');
-if (!fs.existsSync(templatesDir)) fs.mkdirSync(templatesDir);
+// PostgreSQL
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
+
+// Inicializar tablas
+async function initDB() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS tokens (
+        account_id TEXT PRIMARY KEY,
+        access_token TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS templates (
+        id SERIAL PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        data BYTEA NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(account_id, filename)
+      );
+    `);
+    console.log('✅ Base de datos inicializada');
+  } catch (err) {
+    console.error('❌ Error iniciando DB:', err.message);
+  }
+}
 
 const outputsDir = path.join(__dirname, 'outputs');
 if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir);
 
-const storage = multer.diskStorage({
-  destination: templatesDir,
-  filename: (req, file, cb) => cb(null, file.originalname)
-});
-const upload = multer({ storage });
+const upload = multer({ storage: multer.memoryStorage() });
 
-let accessTokens = {};
+// Token helpers
+async function saveToken(accountId, token) {
+  await pool.query(`
+    INSERT INTO tokens (account_id, access_token, updated_at)
+    VALUES ($1, $2, NOW())
+    ON CONFLICT (account_id) DO UPDATE SET access_token = $2, updated_at = NOW()
+  `, [accountId, token]);
+}
+
+async function getToken(accountId) {
+  const res = await pool.query('SELECT access_token FROM tokens WHERE account_id = $1', [accountId]);
+  return res.rows[0]?.access_token || null;
+}
 
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'DocuGen for monday', version: '1.0.0' });
+  res.json({ status: 'ok', message: 'DocuGen for monday', version: '2.0.0' });
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+  res.json({ status: 'healthy', timestamp: new Date().toISOString(), db: !!pool });
 });
 
 app.get('/oauth/start', (req, res) => {
@@ -58,12 +97,14 @@ app.get('/oauth/callback', async (req, res) => {
     });
 
     const { access_token, account_id } = response.data;
-    const key = account_id || 'default';
-    accessTokens[key] = access_token;
+    const key = account_id?.toString() || 'default';
+    await saveToken(key, access_token);
+    console.log(`✅ Token guardado en DB para cuenta: ${key}`);
 
     res.json({
       success: true,
-      oauth_data: response.data,
+      message: 'Autenticación exitosa',
+      account_id: key,
       token_preview: access_token.substring(0, 15) + '...'
     });
   } catch (error) {
@@ -73,7 +114,7 @@ app.get('/oauth/callback', async (req, res) => {
 
 app.get('/boards', async (req, res) => {
   const key = req.query.account_id || 'default';
-  const token = accessTokens[key];
+  const token = await getToken(key);
   if (!token) return res.status(401).json({ error: 'No hay token. Haz OAuth primero.' });
 
   try {
@@ -88,11 +129,10 @@ app.get('/boards', async (req, res) => {
   }
 });
 
-// Ver items y columnas de un tablero
 app.post('/board-items', async (req, res) => {
   const { account_id, board_id } = req.body;
   const key = account_id || 'default';
-  const token = accessTokens[key];
+  const token = await getToken(key);
   if (!token) return res.status(401).json({ error: 'No hay token. Haz OAuth primero.' });
 
   try {
@@ -103,7 +143,7 @@ app.post('/board-items', async (req, res) => {
           boards(ids: ${board_id}) {
             name
             columns { id title type }
-            items_page(limit: 5) {
+            items_page(limit: 20) {
               items {
                 id
                 name
@@ -121,27 +161,63 @@ app.post('/board-items', async (req, res) => {
   }
 });
 
-// Generar documento desde datos de monday
+// Subir plantilla a DB
+app.post('/templates/upload', upload.single('template'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
+  const accountId = req.body.account_id || 'default';
+
+  try {
+    await pool.query(`
+      INSERT INTO templates (account_id, filename, data)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (account_id, filename) DO UPDATE SET data = $3
+    `, [accountId, req.file.originalname, req.file.buffer]);
+
+    res.json({ success: true, message: 'Plantilla guardada en base de datos', filename: req.file.originalname });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al guardar plantilla', details: err.message });
+  }
+});
+
+// Listar plantillas
+app.get('/templates', async (req, res) => {
+  const accountId = req.query.account_id || 'default';
+  try {
+    const result = await pool.query(
+      'SELECT filename, created_at FROM templates WHERE account_id = $1 ORDER BY created_at DESC',
+      [accountId]
+    );
+    res.json({ templates: result.rows.map(r => r.filename) });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al listar plantillas' });
+  }
+});
+
+// Generar documento desde monday
 app.post('/generate-from-monday', async (req, res) => {
   const { account_id, board_id, item_id, template_name } = req.body;
   const key = account_id || 'default';
-  const token = accessTokens[key];
+  const token = await getToken(key);
   if (!token) return res.status(401).json({ error: 'No hay token.' });
 
-  const templatePath = path.join(templatesDir, template_name);
-  if (!fs.existsSync(templatePath)) {
-    return res.status(404).json({ error: `Plantilla "${template_name}" no encontrada` });
-  }
-
   try {
+    // Obtener plantilla de DB
+    const tplResult = await pool.query(
+      'SELECT data FROM templates WHERE account_id = $1 AND filename = $2',
+      [key, template_name]
+    );
+    if (!tplResult.rows.length) {
+      return res.status(404).json({ error: `Plantilla "${template_name}" no encontrada` });
+    }
+    const templateBuffer = tplResult.rows[0].data;
+
     // Obtener datos del item de monday
     const response = await axios.post(
       'https://api.monday.com/v2',
       {
         query: `query {
           items(ids: ${item_id}) {
-            id
-            name
+            id name
             column_values { id text column { title } }
           }
         }`
@@ -150,19 +226,14 @@ app.post('/generate-from-monday', async (req, res) => {
     );
 
     const item = response.data.data.items[0];
-    
-    // Construir objeto de datos para la plantilla
     const data = { nombre: item.name };
     item.column_values.forEach(col => {
-      const key = col.column.title.toLowerCase().replace(/\s+/g, '_');
-      data[key] = col.text || '';
+      const k = col.column.title.toLowerCase().replace(/\s+/g, '_');
+      data[k] = col.text || '';
     });
 
-    console.log('📋 Datos para plantilla:', data);
-
     // Generar documento
-    const content = fs.readFileSync(templatePath, 'binary');
-    const zip = new PizZip(content);
+    const zip = new PizZip(templateBuffer);
     const doc = new Docxtemplater(zip, {
       paragraphLoop: true,
       linebreaks: true,
@@ -178,7 +249,7 @@ app.post('/generate-from-monday', async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Documento generado desde monday',
+      message: 'Documento generado',
       filename: outputFilename,
       data_used: data,
       download_url: `/download/${outputFilename}`
@@ -189,30 +260,21 @@ app.post('/generate-from-monday', async (req, res) => {
   }
 });
 
-app.post('/templates/upload', upload.single('template'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
-  res.json({ success: true, message: 'Plantilla subida correctamente', filename: req.file.originalname });
-});
-
-app.get('/templates', (req, res) => {
-  const files = fs.readdirSync(templatesDir).filter(f => f.endsWith('.docx'));
-  res.json({ templates: files });
-});
-
+// Generar con datos manuales
 app.post('/generate', async (req, res) => {
-  const { template_name, data } = req.body;
-  if (!template_name || !data) {
-    return res.status(400).json({ error: 'Faltan template_name y data' });
-  }
-
-  const templatePath = path.join(templatesDir, template_name);
-  if (!fs.existsSync(templatePath)) {
-    return res.status(404).json({ error: `Plantilla "${template_name}" no encontrada` });
-  }
+  const { template_name, data, account_id } = req.body;
+  const key = account_id || 'default';
 
   try {
-    const content = fs.readFileSync(templatePath, 'binary');
-    const zip = new PizZip(content);
+    const tplResult = await pool.query(
+      'SELECT data FROM templates WHERE account_id = $1 AND filename = $2',
+      [key, template_name]
+    );
+    if (!tplResult.rows.length) {
+      return res.status(404).json({ error: `Plantilla "${template_name}" no encontrada` });
+    }
+
+    const zip = new PizZip(tplResult.rows[0].data);
     const doc = new Docxtemplater(zip, {
       paragraphLoop: true,
       linebreaks: true,
@@ -223,37 +285,30 @@ app.post('/generate', async (req, res) => {
 
     const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
     const outputFilename = `output_${Date.now()}.docx`;
-    const outputPath = path.join(outputsDir, outputFilename);
-    fs.writeFileSync(outputPath, outputBuffer);
+    fs.writeFileSync(path.join(outputsDir, outputFilename), outputBuffer);
 
-    res.json({
-      success: true,
-      message: 'Documento generado',
-      filename: outputFilename,
-      download_url: `/download/${outputFilename}`
-    });
+    res.json({ success: true, filename: outputFilename, download_url: `/download/${outputFilename}` });
   } catch (error) {
-    res.status(500).json({ error: 'Error al generar documento', details: error.message });
+    res.status(500).json({ error: 'Error al generar', details: error.message });
   }
 });
 
 app.get('/download/:filename', (req, res) => {
   const filePath = path.join(outputsDir, req.params.filename);
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: 'Archivo no encontrado' });
-  }
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Archivo no encontrado' });
   res.download(filePath);
 });
 
-app.listen(PORT, () => {
+app.use(express.static(path.join(__dirname, 'public')));
+app.get('/view', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'view.html'));
+});
+
+app.listen(PORT, async () => {
   console.log(`✅ DocuGen servidor corriendo en puerto ${PORT}`);
   console.log(`📋 ID de la aplicación: ${process.env.MONDAY_APP_ID}`);
   console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'development'}`);
+  await initDB();
 });
 
 module.exports = app;
-
-app.use(express.static(require('path').join(__dirname, 'public')));
-app.get('/view', (req, res) => {
-  res.sendFile(require('path').join(__dirname, 'public', 'view.html'));
-});
