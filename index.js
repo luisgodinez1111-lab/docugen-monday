@@ -8,6 +8,7 @@ const fs = require('fs');
 const PizZip = require('pizzip');
 const Docxtemplater = require('docxtemplater');
 const { Pool } = require('pg');
+const jwt = require('jsonwebtoken');
 
 dotenv.config();
 
@@ -17,19 +18,18 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// PostgreSQL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
-// Inicializar tablas
 async function initDB() {
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS tokens (
         account_id TEXT PRIMARY KEY,
         access_token TEXT NOT NULL,
+        user_id TEXT,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       );
@@ -44,6 +44,18 @@ async function initDB() {
         UNIQUE(account_id, filename)
       );
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS documents (
+        id SERIAL PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        board_id TEXT,
+        item_id TEXT,
+        item_name TEXT,
+        template_name TEXT,
+        filename TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
     console.log('✅ Base de datos inicializada');
   } catch (err) {
     console.error('❌ Error iniciando DB:', err.message);
@@ -55,13 +67,22 @@ if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir);
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Token helpers
-async function saveToken(accountId, token) {
+// Extraer account_id del JWT de monday
+function extractAccountId(accessToken) {
+  try {
+    const decoded = jwt.decode(accessToken);
+    return decoded?.actid?.toString() || null;
+  } catch(e) {
+    return null;
+  }
+}
+
+async function saveToken(accountId, userId, token) {
   await pool.query(`
-    INSERT INTO tokens (account_id, access_token, updated_at)
-    VALUES ($1, $2, NOW())
-    ON CONFLICT (account_id) DO UPDATE SET access_token = $2, updated_at = NOW()
-  `, [accountId, token]);
+    INSERT INTO tokens (account_id, user_id, access_token, updated_at)
+    VALUES ($1, $2, $3, NOW())
+    ON CONFLICT (account_id) DO UPDATE SET access_token = $3, user_id = $2, updated_at = NOW()
+  `, [accountId, userId, token]);
 }
 
 async function getToken(accountId) {
@@ -69,12 +90,25 @@ async function getToken(accountId) {
   return res.rows[0]?.access_token || null;
 }
 
+// Middleware para verificar sesión
+async function requireAuth(req, res, next) {
+  const accountId = req.headers['x-account-id'] || req.query.account_id || req.body?.account_id;
+  if (!accountId) return res.status(401).json({ error: 'Se requiere account_id' });
+  
+  const token = await getToken(accountId);
+  if (!token) return res.status(401).json({ error: 'No hay sesión. Haz OAuth primero.', needs_auth: true });
+  
+  req.accountId = accountId;
+  req.accessToken = token;
+  next();
+}
+
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'DocuGen for monday', version: '2.0.0' });
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString(), db: !!pool });
+  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
 app.get('/oauth/start', (req, res) => {
@@ -96,32 +130,38 @@ app.get('/oauth/callback', async (req, res) => {
       redirect_uri: process.env.REDIRECT_URI
     });
 
-    const { access_token, account_id } = response.data;
-    const key = account_id?.toString() || 'default';
-    await saveToken(key, access_token);
-    console.log(`✅ Token guardado en DB para cuenta: ${key}`);
+    const { access_token } = response.data;
+    
+    // Extraer account_id y user_id del JWT
+    const decoded = jwt.decode(access_token);
+    const accountId = decoded?.actid?.toString() || 'default';
+    const userId = decoded?.uid?.toString() || null;
 
-    res.json({
-      success: true,
-      message: 'Autenticación exitosa',
-      account_id: key,
-      token_preview: access_token.substring(0, 15) + '...'
-    });
+    await saveToken(accountId, userId, access_token);
+    console.log(`✅ Token guardado — account: ${accountId}, user: ${userId}`);
+
+    // Redirigir a la UI con el account_id
+    res.redirect(`/view?account_id=${accountId}`);
   } catch (error) {
+    console.error('❌ Error OAuth:', error.response?.data || error.message);
     res.status(500).json({ error: 'Error OAuth', details: error.response?.data });
   }
 });
 
-app.get('/boards', async (req, res) => {
-  const key = req.query.account_id || 'default';
-  const token = await getToken(key);
-  if (!token) return res.status(401).json({ error: 'No hay token. Haz OAuth primero.' });
+// Verificar sesión
+app.get('/auth/check', async (req, res) => {
+  const accountId = req.query.account_id;
+  if (!accountId) return res.json({ authenticated: false });
+  const token = await getToken(accountId);
+  res.json({ authenticated: !!token, account_id: accountId });
+});
 
+app.get('/boards', requireAuth, async (req, res) => {
   try {
     const response = await axios.post(
       'https://api.monday.com/v2',
       { query: `query { boards(limit:10) { id name items_count } }` },
-      { headers: { Authorization: token, 'Content-Type': 'application/json' } }
+      { headers: { Authorization: req.accessToken, 'Content-Type': 'application/json' } }
     );
     res.json(response.data);
   } catch (error) {
@@ -129,12 +169,8 @@ app.get('/boards', async (req, res) => {
   }
 });
 
-app.post('/board-items', async (req, res) => {
-  const { account_id, board_id } = req.body;
-  const key = account_id || 'default';
-  const token = await getToken(key);
-  if (!token) return res.status(401).json({ error: 'No hay token. Haz OAuth primero.' });
-
+app.post('/board-items', requireAuth, async (req, res) => {
+  const { board_id } = req.body;
   try {
     const response = await axios.post(
       'https://api.monday.com/v2',
@@ -143,17 +179,17 @@ app.post('/board-items', async (req, res) => {
           boards(ids: ${board_id}) {
             name
             columns { id title type }
-            items_page(limit: 20) {
+            items_page(limit: 50) {
               items {
-                id
-                name
-                column_values { id text value column { title } }
+                id name
+                column_values { id text column { title } }
+                subitems { id name column_values { id text column { title } } }
               }
             }
           }
         }`
       },
-      { headers: { Authorization: token, 'Content-Type': 'application/json' } }
+      { headers: { Authorization: req.accessToken, 'Content-Type': 'application/json' } }
     );
     res.json(response.data);
   } catch (error) {
@@ -161,7 +197,6 @@ app.post('/board-items', async (req, res) => {
   }
 });
 
-// Subir plantilla a DB
 app.post('/templates/upload', upload.single('template'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
   const accountId = req.body.account_id || 'default';
@@ -173,13 +208,12 @@ app.post('/templates/upload', upload.single('template'), async (req, res) => {
       ON CONFLICT (account_id, filename) DO UPDATE SET data = $3
     `, [accountId, req.file.originalname, req.file.buffer]);
 
-    res.json({ success: true, message: 'Plantilla guardada en base de datos', filename: req.file.originalname });
+    res.json({ success: true, filename: req.file.originalname });
   } catch (err) {
     res.status(500).json({ error: 'Error al guardar plantilla', details: err.message });
   }
 });
 
-// Listar plantillas
 app.get('/templates', async (req, res) => {
   const accountId = req.query.account_id || 'default';
   try {
@@ -193,25 +227,18 @@ app.get('/templates', async (req, res) => {
   }
 });
 
-// Generar documento desde monday
-app.post('/generate-from-monday', async (req, res) => {
-  const { account_id, board_id, item_id, template_name } = req.body;
-  const key = account_id || 'default';
-  const token = await getToken(key);
-  if (!token) return res.status(401).json({ error: 'No hay token.' });
+app.post('/generate-from-monday', requireAuth, async (req, res) => {
+  const { board_id, item_id, template_name } = req.body;
 
   try {
-    // Obtener plantilla de DB
     const tplResult = await pool.query(
       'SELECT data FROM templates WHERE account_id = $1 AND filename = $2',
-      [key, template_name]
+      [req.accountId, template_name]
     );
     if (!tplResult.rows.length) {
       return res.status(404).json({ error: `Plantilla "${template_name}" no encontrada` });
     }
-    const templateBuffer = tplResult.rows[0].data;
 
-    // Obtener datos del item de monday
     const response = await axios.post(
       'https://api.monday.com/v2',
       {
@@ -219,59 +246,34 @@ app.post('/generate-from-monday', async (req, res) => {
           items(ids: ${item_id}) {
             id name
             column_values { id text column { title } }
+            subitems { id name column_values { id text column { title } } }
           }
         }`
       },
-      { headers: { Authorization: token, 'Content-Type': 'application/json' } }
+      { headers: { Authorization: req.accessToken, 'Content-Type': 'application/json' } }
     );
 
     const item = response.data.data.items[0];
+    
+    // Construir datos para plantilla
     const data = { nombre: item.name };
     item.column_values.forEach(col => {
-      const k = col.column.title.toLowerCase().replace(/\s+/g, '_');
+      const k = col.column.title.toLowerCase()
+        .replace(/\s+/g, '_')
+        .replace(/[^a-z0-9_]/g, '');
       data[k] = col.text || '';
     });
 
-    // Generar documento
-    const zip = new PizZip(templateBuffer);
-    const doc = new Docxtemplater(zip, {
-      paragraphLoop: true,
-      linebreaks: true,
-      delimiters: { start: '{{', end: '}}' }
-    });
-
-    doc.render(data);
-
-    const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
-    const outputFilename = `${item.name.replace(/\s+/g, '_')}_${Date.now()}.docx`;
-    const outputPath = path.join(outputsDir, outputFilename);
-    fs.writeFileSync(outputPath, outputBuffer);
-
-    res.json({
-      success: true,
-      message: 'Documento generado',
-      filename: outputFilename,
-      data_used: data,
-      download_url: `/download/${outputFilename}`
-    });
-  } catch (error) {
-    console.error('❌ Error:', error);
-    res.status(500).json({ error: 'Error al generar', details: error.message });
-  }
-});
-
-// Generar con datos manuales
-app.post('/generate', async (req, res) => {
-  const { template_name, data, account_id } = req.body;
-  const key = account_id || 'default';
-
-  try {
-    const tplResult = await pool.query(
-      'SELECT data FROM templates WHERE account_id = $1 AND filename = $2',
-      [key, template_name]
-    );
-    if (!tplResult.rows.length) {
-      return res.status(404).json({ error: `Plantilla "${template_name}" no encontrada` });
+    // Subitems como lista
+    if (item.subitems?.length) {
+      data.items = item.subitems.map(sub => {
+        const subData = { nombre: sub.name };
+        sub.column_values.forEach(col => {
+          const k = col.column.title.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+          subData[k] = col.text || '';
+        });
+        return subData;
+      });
     }
 
     const zip = new PizZip(tplResult.rows[0].data);
@@ -284,12 +286,37 @@ app.post('/generate', async (req, res) => {
     doc.render(data);
 
     const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
-    const outputFilename = `output_${Date.now()}.docx`;
+    const outputFilename = `${item.name.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.docx`;
     fs.writeFileSync(path.join(outputsDir, outputFilename), outputBuffer);
 
-    res.json({ success: true, filename: outputFilename, download_url: `/download/${outputFilename}` });
+    // Guardar registro en DB
+    await pool.query(
+      'INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename) VALUES ($1,$2,$3,$4,$5,$6)',
+      [req.accountId, board_id, item_id, item.name, template_name, outputFilename]
+    );
+
+    res.json({
+      success: true,
+      filename: outputFilename,
+      data_used: data,
+      download_url: `/download/${outputFilename}`
+    });
   } catch (error) {
+    console.error('❌ Error:', error);
     res.status(500).json({ error: 'Error al generar', details: error.message });
+  }
+});
+
+// Historial de documentos por cuenta
+app.get('/documents', requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, item_name, template_name, filename, created_at FROM documents WHERE account_id = $1 ORDER BY created_at DESC LIMIT 20',
+      [req.accountId]
+    );
+    res.json({ documents: result.rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al obtener historial' });
   }
 });
 
