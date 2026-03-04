@@ -11,6 +11,9 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// Almacenamiento temporal de tokens (en memoria)
+let accessTokens = {};
+
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
@@ -48,17 +51,56 @@ app.get('/oauth/callback', async (req, res) => {
       redirect_uri: process.env.REDIRECT_URI
     });
 
-    const { access_token } = response.data;
-    console.log('✅ OAuth exitoso, token recibido');
+    const { access_token, account_id } = response.data;
+    accessTokens[account_id] = access_token;
+    console.log(`✅ Token guardado para cuenta: ${account_id}`);
 
     res.json({
       success: true,
       message: 'Autenticación exitosa',
+      account_id,
       token_preview: access_token.substring(0, 10) + '...'
     });
   } catch (error) {
     console.error('❌ Error OAuth:', error.response?.data || error.message);
     res.status(500).json({ error: 'Error al obtener token', details: error.response?.data });
+  }
+});
+
+// GraphQL - Obtener tableros
+app.get('/boards', async (req, res) => {
+  const { account_id } = req.query;
+  const token = accessTokens[account_id];
+
+  if (!token) {
+    return res.status(401).json({ error: 'No hay token para esta cuenta. Haz OAuth primero.' });
+  }
+
+  try {
+    const response = await axios.post(
+      'https://api.monday.com/v2',
+      {
+        query: `query {
+          boards(limit: 10) {
+            id
+            name
+            description
+            items_count
+          }
+        }`
+      },
+      {
+        headers: {
+          Authorization: token,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('❌ Error GraphQL:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Error al consultar monday.com' });
   }
 });
 
