@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DocuGen</title>
+  <script src="https://cdn.jsdelivr.net/npm/monday-sdk-js/dist/main.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -21,6 +22,7 @@
     .header-text h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
     .header-text p { font-size: 13px; color: var(--muted); }
     .account-badge { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--border); padding: 4px 10px; border-radius: 20px; }
+    .board-badge { font-family: var(--mono); font-size: 11px; color: var(--accent); background: var(--accent-light); padding: 4px 10px; border-radius: 20px; margin-left: 8px; }
     .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 16px; }
     .card-label { font-size: 11px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; font-family: var(--mono); }
     .section-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
@@ -61,7 +63,7 @@
   </style>
 </head>
 <body>
-<div class="app" id="app">
+<div class="app">
   <div class="auth-wall" id="auth-wall" style="display:none">
     <div style="font-size:48px;margin-bottom:16px">🔐</div>
     <h2>Conecta tu cuenta</h2>
@@ -79,6 +81,7 @@
         <p>Genera documentos Word desde tus tableros</p>
       </div>
       <div class="account-badge" id="account-badge"></div>
+      <div class="board-badge" id="board-badge" style="display:none"></div>
     </div>
 
     <div class="card">
@@ -99,8 +102,8 @@
     <div class="card">
       <div class="card-label">Paso 2 — Item</div>
       <div class="section-title">Selecciona un item</div>
-      <div class="section-desc">Elige el item del tablero cuyos datos llenarán la plantilla.</div>
-      <div id="items-list" class="items-list"><div class="empty">Cargando items...</div></div>
+      <div class="section-desc" id="items-desc">Cargando items del tablero activo...</div>
+      <div id="items-list" class="items-list"><div class="empty">Cargando...</div></div>
     </div>
 
     <div class="card">
@@ -115,22 +118,48 @@
 
 <script>
   const API = 'https://docugen-monday-production.up.railway.app';
-  
-  // Obtener account_id de la URL
   const params = new URLSearchParams(window.location.search);
   let accountId = params.get('account_id');
   let selectedTemplate = null;
   let selectedItem = null;
   let boardId = null;
+  let boardName = null;
+
+  // Inicializar monday SDK
+  const monday = window.mondaySdk ? window.mondaySdk() : null;
+  if (monday) monday.init();
 
   async function init() {
+    // Intentar obtener contexto de monday SDK
+    if (monday) {
+      try {
+        const ctx = await monday.get('context');
+        if (ctx.data) {
+          const context = ctx.data;
+          console.log('Monday context:', JSON.stringify(context));
+          
+          // Obtener boardId del contexto
+          if (context.boardId) boardId = context.boardId.toString();
+          if (context.boardName) boardName = context.boardName;
+          
+          // Obtener account_id del contexto
+          if (context.account?.id) accountId = context.account.id.toString();
+        }
+      } catch(e) {
+        console.log('No monday context:', e.message);
+      }
+    }
+
+    // Fallback a URL params
+    if (!accountId) accountId = params.get('account_id');
+    if (!boardId) boardId = params.get('boardId') || '18402459185';
+
     if (!accountId) {
-      // Sin account_id — mostrar auth wall
       document.getElementById('auth-wall').style.display = 'block';
       return;
     }
 
-    // Verificar si tiene sesión activa
+    // Verificar sesión
     const check = await fetch(`${API}/auth/check?account_id=${accountId}`);
     const auth = await check.json();
 
@@ -139,14 +168,21 @@
       return;
     }
 
-    // Mostrar contenido principal
+    // Mostrar contenido
     document.getElementById('main-content').style.display = 'block';
     document.getElementById('account-badge').textContent = `#${accountId}`;
+    
+    if (boardName) {
+      const boardBadge = document.getElementById('board-badge');
+      boardBadge.textContent = `📋 ${boardName}`;
+      boardBadge.style.display = 'flex';
+    }
+
+    document.getElementById('items-desc').textContent = boardName 
+      ? `Items del tablero "${boardName}"` 
+      : 'Elige el item cuyos datos llenarán la plantilla.';
 
     await loadTemplates();
-    
-    // Obtener boardId del contexto de monday si está disponible
-    boardId = params.get('boardId') || '18402459185';
     await loadBoardItems(boardId);
   }
 
@@ -177,13 +213,13 @@
       const data = await res.json();
       const items = data.data?.boards?.[0]?.items_page?.items || [];
       const list = document.getElementById('items-list');
-      if (!items.length) { list.innerHTML = '<div class="empty">No hay items</div>'; return; }
+      if (!items.length) { list.innerHTML = '<div class="empty">No hay items en este tablero</div>'; return; }
       list.innerHTML = items.map(item => `
         <div class="item-row" onclick="selectItem('${item.id}','${item.name.replace(/'/g,"\\'")}') " id="item-${item.id}">
           <span>📋</span><span>${item.name}</span>
           <span class="item-id">#${item.id}</span>
         </div>`).join('');
-    } catch(e) { document.getElementById('items-list').innerHTML = '<div class="empty">Error al cargar</div>'; }
+    } catch(e) { document.getElementById('items-list').innerHTML = '<div class="empty">Error al cargar items</div>'; }
   }
 
   function selectTemplate(name) {
