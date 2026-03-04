@@ -2,6 +2,11 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const axios = require('axios');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const PizZip = require('pizzip');
+const Docxtemplater = require('docxtemplater');
 
 dotenv.config();
 
@@ -10,6 +15,20 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+
+// Crear carpeta de plantillas si no existe
+const templatesDir = path.join(__dirname, 'templates');
+if (!fs.existsSync(templatesDir)) fs.mkdirSync(templatesDir);
+
+const outputsDir = path.join(__dirname, 'outputs');
+if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir);
+
+// Multer config
+const storage = multer.diskStorage({
+  destination: templatesDir,
+  filename: (req, file, cb) => cb(null, file.originalname)
+});
+const upload = multer({ storage });
 
 let accessTokens = {};
 
@@ -40,7 +59,6 @@ app.get('/oauth/callback', async (req, res) => {
       redirect_uri: process.env.REDIRECT_URI
     });
 
-    console.log('📦 OAuth response:', JSON.stringify(response.data));
     const { access_token, account_id } = response.data;
     const key = account_id || 'default';
     accessTokens[key] = access_token;
@@ -51,17 +69,14 @@ app.get('/oauth/callback', async (req, res) => {
       token_preview: access_token.substring(0, 15) + '...'
     });
   } catch (error) {
-    console.error('❌ Error OAuth:', error.response?.data || error.message);
     res.status(500).json({ error: 'Error OAuth', details: error.response?.data });
   }
 });
 
 app.get('/boards', async (req, res) => {
-  const { account_id } = req.query;
-  const key = account_id || 'default';
+  const key = req.query.account_id || 'default';
   const token = accessTokens[key];
-
-  if (!token) return res.status(401).json({ error: 'No hay token. Haz OAuth primero.', keys: Object.keys(accessTokens) });
+  if (!token) return res.status(401).json({ error: 'No hay token. Haz OAuth primero.' });
 
   try {
     const response = await axios.post(
@@ -71,8 +86,73 @@ app.get('/boards', async (req, res) => {
     );
     res.json(response.data);
   } catch (error) {
-    res.status(500).json({ error: 'Error GraphQL', details: error.response?.data });
+    res.status(500).json({ error: 'Error GraphQL' });
   }
+});
+
+// Subir plantilla
+app.post('/templates/upload', upload.single('template'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
+  res.json({
+    success: true,
+    message: 'Plantilla subida correctamente',
+    filename: req.file.originalname
+  });
+});
+
+// Listar plantillas
+app.get('/templates', (req, res) => {
+  const files = fs.readdirSync(templatesDir).filter(f => f.endsWith('.docx'));
+  res.json({ templates: files });
+});
+
+// Generar documento
+app.post('/generate', async (req, res) => {
+  const { template_name, data } = req.body;
+
+  if (!template_name || !data) {
+    return res.status(400).json({ error: 'Faltan template_name y data' });
+  }
+
+  const templatePath = path.join(templatesDir, template_name);
+  if (!fs.existsSync(templatePath)) {
+    return res.status(404).json({ error: `Plantilla "${template_name}" no encontrada` });
+  }
+
+  try {
+    const content = fs.readFileSync(templatePath, 'binary');
+    const zip = new PizZip(content);
+    const doc = new Docxtemplater(zip, {
+      paragraphLoop: true,
+      linebreaks: true
+    });
+
+    doc.render(data);
+
+    const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
+    const outputFilename = `output_${Date.now()}.docx`;
+    const outputPath = path.join(outputsDir, outputFilename);
+    fs.writeFileSync(outputPath, outputBuffer);
+
+    res.json({
+      success: true,
+      message: 'Documento generado',
+      filename: outputFilename,
+      download_url: `/download/${outputFilename}`
+    });
+  } catch (error) {
+    console.error('❌ Error generando documento:', error);
+    res.status(500).json({ error: 'Error al generar documento', details: error.message });
+  }
+});
+
+// Descargar documento
+app.get('/download/:filename', (req, res) => {
+  const filePath = path.join(outputsDir, req.params.filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Archivo no encontrado' });
+  }
+  res.download(filePath);
 });
 
 app.listen(PORT, () => {
