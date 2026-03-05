@@ -227,6 +227,8 @@ app.post('/item-variables', requireAuth, async (req, res) => {
   try {
     const query = 'query { items(ids: ' + item_id + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
     const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: req.accessToken, 'Content-Type': 'application/json' } });
+    console.log('GraphQL response errors:', JSON.stringify(response.data.errors));
+    console.log('Items encontrados:', response.data.data?.items?.length);
     const item = response.data.data.items[0];
     const variables = [{ variable: 'nombre', value: item.name, type: 'name' }];
     item.column_values.forEach(col => {
@@ -392,6 +394,7 @@ app.post('/generate-pdf-async', requireAuth, async (req, res) => {
   try {
     const tplResult = await pool.query('SELECT data FROM templates WHERE account_id = $1 AND filename = $2', [req.accountId, template_name]);
     console.log('Plantillas encontradas:', tplResult.rows.length);
+    console.log('Iniciando query GraphQL para item:', item_id);
     if (!tplResult.rows.length) { await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', 'Plantilla no encontrada', jobId]); return; }
 
     const query = 'query { items(ids: ' + item_id + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
