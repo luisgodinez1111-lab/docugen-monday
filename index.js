@@ -46,6 +46,7 @@ async function initDB() {
       mimetype TEXT DEFAULT 'image/png',
       created_at TIMESTAMP DEFAULT NOW()
     );`);
+    await pool.query('ALTER TABLE pdf_jobs ADD COLUMN IF NOT EXISTS pdf_data BYTEA');
     console.log('Base de datos inicializada');
   } catch (err) {
     console.error('Error iniciando DB:', err.message);
