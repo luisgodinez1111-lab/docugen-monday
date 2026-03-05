@@ -349,7 +349,9 @@ app.post('/generate-from-monday-pdf', requireAuth, async (req, res) => {
     fs.writeFileSync(docxPath, outputBuffer);
 
     // Convertir a PDF con LibreOffice
+    console.log('Ejecutando LibreOffice...');
     exec('libreoffice --headless --convert-to pdf --outdir ' + outputsDir + ' ' + docxPath, async (err) => {
+      console.log('LibreOffice terminó, err:', err?.message, 'pdf existe:', fs.existsSync(pdfPath));
       // Limpiar docx temporal
       try { fs.unlinkSync(docxPath); } catch(e) {}
       
@@ -385,9 +387,11 @@ app.post('/generate-pdf-async', requireAuth, async (req, res) => {
   
   // Responder inmediatamente con job_id
   res.json({ job_id: jobId, status: 'processing' });
+  console.log('Job creado:', jobId);
 
   try {
     const tplResult = await pool.query('SELECT data FROM templates WHERE account_id = $1 AND filename = $2', [req.accountId, template_name]);
+    console.log('Plantillas encontradas:', tplResult.rows.length);
     if (!tplResult.rows.length) { await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', 'Plantilla no encontrada', jobId]); return; }
 
     const query = 'query { items(ids: ' + item_id + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
@@ -418,6 +422,7 @@ app.post('/generate-pdf-async', requireAuth, async (req, res) => {
       await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename) VALUES ($1,$2,$3,$4,$5,$6)', [req.accountId, board_id, item_id, item.name, template_name, baseName + '.pdf']);
     });
   } catch(err) {
+    console.error('Error en PDF async:', err.message);
     await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', err.message, jobId]).catch(()=>{});
   }
 });
