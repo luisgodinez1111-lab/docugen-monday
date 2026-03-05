@@ -511,7 +511,7 @@ app.post('/generate-pdf-async', requireAuth, async (req, res) => {
       calcularTotales(data, item.subitems, item.column_values);
 
       const zip = new PizZip(tplResult.rows[0].data);
-      const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true, delimiters: { start: '{{', end: '}}' } });
+      const doc = await createDocxtemplater(zip, accountId);
       doc.render(data);
 
       const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
