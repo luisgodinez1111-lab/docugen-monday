@@ -433,7 +433,7 @@
             if (jobStatus.status === 'ready') {
               clearInterval(poll);
               await loadHistorial();
-              const downloadUrl = API + '/download-pdf/' + jobStatus.filename;
+              const downloadUrl = API + '/download-pdf/' + jobStatus.filename + '?account_id=' + accountId;
               status.innerHTML = '<div class="status success"><strong>✓ PDF listo</strong><br><a class="download-btn" href="' + downloadUrl + '" target="_blank">⬇ Descargar PDF</a></div>';
               window.open(downloadUrl, '_blank');
             } else if (jobStatus.status === 'error') {
