@@ -215,7 +215,7 @@ app.post('/board-items', requireAuth, async (req, res) => {
   const { board_id } = req.body;
   try {
     const query = 'query { boards(ids: ' + board_id + ') { name columns { id title type } items_page(limit: 50) { items { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } } } }';
-    const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: req.accessToken, 'Content-Type': 'application/json' } });
+    const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: accessToken, 'Content-Type': 'application/json' } });
     res.json(response.data);
   } catch (error) {
     res.status(500).json({ error: 'Error GraphQL', details: error.response?.data });
@@ -363,7 +363,7 @@ app.post('/generate-from-monday-pdf', requireAuth, async (req, res) => {
 
       await pool.query(
         'INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename) VALUES ($1,$2,$3,$4,$5,$6)',
-        [req.accountId, board_id, item_id, item.name, template_name, baseName + '.pdf']
+        [accountId, board_id, item_id, item.name, template_name, baseName + '.pdf']
       );
 
       res.download(pdfPath, baseName + '.pdf', () => {
@@ -386,6 +386,10 @@ app.post('/generate-pdf-async', requireAuth, async (req, res) => {
   const { board_id, item_id, template_name } = req.body;
   const jobId = Date.now().toString();
   await pool.query('INSERT INTO pdf_jobs (job_id, account_id, status) VALUES ($1,$2,$3)', [jobId, req.accountId, 'processing']);
+  
+  // Capturar valores antes de responder
+  const accessToken = req.accessToken;
+  const accountId = req.accountId;
   
   // Responder inmediatamente con job_id
   res.json({ job_id: jobId, status: 'processing' });
