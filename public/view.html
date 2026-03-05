@@ -141,7 +141,10 @@
       <div class="card-label">Paso 3 — Generar</div>
       <div class="section-title">Genera el documento</div>
       <div class="section-desc">Los datos del item seleccionado se insertarán en la plantilla.</div>
-      <button class="btn btn-primary" id="generate-btn" onclick="generateDocument()" disabled>Generar documento</button>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-primary" id="generate-btn" onclick="generateDocument('docx')" disabled style="flex:1">⬇ Generar Word</button>
+        <button class="btn btn-primary" id="generate-pdf-btn" onclick="generateDocument('pdf')" disabled style="flex:1;background:#E53E3E">⬇ Generar PDF</button>
+      </div>
       <div id="generate-status"></div>
     </div>
 
@@ -324,6 +327,7 @@
 
   function checkReady() {
     document.getElementById('generate-btn').disabled = !(selectedTemplate && selectedItem);
+    document.getElementById('generate-pdf-btn').disabled = !(selectedTemplate && selectedItem);
   }
 
   async function handleFileUpload(e) {
@@ -345,15 +349,16 @@
     }
   }
 
-  async function generateDocument() {
+  async function generateDocument(format = 'docx') {
     if (!selectedTemplate || !selectedItem) return;
-    const btn = document.getElementById('generate-btn');
+    const btn = format === 'pdf' ? document.getElementById('generate-pdf-btn') : document.getElementById('generate-btn');
     const status = document.getElementById('generate-status');
     btn.disabled = true;
     btn.innerHTML = '<div class="spinner"></div> Generando...';
     status.innerHTML = '';
     try {
-      const res = await fetch(API + '/generate-from-monday', {
+      const endpoint = format === 'pdf' ? '/generate-from-monday-pdf' : '/generate-from-monday';
+      const res = await fetch(API + endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
         body: JSON.stringify({ account_id: accountId, board_id: boardId, item_id: selectedItem.id, template_name: selectedTemplate })
