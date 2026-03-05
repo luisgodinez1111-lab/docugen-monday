@@ -218,7 +218,8 @@ app.post('/board-items', requireAuth, async (req, res) => {
     const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: accessToken, 'Content-Type': 'application/json' } });
     res.json(response.data);
   } catch (error) {
-    res.status(500).json({ error: 'Error GraphQL', details: error.response?.data });
+    console.error('GraphQL error:', JSON.stringify(error.response?.data || error.message));
+    res.status(500).json({ error: 'Error GraphQL', details: error.response?.data, message: error.message });
   }
 });
 
