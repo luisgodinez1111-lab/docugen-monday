@@ -29,6 +29,15 @@ async function initDB() {
     await pool.query(`ALTER TABLE tokens ADD COLUMN IF NOT EXISTS user_id TEXT`);
     await pool.query(`CREATE TABLE IF NOT EXISTS templates (id SERIAL PRIMARY KEY, account_id TEXT NOT NULL, filename TEXT NOT NULL, data BYTEA NOT NULL, created_at TIMESTAMP DEFAULT NOW(), UNIQUE(account_id, filename));`);
     await pool.query(`CREATE TABLE IF NOT EXISTS documents (id SERIAL PRIMARY KEY, account_id TEXT NOT NULL, board_id TEXT, item_id TEXT, item_name TEXT, template_name TEXT, filename TEXT NOT NULL, created_at TIMESTAMP DEFAULT NOW());`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS pdf_jobs (
+        job_id TEXT PRIMARY KEY,
+        account_id TEXT,
+        status TEXT DEFAULT 'processing',
+        filename TEXT,
+        item_name TEXT,
+        error TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );`);
     console.log('Base de datos inicializada');
   } catch (err) {
     console.error('Error iniciando DB:', err.message);
@@ -364,21 +373,20 @@ app.post('/generate-from-monday-pdf', requireAuth, async (req, res) => {
 });
 
 
-// Jobs en memoria para PDF async
-const pdfJobs = {};
+// Jobs PDF en PostgreSQL
 
 app.post('/generate-pdf-async', requireAuth, async (req, res) => {
   const { exec } = require('child_process');
   const { board_id, item_id, template_name } = req.body;
   const jobId = Date.now().toString();
-  pdfJobs[jobId] = { status: 'processing', created: Date.now() };
+  await pool.query('INSERT INTO pdf_jobs (job_id, account_id, status) VALUES ($1,$2,$3)', [jobId, req.accountId, 'processing']);
   
   // Responder inmediatamente con job_id
   res.json({ job_id: jobId, status: 'processing' });
 
   try {
     const tplResult = await pool.query('SELECT data FROM templates WHERE account_id = $1 AND filename = $2', [req.accountId, template_name]);
-    if (!tplResult.rows.length) { pdfJobs[jobId] = { status: 'error', error: 'Plantilla no encontrada' }; return; }
+    if (!tplResult.rows.length) { await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', 'Plantilla no encontrada', jobId]); return; }
 
     const query = 'query { items(ids: ' + item_id + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
     const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: req.accessToken, 'Content-Type': 'application/json' } });
@@ -401,21 +409,25 @@ app.post('/generate-pdf-async', requireAuth, async (req, res) => {
     exec('libreoffice --headless --convert-to pdf --outdir ' + outputsDir + ' ' + docxPath, async (err) => {
       try { fs.unlinkSync(docxPath); } catch(e) {}
       if (err || !fs.existsSync(pdfPath)) {
-        pdfJobs[jobId] = { status: 'error', error: 'Error convirtiendo a PDF' };
+        await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', 'Error convirtiendo a PDF', jobId]);
         return;
       }
-      pdfJobs[jobId] = { status: 'ready', filename: baseName + '.pdf', item_name: item.name };
+      await pool.query('UPDATE pdf_jobs SET status=$1, filename=$2, item_name=$3 WHERE job_id=$4', ['ready', baseName + '.pdf', item.name, jobId]);
       await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename) VALUES ($1,$2,$3,$4,$5,$6)', [req.accountId, board_id, item_id, item.name, template_name, baseName + '.pdf']);
     });
   } catch(err) {
-    pdfJobs[jobId] = { status: 'error', error: err.message };
+    await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', err.message, jobId]).catch(()=>{});
   }
 });
 
-app.get('/pdf-status/:jobId', (req, res) => {
-  const job = pdfJobs[req.params.jobId];
-  if (!job) return res.status(404).json({ error: 'Job no encontrado' });
-  res.json(job);
+app.get('/pdf-status/:jobId', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM pdf_jobs WHERE job_id = $1', [req.params.jobId]);
+    if (!result.rows.length) return res.status(404).json({ error: 'Job no encontrado' });
+    res.json(result.rows[0]);
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/download-pdf/:filename', (req, res) => {
