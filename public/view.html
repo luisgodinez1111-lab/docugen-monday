@@ -357,7 +357,7 @@
     btn.innerHTML = '<div class="spinner"></div> Generando...';
     status.innerHTML = '';
     try {
-      const endpoint = format === 'pdf' ? '/generate-from-monday-pdf' : '/generate-from-monday';
+      const endpoint = format === 'pdf' ? '/generate-pdf-async' : '/generate-from-monday';
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 60000);
       const res = await fetch(API + endpoint, {

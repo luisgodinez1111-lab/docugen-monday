@@ -363,6 +363,69 @@ app.post('/generate-from-monday-pdf', requireAuth, async (req, res) => {
   }
 });
 
+
+// Jobs en memoria para PDF async
+const pdfJobs = {};
+
+app.post('/generate-pdf-async', requireAuth, async (req, res) => {
+  const { exec } = require('child_process');
+  const { board_id, item_id, template_name } = req.body;
+  const jobId = Date.now().toString();
+  pdfJobs[jobId] = { status: 'processing', created: Date.now() };
+  
+  // Responder inmediatamente con job_id
+  res.json({ job_id: jobId, status: 'processing' });
+
+  try {
+    const tplResult = await pool.query('SELECT data FROM templates WHERE account_id = $1 AND filename = $2', [req.accountId, template_name]);
+    if (!tplResult.rows.length) { pdfJobs[jobId] = { status: 'error', error: 'Plantilla no encontrada' }; return; }
+
+    const query = 'query { items(ids: ' + item_id + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
+    const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: req.accessToken, 'Content-Type': 'application/json' } });
+    const item = response.data.data.items[0];
+
+    const data = { nombre: item.name };
+    item.column_values.forEach(col => { data[toVarName(col.column.title)] = extractColumnValue(col); });
+    calcularTotales(data, item.subitems, item.column_values);
+
+    const zip = new PizZip(tplResult.rows[0].data);
+    const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true, delimiters: { start: '{{', end: '}}' } });
+    doc.render(data);
+
+    const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
+    const baseName = item.name.replace(/[^a-zA-Z0-9]/g, '_') + '_' + Date.now();
+    const docxPath = path.join(outputsDir, baseName + '.docx');
+    const pdfPath = path.join(outputsDir, baseName + '.pdf');
+    fs.writeFileSync(docxPath, outputBuffer);
+
+    exec('libreoffice --headless --convert-to pdf --outdir ' + outputsDir + ' ' + docxPath, async (err) => {
+      try { fs.unlinkSync(docxPath); } catch(e) {}
+      if (err || !fs.existsSync(pdfPath)) {
+        pdfJobs[jobId] = { status: 'error', error: 'Error convirtiendo a PDF' };
+        return;
+      }
+      pdfJobs[jobId] = { status: 'ready', filename: baseName + '.pdf', item_name: item.name };
+      await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename) VALUES ($1,$2,$3,$4,$5,$6)', [req.accountId, board_id, item_id, item.name, template_name, baseName + '.pdf']);
+    });
+  } catch(err) {
+    pdfJobs[jobId] = { status: 'error', error: err.message };
+  }
+});
+
+app.get('/pdf-status/:jobId', (req, res) => {
+  const job = pdfJobs[req.params.jobId];
+  if (!job) return res.status(404).json({ error: 'Job no encontrado' });
+  res.json(job);
+});
+
+app.get('/download-pdf/:filename', (req, res) => {
+  const pdfPath = path.join(outputsDir, req.params.filename);
+  if (!fs.existsSync(pdfPath)) return res.status(404).json({ error: 'PDF no encontrado' });
+  res.download(pdfPath, req.params.filename, () => {
+    try { fs.unlinkSync(pdfPath); } catch(e) {}
+  });
+});
+
 app.get('/download/:filename', (req, res) => {
   const filePath = path.join(outputsDir, req.params.filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Archivo no encontrado' });
