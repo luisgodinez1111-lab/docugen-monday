@@ -145,7 +145,17 @@ async function createDocxtemplater(zip, accountId) {
     const imgXml = '<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="1714500" cy="457200"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="100" name="logo"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="100" name="logo"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="' + rId + '" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1714500" cy="457200"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>';
 
     // Reemplazar el parrafo completo que contiene {%logo}
-    docXml = docXml.replace(/<w:p[^>]*>[^<]*(?:<(?!w:p[ >])[^<]*)*?\{%logo\}.*?<\/w:p>/gs, '<w:p><w:pPr><w:jc w:val="left"/></w:pPr><w:r>' + imgXml + '<\/w:r><\/w:p>');
+    // Primero normalizar el XML eliminando runs partidos alrededor del tag logo
+    // Luego reemplazar el parrafo completo
+    const logoParaRegex = /<w:p[ >][sS]*?(?:<w:t[^>]*>[^<]*\{%logo\}[^<]*<\/w:t>|\{%logo\})[sS]*?<\/w:p>/g;
+    const paraMatch = docXml.match(logoParaRegex);
+    if (paraMatch) {
+      docXml = docXml.replace(logoParaRegex, '<w:p><w:pPr><w:jc w:val="left"/></w:pPr><w:r>' + imgXml + '<\/w:r><\/w:p>');
+    } else {
+      // Buscar cualquier parrafo que tenga %logo en su contenido de texto
+      docXml = docXml.replace(/<w:p[ >][^§]*?<w:t[^>]*>[^<]*%logo[^<]*<\/w:t>[^§]*?<\/w:p>/g,
+        '<w:p><w:pPr><w:jc w:val="left"/></w:pPr><w:r>' + imgXml + '<\/w:r><\/w:p>');
+    }
     zip.file('word/document.xml', docXml);
     console.log('Logo inyectado en XML');
   }
