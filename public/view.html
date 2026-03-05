@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DocuGen</title>
-  <script src="https://cdn.jsdelivr.net/npm/monday-sdk-js/dist/main.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -102,7 +101,7 @@
     <div class="card">
       <div class="card-label">Paso 2 — Item</div>
       <div class="section-title">Selecciona un item</div>
-      <div class="section-desc" id="items-desc">Cargando items del tablero activo...</div>
+      <div class="section-desc" id="items-desc">Items del tablero activo</div>
       <div id="items-list" class="items-list"><div class="empty">Cargando...</div></div>
     </div>
 
@@ -119,40 +118,27 @@
 <script>
   const API = 'https://docugen-monday-production.up.railway.app';
   const params = new URLSearchParams(window.location.search);
+
+  // Leer contexto de monday desde URL params y sessionToken JWT
   let accountId = params.get('account_id');
+  let boardId = params.get('boardId');
+  const sessionToken = params.get('sessionToken');
+
+  // Decodificar sessionToken para obtener account_id real
+  if (sessionToken && !accountId) {
+    try {
+      const payload = JSON.parse(atob(sessionToken.split('.')[1]));
+      accountId = payload?.dat?.account_id?.toString();
+    } catch(e) {
+      console.log('Error decodificando token:', e);
+    }
+  }
+
   let selectedTemplate = null;
   let selectedItem = null;
-  let boardId = null;
-  let boardName = null;
-
-  // Inicializar monday SDK
-  const monday = window.mondaySdk ? window.mondaySdk() : null;
-  if (monday) monday.init();
 
   async function init() {
-    // Intentar obtener contexto de monday SDK
-    if (monday) {
-      try {
-        const ctx = await monday.get('context');
-        if (ctx.data) {
-          const context = ctx.data;
-          console.log('Monday context:', JSON.stringify(context));
-          
-          // Obtener boardId del contexto
-          if (context.boardId) boardId = context.boardId.toString();
-          if (context.boardName) boardName = context.boardName;
-          
-          // Obtener account_id del contexto
-          if (context.account?.id) accountId = context.account.id.toString();
-        }
-      } catch(e) {
-        console.log('No monday context:', e.message);
-      }
-    }
-
-    // Fallback a URL params
-    if (!accountId) accountId = params.get('account_id');
-    if (!boardId) boardId = params.get('boardId') || '18402459185';
+    console.log('account_id:', accountId, 'board_id:', boardId);
 
     if (!accountId) {
       document.getElementById('auth-wall').style.display = 'block';
@@ -160,10 +146,15 @@
     }
 
     // Verificar sesión
-    const check = await fetch(`${API}/auth/check?account_id=${accountId}`);
-    const auth = await check.json();
+    try {
+      const check = await fetch(`${API}/auth/check?account_id=${accountId}`);
+      const auth = await check.json();
 
-    if (!auth.authenticated) {
+      if (!auth.authenticated) {
+        document.getElementById('auth-wall').style.display = 'block';
+        return;
+      }
+    } catch(e) {
       document.getElementById('auth-wall').style.display = 'block';
       return;
     }
@@ -171,19 +162,15 @@
     // Mostrar contenido
     document.getElementById('main-content').style.display = 'block';
     document.getElementById('account-badge').textContent = `#${accountId}`;
-    
-    if (boardName) {
+
+    if (boardId) {
       const boardBadge = document.getElementById('board-badge');
-      boardBadge.textContent = `📋 ${boardName}`;
+      boardBadge.textContent = `📋 ${boardId}`;
       boardBadge.style.display = 'flex';
     }
 
-    document.getElementById('items-desc').textContent = boardName 
-      ? `Items del tablero "${boardName}"` 
-      : 'Elige el item cuyos datos llenarán la plantilla.';
-
     await loadTemplates();
-    await loadBoardItems(boardId);
+    if (boardId) await loadBoardItems(boardId);
   }
 
   function startAuth() {
