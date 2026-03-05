@@ -1,0 +1,1290 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DocuGen — Editor de Plantillas</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f0f11;
+    --surface: #18181c;
+    --surface2: #222228;
+    --border: #2e2e38;
+    --accent: #5b6af5;
+    --accent2: #8b5cf6;
+    --text: #e8e8f0;
+    --text2: #8888a0;
+    --success: #34d399;
+    --danger: #f87171;
+    --canvas-bg: #1e1e24;
+    --panel-w: 260px;
+    --header-h: 52px;
+  }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* HEADER */
+  header {
+    height: var(--header-h);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 12px;
+    flex-shrink: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .logo-dot {
+    width: 8px; height: 8px;
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--accent);
+  }
+
+  .template-name-input {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: 'DM Sans', sans-serif;
+    width: 220px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .template-name-input:focus { border-color: var(--accent); }
+
+  .spacer { flex: 1; }
+
+  .header-actions { display: flex; gap: 8px; }
+
+  .btn {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: 'DM Sans', sans-serif;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text2);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { background: var(--surface2); color: var(--text); }
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+  .btn-primary:hover { background: #6b7aff; box-shadow: 0 0 12px rgba(91,106,245,0.4); }
+  .btn-success {
+    background: var(--success);
+    color: #0f1a14;
+    font-weight: 600;
+  }
+  .btn-success:hover { background: #5eead4; }
+
+  /* MAIN LAYOUT */
+  .main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* LEFT PANEL */
+  .panel-left {
+    width: var(--panel-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+
+  .panel-section {
+    padding: 14px 12px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .panel-title {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text2);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  /* BLOCKS GRID */
+  .blocks-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .block-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 8px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    color: var(--text2);
+    font-size: 11px;
+    font-family: 'DM Sans', sans-serif;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .block-btn:hover {
+    background: var(--surface);
+    border-color: var(--accent);
+    color: var(--text);
+    transform: translateY(-1px);
+  }
+  .block-icon { font-size: 18px; }
+
+  /* VARIABLES LIST */
+  .vars-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .var-chip {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-family: 'DM Mono', monospace;
+    color: var(--accent);
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .var-chip:hover { border-color: var(--accent); background: rgba(91,106,245,0.1); }
+  .var-chip span { color: var(--text2); font-size: 10px; }
+
+  .vars-empty { font-size: 12px; color: var(--text2); text-align: center; padding: 12px 0; }
+
+  /* PAGES */
+  .pages-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .page-thumb {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    transition: all 0.15s;
+  }
+  .page-thumb:hover, .page-thumb.active {
+    border-color: var(--accent);
+    background: rgba(91,106,245,0.08);
+  }
+  .page-num {
+    width: 20px; height: 20px;
+    background: var(--accent);
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 600; color: white;
+    flex-shrink: 0;
+  }
+
+  /* CANVAS AREA */
+  .canvas-area {
+    flex: 1;
+    background: var(--canvas-bg);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .canvas-toolbar {
+    height: 40px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .tool-btn {
+    width: 28px; height: 28px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    color: var(--text2);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+  .tool-btn:hover, .tool-btn.active {
+    background: var(--surface2);
+    border-color: var(--border);
+    color: var(--text);
+  }
+
+  .tool-sep {
+    width: 1px; height: 18px;
+    background: var(--border);
+    margin: 0 4px;
+  }
+
+  .zoom-display {
+    font-size: 11px;
+    color: var(--text2);
+    font-family: 'DM Mono', monospace;
+    padding: 0 8px;
+    min-width: 44px;
+    text-align: center;
+  }
+
+  .canvas-scroll {
+    flex: 1;
+    overflow: auto;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 32px;
+  }
+
+  .canvas-wrapper {
+    position: relative;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+    border-radius: 2px;
+  }
+
+  #mainCanvas {
+    display: block;
+  }
+
+  /* RIGHT PANEL */
+  .panel-right {
+    width: var(--panel-w);
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+
+  .props-empty {
+    padding: 24px 16px;
+    text-align: center;
+    color: var(--text2);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .props-empty-icon { font-size: 28px; margin-bottom: 8px; }
+
+  /* PROPERTY FIELDS */
+  .prop-group {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .prop-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .prop-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .prop-field-label {
+    font-size: 11px;
+    color: var(--text2);
+    min-width: 52px;
+  }
+
+  .prop-input {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 8px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-family: 'DM Sans', sans-serif;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .prop-input:focus { border-color: var(--accent); }
+
+  .prop-color {
+    width: 28px; height: 28px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    padding: 0;
+    overflow: hidden;
+  }
+  .prop-color input[type="color"] {
+    width: 200%; height: 200%;
+    margin: -50%;
+    cursor: pointer;
+    border: none;
+    padding: 0;
+  }
+
+  .prop-textarea {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 8px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-family: 'DM Mono', monospace;
+    outline: none;
+    resize: vertical;
+    min-height: 60px;
+    transition: border-color 0.15s;
+  }
+  .prop-textarea:focus { border-color: var(--accent); }
+
+  .prop-select {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 8px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-family: 'DM Sans', sans-serif;
+    outline: none;
+  }
+
+  .font-size-btns {
+    display: flex;
+    gap: 4px;
+  }
+  .font-size-btn {
+    width: 24px; height: 24px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .font-size-btn:hover { border-color: var(--accent); }
+
+  .align-btns { display: flex; gap: 4px; }
+  .align-btn {
+    flex: 1;
+    padding: 4px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text2);
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.15s;
+  }
+  .align-btn:hover, .align-btn.active { border-color: var(--accent); color: var(--accent); }
+
+  .bold-italic-btns { display: flex; gap: 4px; }
+  .bi-btn {
+    width: 28px; height: 28px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text2);
+    cursor: pointer;
+    font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .bi-btn:hover, .bi-btn.active { border-color: var(--accent); color: var(--accent); }
+
+  .delete-btn {
+    width: 100%;
+    padding: 7px;
+    background: rgba(248,113,113,0.1);
+    border: 1px solid var(--danger);
+    border-radius: 5px;
+    color: var(--danger);
+    cursor: pointer;
+    font-size: 12px;
+    font-family: 'DM Sans', sans-serif;
+    transition: all 0.15s;
+    margin-top: 4px;
+  }
+  .delete-btn:hover { background: rgba(248,113,113,0.2); }
+
+  /* TOAST */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 18px;
+    font-size: 13px;
+    transition: transform 0.3s;
+    z-index: 9999;
+    white-space: nowrap;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.success { border-color: var(--success); color: var(--success); }
+  .toast.error { border-color: var(--danger); color: var(--danger); }
+
+  /* MODAL */
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    width: 400px;
+    transform: scale(0.95);
+    transition: transform 0.2s;
+  }
+  .modal-overlay.open .modal { transform: scale(1); }
+  .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text2); }
+
+  .ruler {
+    height: 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    DocuGen
+  </div>
+  <span style="color:var(--border);margin:0 4px">|</span>
+  <input class="template-name-input" id="templateName" placeholder="Nombre de plantilla..." value="Mi Plantilla">
+  <div class="spacer"></div>
+  <div class="header-actions">
+    <button class="btn btn-ghost" onclick="loadVariables()">⟳ Variables</button>
+    <button class="btn btn-ghost" onclick="previewTemplate()">👁 Preview</button>
+    <button class="btn btn-primary" onclick="saveTemplate()">💾 Guardar</button>
+    <button class="btn btn-success" onclick="exportAndGenerate()">⬇ Generar Doc</button>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- LEFT PANEL -->
+  <div class="panel-left">
+
+    <div class="panel-section">
+      <div class="panel-title">Elementos</div>
+      <div class="blocks-grid">
+        <button class="block-btn" onclick="addText()">
+          <span class="block-icon">T</span>
+          Texto
+        </button>
+        <button class="block-btn" onclick="addHeading()">
+          <span class="block-icon" style="font-weight:700">H</span>
+          Título
+        </button>
+        <button class="block-btn" onclick="addImage()">
+          <span class="block-icon">🖼</span>
+          Imagen
+        </button>
+        <button class="block-btn" onclick="addRect()">
+          <span class="block-icon">▬</span>
+          Rectángulo
+        </button>
+        <button class="block-btn" onclick="addLine()">
+          <span class="block-icon">─</span>
+          Línea
+        </button>
+        <button class="block-btn" onclick="addTable()">
+          <span class="block-icon">⊞</span>
+          Tabla
+        </button>
+        <button class="block-btn" onclick="addSignature()">
+          <span class="block-icon">✍</span>
+          Firma
+        </button>
+        <button class="block-btn" onclick="addQR()">
+          <span class="block-icon">⊡</span>
+          QR/Código
+        </button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-title">Variables Monday</div>
+      <div class="vars-list" id="varsList">
+        <div class="vars-empty">Conecta un tablero para ver las variables disponibles</div>
+      </div>
+      <button class="btn btn-ghost" style="width:100%;margin-top:8px;font-size:11px" onclick="loadVariables()">+ Cargar variables</button>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-title">Variables especiales</div>
+      <div class="vars-list">
+        <div class="var-chip" onclick="insertVar('{{fecha_hoy}}')">{{fecha_hoy}} <span>hoy</span></div>
+        <div class="var-chip" onclick="insertVar('{{folio}}')">{{folio}} <span>folio</span></div>
+        <div class="var-chip" onclick="insertVar('{{cuenta}}')">{{cuenta}} <span>empresa</span></div>
+        <div class="var-chip" onclick="insertVar('{{subtotal_fmt}}')">{{subtotal_fmt}} <span>subtotal</span></div>
+        <div class="var-chip" onclick="insertVar('{{iva_fmt}}')">{{iva_fmt}} <span>IVA</span></div>
+        <div class="var-chip" onclick="insertVar('{{total_fmt}}')">{{total_fmt}} <span>total</span></div>
+        <div class="var-chip" onclick="insertVar('{{total_letras}}')">{{total_letras}} <span>letras</span></div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-title">Páginas</div>
+      <div class="pages-list" id="pagesList">
+        <div class="page-thumb active">
+          <div class="page-num">1</div>
+          Página 1
+        </div>
+      </div>
+      <button class="btn btn-ghost" style="width:100%;margin-top:8px;font-size:11px" onclick="addPage()">+ Agregar página</button>
+    </div>
+
+  </div>
+
+  <!-- CANVAS -->
+  <div class="canvas-area">
+    <div class="canvas-toolbar">
+      <button class="tool-btn" title="Seleccionar" onclick="setTool('select')" id="tool-select">↖</button>
+      <div class="tool-sep"></div>
+      <button class="tool-btn" title="Deshacer" onclick="undo()">↩</button>
+      <button class="tool-btn" title="Rehacer" onclick="redo()">↪</button>
+      <div class="tool-sep"></div>
+      <button class="tool-btn" title="Alinear izquierda" onclick="alignObjects('left')">⬜</button>
+      <button class="tool-btn" title="Centrar" onclick="alignObjects('center')">⬛</button>
+      <button class="tool-btn" title="Alinear derecha" onclick="alignObjects('right')">⬜</button>
+      <div class="tool-sep"></div>
+      <button class="tool-btn" title="Al frente" onclick="bringForward()">↑</button>
+      <button class="tool-btn" title="Atrás" onclick="sendBackward()">↓</button>
+      <div class="tool-sep"></div>
+      <button class="tool-btn" onclick="zoomOut()">−</button>
+      <span class="zoom-display" id="zoomDisplay">100%</span>
+      <button class="tool-btn" onclick="zoomIn()">+</button>
+      <button class="tool-btn" onclick="zoomFit()" title="Ajustar">⊡</button>
+      <div class="tool-sep"></div>
+      <button class="tool-btn" onclick="toggleGrid()" id="gridBtn" title="Cuadrícula">⊞</button>
+    </div>
+    <div class="canvas-scroll" id="canvasScroll">
+      <div class="canvas-wrapper" id="canvasWrapper">
+        <canvas id="mainCanvas"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="panel-right" id="rightPanel">
+    <div class="props-empty">
+      <div class="props-empty-icon">↖</div>
+      Selecciona un elemento para editar sus propiedades
+    </div>
+  </div>
+
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- IMAGE UPLOAD INPUT -->
+<input type="file" id="imageInput" accept="image/*" style="display:none" onchange="handleImageUpload(event)">
+
+<script>
+// ============================================================
+// INIT
+// ============================================================
+const API = window.location.origin;
+const params = new URLSearchParams(window.location.search);
+const accountId = params.get('account_id') || '';
+const boardId = params.get('boardId') || '';
+
+// Canvas dimensions (A4 at 96dpi ≈ 794x1123)
+const PAGE_W = 794;
+const PAGE_H = 1123;
+
+let canvas;
+let zoom = 1;
+let gridEnabled = false;
+let gridLines = [];
+let history = [];
+let historyIndex = -1;
+let selectedTemplate = null;
+
+function initCanvas() {
+  canvas = new fabric.Canvas('mainCanvas', {
+    width: PAGE_W,
+    height: PAGE_H,
+    backgroundColor: '#ffffff',
+    selection: true,
+    preserveObjectStacking: true,
+  });
+
+  // Grid
+  drawGrid();
+
+  // Events
+  canvas.on('selection:created', onSelectionChange);
+  canvas.on('selection:updated', onSelectionChange);
+  canvas.on('selection:cleared', onSelectionCleared);
+  canvas.on('object:modified', saveHistory);
+  canvas.on('object:added', saveHistory);
+  canvas.on('object:removed', saveHistory);
+
+  // Save initial state
+  saveHistory();
+
+  // Load saved template if exists
+  const saved = localStorage.getItem('docugen_template_' + (params.get('tpl') || 'default'));
+  if (saved) {
+    canvas.loadFromJSON(JSON.parse(saved), canvas.renderAll.bind(canvas));
+    document.getElementById('templateName').value = JSON.parse(saved).name || 'Mi Plantilla';
+  }
+}
+
+// ============================================================
+// GRID
+// ============================================================
+function drawGrid() {
+  // Remove old grid
+  gridLines.forEach(l => canvas.remove(l));
+  gridLines = [];
+  if (!gridEnabled) { canvas.renderAll(); return; }
+
+  const step = 20;
+  for (let x = step; x < PAGE_W; x += step) {
+    const line = new fabric.Line([x, 0, x, PAGE_H], {
+      stroke: '#e0e0e8', strokeWidth: 0.5, selectable: false,
+      evented: false, excludeFromExport: true, isGrid: true
+    });
+    gridLines.push(line);
+    canvas.add(line);
+    canvas.sendToBack(line);
+  }
+  for (let y = step; y < PAGE_H; y += step) {
+    const line = new fabric.Line([0, y, PAGE_W, y], {
+      stroke: '#e0e0e8', strokeWidth: 0.5, selectable: false,
+      evented: false, excludeFromExport: true, isGrid: true
+    });
+    gridLines.push(line);
+    canvas.add(line);
+    canvas.sendToBack(line);
+  }
+  canvas.renderAll();
+}
+
+function toggleGrid() {
+  gridEnabled = !gridEnabled;
+  document.getElementById('gridBtn').classList.toggle('active', gridEnabled);
+  drawGrid();
+}
+
+// ============================================================
+// ZOOM
+// ============================================================
+function setZoom(z) {
+  zoom = Math.max(0.3, Math.min(3, z));
+  canvas.setZoom(zoom);
+  canvas.setWidth(PAGE_W * zoom);
+  canvas.setHeight(PAGE_H * zoom);
+  document.getElementById('zoomDisplay').textContent = Math.round(zoom * 100) + '%';
+}
+
+function zoomIn() { setZoom(zoom + 0.1); }
+function zoomOut() { setZoom(zoom - 0.1); }
+function zoomFit() {
+  const scroll = document.getElementById('canvasScroll');
+  const zw = (scroll.clientWidth - 64) / PAGE_W;
+  const zh = (scroll.clientHeight - 64) / PAGE_H;
+  setZoom(Math.min(zw, zh));
+}
+
+// ============================================================
+// HISTORY
+// ============================================================
+function saveHistory() {
+  const state = JSON.stringify(canvas.toJSON(['isGrid', 'varName']));
+  history = history.slice(0, historyIndex + 1);
+  history.push(state);
+  historyIndex++;
+  if (history.length > 50) { history.shift(); historyIndex--; }
+}
+
+function undo() {
+  if (historyIndex <= 0) return;
+  historyIndex--;
+  canvas.loadFromJSON(JSON.parse(history[historyIndex]), canvas.renderAll.bind(canvas));
+}
+
+function redo() {
+  if (historyIndex >= history.length - 1) return;
+  historyIndex++;
+  canvas.loadFromJSON(JSON.parse(history[historyIndex]), canvas.renderAll.bind(canvas));
+}
+
+// ============================================================
+// ADD ELEMENTS
+// ============================================================
+function addText() {
+  const text = new fabric.IText('Texto aquí', {
+    left: 100, top: 100,
+    fontFamily: 'Arial',
+    fontSize: 14,
+    fill: '#1a1a1a',
+    varName: null
+  });
+  canvas.add(text);
+  canvas.setActiveObject(text);
+  text.enterEditing();
+}
+
+function addHeading() {
+  const text = new fabric.IText('Título del documento', {
+    left: 60, top: 60,
+    fontFamily: 'Arial',
+    fontSize: 28,
+    fontWeight: 'bold',
+    fill: '#1a1a1a',
+  });
+  canvas.add(text);
+  canvas.setActiveObject(text);
+}
+
+function addRect() {
+  const rect = new fabric.Rect({
+    left: 100, top: 100,
+    width: 200, height: 100,
+    fill: '#EEF2FD',
+    stroke: '#2D5BE3',
+    strokeWidth: 1,
+    rx: 4, ry: 4,
+  });
+  canvas.add(rect);
+  canvas.setActiveObject(rect);
+}
+
+function addLine() {
+  const line = new fabric.Line([60, 200, PAGE_W - 60, 200], {
+    stroke: '#2D5BE3',
+    strokeWidth: 2,
+    selectable: true,
+  });
+  canvas.add(line);
+  canvas.setActiveObject(line);
+}
+
+function addImage() {
+  document.getElementById('imageInput').click();
+}
+
+function handleImageUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    fabric.Image.fromURL(ev.target.result, function(img) {
+      img.scaleToWidth(Math.min(200, PAGE_W / 3));
+      img.set({ left: 60, top: 60 });
+      canvas.add(img);
+      canvas.setActiveObject(img);
+    });
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+}
+
+function addTable() {
+  // Add a simple table representation as text with instructions
+  const group = new fabric.Group([], { left: 60, top: 200, selectable: true });
+
+  // Header row
+  const headerBg = new fabric.Rect({ left: 0, top: 0, width: 674, height: 28, fill: '#2D5BE3' });
+  const h1 = new fabric.Text('Producto', { left: 8, top: 6, fontSize: 12, fontWeight: 'bold', fill: 'white' });
+  const h2 = new fabric.Text('Cantidad', { left: 250, top: 6, fontSize: 12, fontWeight: 'bold', fill: 'white' });
+  const h3 = new fabric.Text('Precio', { left: 390, top: 6, fontSize: 12, fontWeight: 'bold', fill: 'white' });
+  const h4 = new fabric.Text('Subtotal', { left: 530, top: 6, fontSize: 12, fontWeight: 'bold', fill: 'white' });
+
+  // Data row (template)
+  const rowBg = new fabric.Rect({ left: 0, top: 28, width: 674, height: 28, fill: '#f8f9ff', stroke: '#dde3ff', strokeWidth: 0.5 });
+  const d1 = new fabric.Text('{{#subelementos}}{{nombre}}', { left: 8, top: 34, fontSize: 11, fill: '#1a1a1a' });
+  const d2 = new fabric.Text('{{cantidad}}', { left: 250, top: 34, fontSize: 11, fill: '#1a1a1a' });
+  const d3 = new fabric.Text('${{precio_fmt}}', { left: 390, top: 34, fontSize: 11, fill: '#1a1a1a' });
+  const d4 = new fabric.Text('${{subtotal_linea_fmt}}{{/subelementos}}', { left: 530, top: 34, fontSize: 11, fill: '#1a1a1a' });
+
+  const border = new fabric.Rect({ left: 0, top: 0, width: 674, height: 56, fill: 'transparent', stroke: '#2D5BE3', strokeWidth: 1 });
+
+  const tbl = new fabric.Group([headerBg, h1, h2, h3, h4, rowBg, d1, d2, d3, d4, border], {
+    left: 60, top: 200, selectable: true
+  });
+  canvas.add(tbl);
+  canvas.setActiveObject(tbl);
+  showToast('Tabla de productos agregada. Edita el texto para personalizar.', 'success');
+}
+
+function addSignature() {
+  const sigBox = new fabric.Group([
+    new fabric.Rect({ left: 0, top: 0, width: 200, height: 80, fill: 'transparent', stroke: '#cccccc', strokeWidth: 1, strokeDashArray: [4, 4] }),
+    new fabric.Text('Firma', { left: 80, top: 30, fontSize: 12, fill: '#999999' }),
+    new fabric.Line([0, 80, 200, 80], { stroke: '#333333', strokeWidth: 1.5, top: 90 }),
+    new fabric.Text('{{firmante}}', { left: 50, top: 96, fontSize: 11, fill: '#555555' }),
+  ], { left: 100, top: 900, selectable: true });
+  canvas.add(sigBox);
+  canvas.setActiveObject(sigBox);
+}
+
+function addQR() {
+  const qrBox = new fabric.Group([
+    new fabric.Rect({ left: 0, top: 0, width: 80, height: 80, fill: '#f5f5f5', stroke: '#cccccc', strokeWidth: 1 }),
+    new fabric.Text('QR', { left: 28, top: 32, fontSize: 16, fill: '#999999' }),
+  ], { left: 650, top: 60, selectable: true });
+  canvas.add(qrBox);
+  canvas.setActiveObject(qrBox);
+  showToast('QR se generará automáticamente al exportar', 'success');
+}
+
+// ============================================================
+// INSERT VARIABLE INTO SELECTED TEXT
+// ============================================================
+function insertVar(varStr) {
+  const obj = canvas.getActiveObject();
+  if (obj && obj.type === 'i-text') {
+    const cursor = obj.selectionStart || obj.text.length;
+    const newText = obj.text.slice(0, cursor) + varStr + obj.text.slice(obj.selectionEnd || cursor);
+    obj.set('text', newText);
+    canvas.renderAll();
+  } else {
+    // Add new text with variable
+    const text = new fabric.IText(varStr, {
+      left: 100, top: 150,
+      fontFamily: 'Arial',
+      fontSize: 13,
+      fill: '#1a1a1a',
+    });
+    canvas.add(text);
+    canvas.setActiveObject(text);
+  }
+  showToast('Variable insertada: ' + varStr, 'success');
+}
+
+// ============================================================
+// SELECTION HANDLERS
+// ============================================================
+function onSelectionChange() {
+  const obj = canvas.getActiveObject();
+  renderPropsPanel(obj);
+}
+
+function onSelectionCleared() {
+  document.getElementById('rightPanel').innerHTML = `
+    <div class="props-empty">
+      <div class="props-empty-icon">↖</div>
+      Selecciona un elemento para editar sus propiedades
+    </div>`;
+}
+
+function renderPropsPanel(obj) {
+  if (!obj) { onSelectionCleared(); return; }
+
+  const isText = obj.type === 'i-text' || obj.type === 'text';
+  const isRect = obj.type === 'rect';
+  const isLine = obj.type === 'line';
+  const isImage = obj.type === 'image';
+
+  let html = '';
+
+  // Position & Size
+  html += `<div class="prop-group">
+    <div class="prop-label">Posición y tamaño</div>
+    <div class="prop-row">
+      <span class="prop-field-label">X</span>
+      <input class="prop-input" type="number" id="prop-x" value="${Math.round(obj.left)}" onchange="setProp('left', +this.value)">
+      <span class="prop-field-label">Y</span>
+      <input class="prop-input" type="number" id="prop-y" value="${Math.round(obj.top)}" onchange="setProp('top', +this.value)">
+    </div>
+    <div class="prop-row">
+      <span class="prop-field-label">W</span>
+      <input class="prop-input" type="number" id="prop-w" value="${Math.round(obj.width * (obj.scaleX || 1))}" onchange="setPropScale('width', +this.value)">
+      <span class="prop-field-label">H</span>
+      <input class="prop-input" type="number" id="prop-h" value="${Math.round(obj.height * (obj.scaleY || 1))}" onchange="setPropScale('height', +this.value)">
+    </div>
+  </div>`;
+
+  // Text properties
+  if (isText) {
+    html += `<div class="prop-group">
+      <div class="prop-label">Texto</div>
+      <textarea class="prop-textarea" id="prop-text" onchange="setProp('text', this.value)">${obj.text}</textarea>
+      <div class="prop-row" style="margin-top:8px">
+        <span class="prop-field-label">Fuente</span>
+        <select class="prop-select" onchange="setProp('fontFamily', this.value)">
+          ${['Arial','Georgia','Times New Roman','Courier New','Helvetica','Verdana','Trebuchet MS'].map(f =>
+            `<option value="${f}" ${obj.fontFamily === f ? 'selected' : ''}>${f}</option>`
+          ).join('')}
+        </select>
+      </div>
+      <div class="prop-row">
+        <span class="prop-field-label">Tamaño</span>
+        <input class="prop-input" type="number" value="${obj.fontSize || 14}" onchange="setProp('fontSize', +this.value)" style="max-width:60px">
+        <div class="bold-italic-btns">
+          <button class="bi-btn ${obj.fontWeight === 'bold' ? 'active' : ''}" onclick="toggleBold()"><b>B</b></button>
+          <button class="bi-btn ${obj.fontStyle === 'italic' ? 'active' : ''}" onclick="toggleItalic()"><i>I</i></button>
+          <button class="bi-btn ${obj.underline ? 'active' : ''}" onclick="toggleUnderline()"><u>U</u></button>
+        </div>
+      </div>
+      <div class="prop-row">
+        <span class="prop-field-label">Alinear</span>
+        <div class="align-btns">
+          <button class="align-btn ${obj.textAlign === 'left' ? 'active' : ''}" onclick="setProp('textAlign','left')">⬛</button>
+          <button class="align-btn ${obj.textAlign === 'center' ? 'active' : ''}" onclick="setProp('textAlign','center')">⬛</button>
+          <button class="align-btn ${obj.textAlign === 'right' ? 'active' : ''}" onclick="setProp('textAlign','right')">⬛</button>
+        </div>
+      </div>
+      <div class="prop-row">
+        <span class="prop-field-label">Color</span>
+        <div class="prop-color"><input type="color" value="${obj.fill || '#000000'}" oninput="setProp('fill', this.value)"></div>
+      </div>
+    </div>`;
+  }
+
+  // Fill & stroke
+  if (isRect) {
+    html += `<div class="prop-group">
+      <div class="prop-label">Estilo</div>
+      <div class="prop-row">
+        <span class="prop-field-label">Relleno</span>
+        <div class="prop-color"><input type="color" value="${obj.fill || '#ffffff'}" oninput="setProp('fill', this.value)"></div>
+      </div>
+      <div class="prop-row">
+        <span class="prop-field-label">Borde</span>
+        <div class="prop-color"><input type="color" value="${obj.stroke || '#000000'}" oninput="setProp('stroke', this.value)"></div>
+        <input class="prop-input" type="number" value="${obj.strokeWidth || 0}" onchange="setProp('strokeWidth', +this.value)" style="max-width:50px" placeholder="px">
+      </div>
+      <div class="prop-row">
+        <span class="prop-field-label">Radio</span>
+        <input class="prop-input" type="number" value="${obj.rx || 0}" onchange="setProp('rx', +this.value); setProp('ry', +this.value)" style="max-width:60px">
+      </div>
+      <div class="prop-row">
+        <span class="prop-field-label">Opacidad</span>
+        <input class="prop-input" type="range" min="0" max="1" step="0.05" value="${obj.opacity || 1}" oninput="setProp('opacity', +this.value)">
+      </div>
+    </div>`;
+  }
+
+  if (isLine) {
+    html += `<div class="prop-group">
+      <div class="prop-label">Línea</div>
+      <div class="prop-row">
+        <span class="prop-field-label">Color</span>
+        <div class="prop-color"><input type="color" value="${obj.stroke || '#000000'}" oninput="setProp('stroke', this.value)"></div>
+      </div>
+      <div class="prop-row">
+        <span class="prop-field-label">Grosor</span>
+        <input class="prop-input" type="number" value="${obj.strokeWidth || 1}" onchange="setProp('strokeWidth', +this.value)" style="max-width:60px">
+      </div>
+    </div>`;
+  }
+
+  // Delete
+  html += `<div class="prop-group">
+    <button class="delete-btn" onclick="deleteSelected()">🗑 Eliminar elemento</button>
+  </div>`;
+
+  document.getElementById('rightPanel').innerHTML = html;
+}
+
+function setProp(key, val) {
+  const obj = canvas.getActiveObject();
+  if (!obj) return;
+  obj.set(key, val);
+  canvas.renderAll();
+}
+
+function setPropScale(key, val) {
+  const obj = canvas.getActiveObject();
+  if (!obj) return;
+  if (key === 'width') obj.set('scaleX', val / obj.width);
+  else obj.set('scaleY', val / obj.height);
+  canvas.renderAll();
+}
+
+function toggleBold() {
+  const obj = canvas.getActiveObject();
+  if (!obj) return;
+  obj.set('fontWeight', obj.fontWeight === 'bold' ? 'normal' : 'bold');
+  canvas.renderAll();
+  onSelectionChange();
+}
+
+function toggleItalic() {
+  const obj = canvas.getActiveObject();
+  if (!obj) return;
+  obj.set('fontStyle', obj.fontStyle === 'italic' ? 'normal' : 'italic');
+  canvas.renderAll();
+  onSelectionChange();
+}
+
+function toggleUnderline() {
+  const obj = canvas.getActiveObject();
+  if (!obj) return;
+  obj.set('underline', !obj.underline);
+  canvas.renderAll();
+  onSelectionChange();
+}
+
+function deleteSelected() {
+  const obj = canvas.getActiveObject();
+  if (!obj) return;
+  canvas.remove(obj);
+  canvas.renderAll();
+  onSelectionCleared();
+}
+
+// ============================================================
+// ALIGN
+// ============================================================
+function alignObjects(dir) {
+  const objs = canvas.getActiveObjects();
+  if (!objs.length) return;
+  objs.forEach(obj => {
+    if (dir === 'left') obj.set('left', 60);
+    else if (dir === 'center') obj.set('left', (PAGE_W - obj.width * obj.scaleX) / 2);
+    else if (dir === 'right') obj.set('left', PAGE_W - 60 - obj.width * obj.scaleX);
+    obj.setCoords();
+  });
+  canvas.renderAll();
+}
+
+function bringForward() {
+  const obj = canvas.getActiveObject();
+  if (obj) { canvas.bringForward(obj); canvas.renderAll(); }
+}
+
+function sendBackward() {
+  const obj = canvas.getActiveObject();
+  if (obj) { canvas.sendBackwards(obj); canvas.renderAll(); }
+}
+
+// ============================================================
+// VARIABLES FROM MONDAY
+// ============================================================
+async function loadVariables() {
+  if (!accountId || !boardId) {
+    showToast('Necesitas account_id y boardId en la URL', 'error');
+    return;
+  }
+  try {
+    const res = await fetch(API + '/board-items', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
+      body: JSON.stringify({ account_id: accountId, board_id: boardId })
+    });
+    const data = await res.json();
+    if (!data.items?.length) return;
+
+    const item = data.items[0];
+    const vars = [{ name: 'nombre', label: item.name }];
+    item.column_values?.forEach(col => {
+      if (col.column?.title) vars.push({ name: col.column.title.toLowerCase().replace(/\s+/g,'_'), label: col.column.title });
+    });
+
+    const list = document.getElementById('varsList');
+    list.innerHTML = vars.map(v =>
+      `<div class="var-chip" onclick="insertVar('{{${v.name}}}')">{{${v.name}}} <span>${v.label}</span></div>`
+    ).join('');
+    showToast(`${vars.length} variables cargadas`, 'success');
+  } catch(e) {
+    showToast('Error cargando variables', 'error');
+  }
+}
+
+// ============================================================
+// SAVE TEMPLATE
+// ============================================================
+async function saveTemplate() {
+  const name = document.getElementById('templateName').value || 'Mi Plantilla';
+  const json = canvas.toJSON(['isGrid', 'varName']);
+  json.name = name;
+
+  // Save locally
+  localStorage.setItem('docugen_template_' + name, JSON.stringify(json));
+
+  // Save to server
+  if (accountId) {
+    try {
+      const blob = await canvasToDocx();
+      const formData = new FormData();
+      formData.append('template', blob, name + '.docx');
+      formData.append('account_id', accountId);
+      const res = await fetch(API + '/upload-template', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.success) showToast('Plantilla guardada: ' + name + '.docx', 'success');
+      else showToast('Error guardando: ' + data.error, 'error');
+    } catch(e) {
+      showToast('Guardado local OK. Error servidor: ' + e.message, 'error');
+    }
+  } else {
+    showToast('Guardado local', 'success');
+  }
+}
+
+// ============================================================
+// EXPORT TO DOCX (via server)
+// ============================================================
+async function canvasToDocx() {
+  // Export canvas as PNG for image elements
+  const dataUrl = canvas.toDataURL({ format: 'png', multiplier: 2 });
+  const blob = dataURLtoBlob(dataUrl);
+  return blob;
+}
+
+async function exportAndGenerate() {
+  showToast('Preparando documento...', 'success');
+  // For now, save as template image + trigger generation
+  await saveTemplate();
+}
+
+function dataURLtoBlob(dataURL) {
+  const arr = dataURL.split(',');
+  const mime = arr[0].match(/:(.*?);/)[1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) u8arr[n] = bstr.charCodeAt(n);
+  return new Blob([u8arr], { type: mime });
+}
+
+// ============================================================
+// PREVIEW
+// ============================================================
+function previewTemplate() {
+  const dataUrl = canvas.toDataURL({ format: 'png', multiplier: 1.5 });
+  const win = window.open('');
+  win.document.write(`<html><body style="margin:0;background:#1a1a1a;display:flex;justify-content:center;padding:32px">
+    <img src="${dataUrl}" style="max-width:100%;box-shadow:0 8px 40px rgba(0,0,0,0.5)">
+  </body></html>`);
+}
+
+// ============================================================
+// PAGES
+// ============================================================
+function addPage() {
+  showToast('Multi-página próximamente', 'success');
+}
+
+// ============================================================
+// TOAST
+// ============================================================
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + type + ' show';
+  setTimeout(() => t.className = 'toast ' + type, 2500);
+}
+
+// ============================================================
+// KEYBOARD SHORTCUTS
+// ============================================================
+document.addEventListener('keydown', e => {
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+      deleteSelected();
+    }
+  }
+  if (e.metaKey || e.ctrlKey) {
+    if (e.key === 'z') { e.preventDefault(); undo(); }
+    if (e.key === 'y') { e.preventDefault(); redo(); }
+    if (e.key === 's') { e.preventDefault(); saveTemplate(); }
+  }
+});
+
+// ============================================================
+// START
+// ============================================================
+window.addEventListener('load', () => {
+  initCanvas();
+  zoomFit();
+  if (boardId) loadVariables();
+});
+</script>
+</body>
+</html>
