@@ -138,31 +138,6 @@ async function createDocxtemplater(zip, accountId) {
   });
 }
 
-async function createDocxtemplater(zip, accountId) {
-  let logoBuffer = null;
-  try {
-    const logoResult = await pool.query('SELECT data FROM logos WHERE account_id = $1', [accountId]);
-    if (logoResult.rows.length) logoBuffer = logoResult.rows[0].data;
-  } catch(e) {}
-
-  const opts = {
-    paragraphLoop: true,
-    linebreaks: true,
-    delimiters: { start: '{{', end: '}}' }
-  };
-
-  if (logoBuffer) {
-    const imageModule = new ImageModule({
-      centered: false,
-      fileType: 'docx',
-      getImage: () => logoBuffer,
-      getSize: () => [150, 60]
-    });
-    opts.modules = [imageModule];
-  }
-
-  return new Docxtemplater(zip, opts);
-}
 
 function calcularTotales(data, subitems, columnValues) {
   // Calcular desde subitems
@@ -431,7 +406,7 @@ app.post('/generate-from-monday-pdf', requireAuth, async (req, res) => {
     calcularTotales(data, item.subitems, item.column_values);
 
     const zip = new PizZip(tplResult.rows[0].data);
-    const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true, delimiters: { start: '{{', end: '}}' } });
+    const doc = await createDocxtemplater(zip, req.accountId);
     doc.render(data);
 
     const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
