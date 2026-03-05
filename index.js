@@ -374,8 +374,10 @@ app.post('/generate-from-monday-pdf', requireAuth, async (req, res) => {
 
 
 // Jobs PDF en PostgreSQL
+console.log('PDF async endpoint registrado');
 
 app.post('/generate-pdf-async', requireAuth, async (req, res) => {
+  console.log('PDF request recibido:', req.body);
   const { exec } = require('child_process');
   const { board_id, item_id, template_name } = req.body;
   const jobId = Date.now().toString();
