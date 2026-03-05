@@ -102,6 +102,23 @@
     </div>
 
     <div class="card">
+      <div class="card-label">Logo</div>
+      <div class="section-title">Logo de tu empresa</div>
+      <div class="section-desc">Usa <span class="badge">{%logo}</span> en tu plantilla para insertar el logo automáticamente.</div>
+      <div id="logo-preview" style="margin-bottom:12px;display:none">
+        <img id="logo-img" src="" style="max-height:60px;border:1px solid var(--border);border-radius:6px;padding:8px">
+        <span style="font-size:12px;color:var(--success);margin-left:8px">✓ Logo guardado</span>
+      </div>
+      <div class="upload-area" id="logo-upload-area">
+        <input type="file" accept="image/png,image/jpeg,image/jpg" id="logo-input" onchange="handleLogoUpload(event)">
+        <div class="upload-icon">🖼</div>
+        <div class="upload-text"><strong>Click para subir</strong> PNG o JPG</div>
+        <div class="upload-filename" id="logo-filename"></div>
+      </div>
+      <div id="logo-status"></div>
+    </div>
+
+    <div class="card">
       <div class="card-label">Paso 1 — Plantilla</div>
       <div class="section-title">Selecciona una plantilla</div>
       <div class="section-desc">Elige una plantilla con variables <span class="badge">{{variable}}</span></div>
@@ -203,6 +220,40 @@
     }
   }
 
+
+  async function loadLogo() {
+    try {
+      const res = await fetch(API + '/logo?account_id=' + accountId);
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        document.getElementById('logo-img').src = url;
+        document.getElementById('logo-preview').style.display = 'flex';
+        document.getElementById('logo-preview').style.alignItems = 'center';
+      }
+    } catch(e) {}
+  }
+
+  async function handleLogoUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('logo', file);
+    formData.append('account_id', accountId);
+    document.getElementById('logo-filename').textContent = 'Subiendo...';
+    document.getElementById('logo-upload-area').classList.add('has-file');
+    try {
+      const res = await fetch(API + '/logo/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.success) {
+        document.getElementById('logo-filename').textContent = '✓ ' + file.name;
+        document.getElementById('logo-status').innerHTML = '<div class="status success">✓ Logo guardado</div>';
+        await loadLogo();
+      }
+    } catch(e) {
+      document.getElementById('logo-status').innerHTML = '<div class="status error">✗ Error al subir logo</div>';
+    }
+  }
   async function init() {
     if (!accountId) { document.getElementById('auth-wall').style.display = 'block'; return; }
     try {
@@ -220,6 +271,7 @@
       bb.style.display = 'flex';
     }
 
+    await loadLogo();
     await loadTemplates();
     if (boardId) await loadBoardItems(boardId);
     await loadHistorial();

@@ -9,6 +9,7 @@ const PizZip = require('pizzip');
 const Docxtemplater = require('docxtemplater');
 const { Pool } = require('pg');
 const jwt = require('jsonwebtoken');
+const ImageModule = require('docxtemplater-image-module-free');
 
 dotenv.config();
 
@@ -38,6 +39,13 @@ async function initDB() {
         error TEXT,
         created_at TIMESTAMP DEFAULT NOW()
       );`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS logos (
+      account_id TEXT PRIMARY KEY,
+      filename TEXT,
+      data BYTEA NOT NULL,
+      mimetype TEXT DEFAULT 'image/png',
+      created_at TIMESTAMP DEFAULT NOW()
+    );`);
     console.log('Base de datos inicializada');
   } catch (err) {
     console.error('Error iniciando DB:', err.message);
@@ -275,6 +283,34 @@ app.get('/templates', async (req, res) => {
   }
 });
 
+
+// Subir logo de cuenta
+app.post('/logo/upload', upload.single('logo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No se recibio imagen' });
+  const accountId = req.body.account_id || 'default';
+  try {
+    await pool.query(
+      'INSERT INTO logos (account_id, filename, data, mimetype) VALUES ($1,$2,$3,$4) ON CONFLICT (account_id) DO UPDATE SET data=$3, filename=$2, mimetype=$4',
+      [accountId, req.file.originalname, req.file.buffer, req.file.mimetype]
+    );
+    res.json({ success: true, filename: req.file.originalname });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Obtener logo de cuenta
+app.get('/logo', async (req, res) => {
+  const accountId = req.query.account_id || 'default';
+  try {
+    const result = await pool.query('SELECT data, mimetype, filename FROM logos WHERE account_id = $1', [accountId]);
+    if (!result.rows.length) return res.status(404).json({ error: 'No hay logo' });
+    res.set('Content-Type', result.rows[0].mimetype);
+    res.send(result.rows[0].data);
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.post('/generate-from-monday', requireAuth, async (req, res) => {
   const { board_id, item_id, template_name } = req.body;
   try {
@@ -296,7 +332,7 @@ app.post('/generate-from-monday', requireAuth, async (req, res) => {
     console.log('Variables para plantilla:', JSON.stringify(data, null, 2));
 
     const zip = new PizZip(tplResult.rows[0].data);
-    const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true, delimiters: { start: '{{', end: '}}' } });
+    const doc = await createDocxtemplater(zip, req.accountId);
     doc.render(data);
 
     const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
