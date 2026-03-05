@@ -359,25 +359,50 @@
     try {
       const endpoint = format === 'pdf' ? '/generate-pdf-async' : '/generate-from-monday';
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 60000);
+      const timeout = setTimeout(() => controller.abort(), 30000);
       const res = await fetch(API + endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
         body: JSON.stringify({ account_id: accountId, board_id: boardId, item_id: selectedItem.id, template_name: selectedTemplate }),
         signal: controller.signal
       });
-      const data = await res.json();
-      if (data.success) {
-        await loadHistorial();
-      status.innerHTML = '<div class="status success"><strong>✓ Documento generado</strong><br><span style="font-size:12px">' + selectedItem.name + '</span><br><a class="download-btn" href="' + API + data.download_url + '" target="_blank">⬇ Descargar ' + data.filename + '</a></div>';
+      clearTimeout(timeout);
+
+      if (format === 'pdf') {
+        const job = await res.json();
+        if (!job.job_id) { status.innerHTML = '<div class="status error">✗ Error iniciando PDF</div>'; btn.disabled = false; btn.innerHTML = 'Generar documento'; return; }
+        status.innerHTML = '<div class="status success">⏳ Generando PDF...</div>';
+        btn.disabled = false;
+        btn.innerHTML = 'Generar documento';
+        const poll = setInterval(async () => {
+          try {
+            const s = await fetch(API + '/pdf-status/' + job.job_id, { headers: { 'x-account-id': accountId } });
+            const jobStatus = await s.json();
+            if (jobStatus.status === 'ready') {
+              clearInterval(poll);
+              await loadHistorial();
+              const downloadUrl = API + '/download-pdf/' + jobStatus.filename;
+              status.innerHTML = '<div class="status success"><strong>✓ PDF listo</strong><br><a class="download-btn" href="' + downloadUrl + '" target="_blank">⬇ Descargar PDF</a></div>';
+              window.open(downloadUrl, '_blank');
+            } else if (jobStatus.status === 'error') {
+              clearInterval(poll);
+              status.innerHTML = '<div class="status error">✗ ' + (jobStatus.error || 'Error generando PDF') + '</div>';
+            }
+          } catch(e) { clearInterval(poll); status.innerHTML = '<div class="status error">✗ Error de polling</div>'; }
+        }, 2000);
       } else {
-        status.innerHTML = '<div class="status error">✗ ' + (data.error || 'Error') + '</div>';
+        const data = await res.json();
+        if (data.success) {
+          await loadHistorial();
+          status.innerHTML = '<div class="status success"><strong>✓ Documento generado</strong><br><span style="font-size:12px">' + selectedItem.name + '</span><br><a class="download-btn" href="' + API + data.download_url + '" target="_blank">⬇ Descargar ' + data.filename + '</a></div>';
+        } else {
+          status.innerHTML = '<div class="status error">✗ ' + (data.error || 'Error') + '</div>';
+        }
       }
-    } catch(e) {
-      status.innerHTML = '<div class="status error">✗ Error de conexion</div>';
+    } catch (e) {
+      status.innerHTML = '<div class="status error">✗ ' + (e.name === 'AbortError' ? 'Timeout' : 'Error de conexion') + '</div>';
     } finally {
-      btn.disabled = false;
-      btn.innerHTML = 'Generar documento';
+      if (format !== 'pdf') { btn.disabled = false; btn.innerHTML = 'Generar documento'; }
     }
   }
 
