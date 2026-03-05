@@ -539,7 +539,8 @@ app.post('/generate-pdf-async', requireAuth, async (req, res) => {
           return;
         }
         console.log('PDF async - PDF listo:', pdfPath);
-        await pool.query('UPDATE pdf_jobs SET status=$1, filename=$2, item_name=$3 WHERE job_id=$4', ['ready', baseName + '.pdf', item.name, jobId]);
+        const pdfData = fs.readFileSync(pdfPath);
+        await pool.query('UPDATE pdf_jobs SET status=$1, filename=$2, item_name=$3, pdf_data=$4 WHERE job_id=$5', ['ready', baseName + '.pdf', item.name, pdfData, jobId]);
         await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename) VALUES ($1,$2,$3,$4,$5,$6)', [accountId, board_id, item_id, item.name, template_name, baseName + '.pdf']);
       });
 
@@ -562,12 +563,20 @@ app.get('/pdf-status/:jobId', async (req, res) => {
   }
 });
 
-app.get('/download-pdf/:filename', (req, res) => {
-  const pdfPath = path.join(outputsDir, req.params.filename);
-  if (!fs.existsSync(pdfPath)) return res.status(404).json({ error: 'PDF no encontrado' });
-  res.download(pdfPath, req.params.filename, () => {
-    try { fs.unlinkSync(pdfPath); } catch(e) {}
-  });
+app.get('/download-pdf/:filename', requireAuth, async (req, res) => {
+  const filename = req.params.filename;
+  try {
+    const result = await pool.query('SELECT pdf_data FROM pdf_jobs WHERE filename=$1 AND account_id=$2', [filename, req.accountId]);
+    if (result.rows.length && result.rows[0].pdf_data) {
+      res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
+      res.setHeader('Content-Type', 'application/pdf');
+      return res.send(result.rows[0].pdf_data);
+    }
+    // Fallback filesystem
+    const pdfPath = path.join(outputsDir, filename);
+    if (!fs.existsSync(pdfPath)) return res.status(404).json({ error: 'PDF no encontrado' });
+    res.download(pdfPath, filename);
+  } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/download/:filename', (req, res) => {
