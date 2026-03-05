@@ -123,12 +123,14 @@ async function createDocxtemplater(zip, accountId) {
     centered: false,
     fileType: 'docx',
     getImage: (tagValue, tagName) => {
+      console.log('getImage llamado, tagValue:', tagValue, 'logoBuffer:', logoBuffer ? 'presente' : 'null');
       if (logoBuffer) return logoBuffer;
       return null;
     },
     getSize: () => [150, 60]
   });
 
+  console.log('createDocxtemplater - logoBuffer:', logoBuffer ? logoBuffer.length + ' bytes' : 'null');
   return new Docxtemplater(zip, {
     paragraphLoop: true,
     linebreaks: true,
