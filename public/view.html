@@ -14,7 +14,7 @@
       --error-light: #FDF0EE; --mono: 'DM Mono', monospace; --sans: 'DM Sans', sans-serif;
     }
     body { font-family: var(--sans); background: var(--bg); color: var(--text); min-height: 100vh; }
-    .app { max-width: 680px; margin: 0 auto; padding: 32px 24px; }
+    .app { max-width: 720px; margin: 0 auto; padding: 32px 24px; }
     .header { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
     .logo { width: 36px; height: 36px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
     .logo svg { width: 20px; height: 20px; fill: white; }
@@ -27,6 +27,8 @@
     .section-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
     .section-desc { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
     .badge { display: inline-flex; padding: 2px 8px; background: var(--accent-light); color: var(--accent); border-radius: 20px; font-size: 11px; font-weight: 500; font-family: var(--mono); }
+    .badge-formula { background: #FFF8E7; color: #B7791F; }
+    .badge-subitem { background: #F0FFF4; color: #276749; }
     .template-list, .items-list { display: flex; flex-direction: column; gap: 8px; }
     .items-list { max-height: 200px; overflow-y: auto; }
     .template-item, .item-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; transition: all 0.15s; font-size: 13px; }
@@ -49,6 +51,7 @@
     .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
     .btn-auth { background: #FF3D57; color: white; margin-bottom: 16px; }
     .btn-auth:hover { background: #E0001B; }
+    .btn-sm { width: auto; padding: 6px 12px; font-size: 12px; border-radius: 6px; }
     .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
     .status { padding: 12px 16px; border-radius: 8px; font-size: 13px; margin-top: 12px; }
@@ -59,6 +62,21 @@
     .auth-wall { text-align: center; padding: 40px 24px; }
     .auth-wall h2 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
     .auth-wall p { font-size: 14px; color: var(--muted); margin-bottom: 24px; }
+
+    /* Variables panel */
+    .variables-panel { margin-top: 16px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .variables-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #F9F8F5; border-bottom: 1px solid var(--border); cursor: pointer; }
+    .variables-header span { font-size: 12px; font-weight: 600; color: var(--muted); font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.6px; }
+    .variables-header .toggle { font-size: 12px; color: var(--accent); }
+    .variables-table { display: none; }
+    .variables-table.open { display: block; }
+    .var-row { display: flex; align-items: flex-start; padding: 8px 14px; border-bottom: 1px solid #F0EEE8; gap: 12px; }
+    .var-row:last-child { border-bottom: none; }
+    .var-name { font-family: var(--mono); font-size: 11px; color: var(--accent); background: var(--accent-light); padding: 2px 7px; border-radius: 4px; white-space: nowrap; cursor: pointer; min-width: 140px; }
+    .var-name:hover { background: var(--accent); color: white; }
+    .var-value { font-size: 12px; color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .var-type { font-size: 10px; color: var(--muted); white-space: nowrap; }
+    .copy-hint { font-size: 10px; color: var(--accent); margin-top: 4px; }
   </style>
 </head>
 <body>
@@ -103,6 +121,20 @@
       <div class="section-title">Selecciona un item</div>
       <div class="section-desc" id="items-desc">Items del tablero activo</div>
       <div id="items-list" class="items-list"><div class="empty">Cargando...</div></div>
+
+      <!-- Panel de variables -->
+      <div id="variables-panel" class="variables-panel" style="display:none">
+        <div class="variables-header" onclick="toggleVariables()">
+          <span>Variables disponibles</span>
+          <span class="toggle" id="toggle-icon">▼ ver</span>
+        </div>
+        <div class="variables-table" id="variables-table">
+          <div id="variables-list"></div>
+          <div class="var-row" style="background:#F9F8F5">
+            <span class="copy-hint" style="font-size:11px;color:var(--muted);padding:4px 0">Click en una variable para copiarla al portapapeles</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -118,81 +150,59 @@
 <script>
   const API = 'https://docugen-monday-production.up.railway.app';
   const params = new URLSearchParams(window.location.search);
-
-  // Leer contexto de monday desde URL params y sessionToken JWT
   let accountId = params.get('account_id');
   let boardId = params.get('boardId');
   const sessionToken = params.get('sessionToken');
 
-  // Decodificar sessionToken para obtener account_id real
   if (sessionToken && !accountId) {
     try {
       const payload = JSON.parse(atob(sessionToken.split('.')[1]));
       accountId = payload?.dat?.account_id?.toString();
-    } catch(e) {
-      console.log('Error decodificando token:', e);
-    }
+    } catch(e) {}
   }
 
   let selectedTemplate = null;
   let selectedItem = null;
+  let variablesOpen = false;
 
   async function init() {
-    console.log('account_id:', accountId, 'board_id:', boardId);
-
-    if (!accountId) {
-      document.getElementById('auth-wall').style.display = 'block';
-      return;
-    }
-
-    // Verificar sesión
+    if (!accountId) { document.getElementById('auth-wall').style.display = 'block'; return; }
     try {
-      const check = await fetch(`${API}/auth/check?account_id=${accountId}`);
+      const check = await fetch(API + '/auth/check?account_id=' + accountId);
       const auth = await check.json();
+      if (!auth.authenticated) { document.getElementById('auth-wall').style.display = 'block'; return; }
+    } catch(e) { document.getElementById('auth-wall').style.display = 'block'; return; }
 
-      if (!auth.authenticated) {
-        document.getElementById('auth-wall').style.display = 'block';
-        return;
-      }
-    } catch(e) {
-      document.getElementById('auth-wall').style.display = 'block';
-      return;
-    }
-
-    // Mostrar contenido
     document.getElementById('main-content').style.display = 'block';
-    document.getElementById('account-badge').textContent = `#${accountId}`;
+    document.getElementById('account-badge').textContent = '#' + accountId;
 
     if (boardId) {
-      const boardBadge = document.getElementById('board-badge');
-      boardBadge.textContent = `📋 ${boardId}`;
-      boardBadge.style.display = 'flex';
+      const bb = document.getElementById('board-badge');
+      bb.textContent = '📋 ' + boardId;
+      bb.style.display = 'flex';
     }
 
     await loadTemplates();
     if (boardId) await loadBoardItems(boardId);
   }
 
-  function startAuth() {
-    window.location.href = `${API}/oauth/start`;
-  }
+  function startAuth() { window.location.href = API + '/oauth/start'; }
 
   async function loadTemplates() {
     try {
-      const res = await fetch(`${API}/templates?account_id=${accountId}`);
+      const res = await fetch(API + '/templates?account_id=' + accountId);
       const data = await res.json();
       const list = document.getElementById('template-list');
       if (!data.templates.length) { list.innerHTML = '<div class="empty">No hay plantillas. Sube una.</div>'; return; }
-      list.innerHTML = data.templates.map(t => `
-        <div class="template-item" onclick="selectTemplate('${t}')" id="tpl-${t.replace(/[\.\s]/g,'-')}">
-          <span>📄</span><span>${t}</span>
-        </div>`).join('');
+      list.innerHTML = data.templates.map(t =>
+        '<div class="template-item" onclick="selectTemplate(\'' + t + '\')" id="tpl-' + t.replace(/[\.\s]/g,'-') + '"><span>📄</span><span>' + t + '</span></div>'
+      ).join('');
     } catch(e) { document.getElementById('template-list').innerHTML = '<div class="empty">Error al cargar</div>'; }
   }
 
   async function loadBoardItems(bid) {
     try {
-      const res = await fetch(`${API}/board-items`, {
+      const res = await fetch(API + '/board-items', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
         body: JSON.stringify({ account_id: accountId, board_id: bid })
@@ -201,11 +211,9 @@
       const items = data.data?.boards?.[0]?.items_page?.items || [];
       const list = document.getElementById('items-list');
       if (!items.length) { list.innerHTML = '<div class="empty">No hay items en este tablero</div>'; return; }
-      list.innerHTML = items.map(item => `
-        <div class="item-row" onclick="selectItem('${item.id}','${item.name.replace(/'/g,"\\'")}') " id="item-${item.id}">
-          <span>📋</span><span>${item.name}</span>
-          <span class="item-id">#${item.id}</span>
-        </div>`).join('');
+      list.innerHTML = items.map(item =>
+        '<div class="item-row" onclick="selectItem(\'' + item.id + '\',\'' + item.name.replace(/'/g,"\\'") + '\')" id="item-' + item.id + '"><span>📋</span><span>' + item.name + '</span><span class="item-id">#' + item.id + '</span></div>'
+      ).join('');
     } catch(e) { document.getElementById('items-list').innerHTML = '<div class="empty">Error al cargar items</div>'; }
   }
 
@@ -217,11 +225,65 @@
     checkReady();
   }
 
-  function selectItem(id, name) {
+  async function selectItem(id, name) {
     selectedItem = { id, name };
     document.querySelectorAll('.item-row').forEach(el => el.classList.remove('selected'));
     document.getElementById('item-' + id).classList.add('selected');
     checkReady();
+    await loadVariables(id);
+  }
+
+  async function loadVariables(itemId) {
+    const panel = document.getElementById('variables-panel');
+    const list = document.getElementById('variables-list');
+    panel.style.display = 'block';
+    list.innerHTML = '<div class="var-row"><span class="var-value">Cargando variables...</span></div>';
+
+    try {
+      const res = await fetch(API + '/item-variables', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
+        body: JSON.stringify({ account_id: accountId, board_id: boardId, item_id: itemId })
+      });
+      const data = await res.json();
+
+      if (!data.variables) { list.innerHTML = '<div class="var-row"><span class="var-value">Error al cargar</span></div>'; return; }
+
+      const typeIcons = { name: '🏷', text: '📝', numbers: '🔢', date: '📅', status: '🔵', location: '📍', mirror: '🪞', board_relation: '🔗', subitems: '📋', formula: '⚡', people: '👤' };
+
+      list.innerHTML = data.variables.map(v => {
+        const icon = typeIcons[v.type] || '•';
+        const isFn = v.type === 'formula' || v.type === 'subitems';
+        const badgeClass = isFn ? 'badge badge-formula' : (v.type === 'subitems' ? 'badge badge-subitem' : 'badge');
+        return '<div class="var-row">' +
+          '<span class="var-name ' + badgeClass + '" onclick="copyVar(\'' + v.variable + '\')" title="Click para copiar">{{' + v.variable + '}}</span>' +
+          '<span class="var-value">' + (v.value || '') + '</span>' +
+          '<span class="var-type">' + icon + ' ' + v.type + '</span>' +
+          '</div>';
+      }).join('');
+
+      // Abrir panel automáticamente
+      variablesOpen = true;
+      document.getElementById('variables-table').classList.add('open');
+      document.getElementById('toggle-icon').textContent = '▲ ocultar';
+
+    } catch(e) {
+      list.innerHTML = '<div class="var-row"><span class="var-value">Error al cargar variables</span></div>';
+    }
+  }
+
+  function toggleVariables() {
+    variablesOpen = !variablesOpen;
+    document.getElementById('variables-table').classList.toggle('open', variablesOpen);
+    document.getElementById('toggle-icon').textContent = variablesOpen ? '▲ ocultar' : '▼ ver';
+  }
+
+  function copyVar(varName) {
+    const text = '{{' + varName + '}}';
+    navigator.clipboard.writeText(text).then(() => {
+      const hint = document.querySelector('.copy-hint');
+      if (hint) { hint.textContent = '✓ Copiado: ' + text; setTimeout(() => { hint.textContent = 'Click en una variable para copiarla al portapapeles'; }, 2000); }
+    });
   }
 
   function checkReady() {
@@ -237,7 +299,7 @@
     document.getElementById('upload-filename').textContent = 'Subiendo...';
     document.getElementById('upload-area').classList.add('has-file');
     try {
-      await fetch(`${API}/templates/upload`, { method: 'POST', body: formData });
+      await fetch(API + '/templates/upload', { method: 'POST', body: formData });
       document.getElementById('upload-filename').textContent = '✓ ' + file.name;
       document.getElementById('upload-status').innerHTML = '<div class="status success">✓ Plantilla subida</div>';
       await loadTemplates();
@@ -255,19 +317,19 @@
     btn.innerHTML = '<div class="spinner"></div> Generando...';
     status.innerHTML = '';
     try {
-      const res = await fetch(`${API}/generate-from-monday`, {
+      const res = await fetch(API + '/generate-from-monday', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
         body: JSON.stringify({ account_id: accountId, board_id: boardId, item_id: selectedItem.id, template_name: selectedTemplate })
       });
       const data = await res.json();
       if (data.success) {
-        status.innerHTML = `<div class="status success"><strong>✓ Documento generado</strong><br><span style="font-size:12px">${selectedItem.name}</span><br><a class="download-btn" href="${API}${data.download_url}" target="_blank">⬇ Descargar ${data.filename}</a></div>`;
+        status.innerHTML = '<div class="status success"><strong>✓ Documento generado</strong><br><span style="font-size:12px">' + selectedItem.name + '</span><br><a class="download-btn" href="' + API + data.download_url + '" target="_blank">⬇ Descargar ' + data.filename + '</a></div>';
       } else {
         status.innerHTML = '<div class="status error">✗ ' + (data.error || 'Error') + '</div>';
       }
     } catch(e) {
-      status.innerHTML = '<div class="status error">✗ Error de conexión</div>';
+      status.innerHTML = '<div class="status error">✗ Error de conexion</div>';
     } finally {
       btn.disabled = false;
       btn.innerHTML = 'Generar documento';
