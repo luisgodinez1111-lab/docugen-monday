@@ -129,6 +129,7 @@ async function createDocxtemplater(zip, accountId) {
     const imageModule = new ImageModule({
       centered: false,
       fileType: 'docx',
+      delimiters: { start: '{{', end: '}}' },
       getImage: (tagValue) => {
         console.log('getImage llamado con tagValue:', tagValue);
         return logoBuffer;
