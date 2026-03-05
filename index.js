@@ -115,7 +115,11 @@ function calcularTotales(data, subitems, columnValues) {
           else if (precio === null) { precio = num; }
         }
       });
-      if (cantidad !== null && precio !== null) {
+      // Formatear precio
+        if (precio !== null) {
+          subData.precio_fmt = precio.toLocaleString('es-MX', { minimumFractionDigits: 2 });
+        }
+        if (cantidad !== null && precio !== null) {
         const st = cantidad * precio;
         subData.subtotal_linea = st.toFixed(2);
         subData.subtotal_linea_fmt = st.toLocaleString('es-MX', { minimumFractionDigits: 2 });
