@@ -610,3 +610,144 @@ app.listen(PORT, async () => {
 });
 
 module.exports = app;
+
+// ============================================================
+// EDITOR: Canvas JSON → DOCX
+// ============================================================
+app.post('/editor/save-template', requireAuth, async (req, res) => {
+  const { canvasJson, templateName } = req.body;
+  if (!canvasJson || !templateName) return res.status(400).json({ error: 'Faltan datos' });
+
+  try {
+    const { Document, Packer, Paragraph, TextRun, ImageRun, Table, TableRow, TableCell,
+            AlignmentType, WidthType, BorderStyle, ShadingType, HeadingLevel,
+            UnderlineType } = require('docx');
+
+    const objects = canvasJson.objects || [];
+    const PAGE_W_PT = 9360; // ~6.5 inches in twips (1/20 pt)
+    const PAGE_H = 1123;
+    const PAGE_W_PX = 794;
+
+    // Sort by top position
+    objects.sort((a, b) => (a.top || 0) - (b.top || 0));
+
+    const children = [];
+
+    for (const obj of objects) {
+      if (obj.isGrid) continue;
+
+      if (obj.type === 'i-text' || obj.type === 'text') {
+        const text = obj.text || '';
+        const fontSize = Math.round((obj.fontSize || 12) * 1.1);
+        const align = obj.textAlign === 'center' ? AlignmentType.CENTER
+                    : obj.textAlign === 'right' ? AlignmentType.RIGHT
+                    : AlignmentType.LEFT;
+
+        children.push(new Paragraph({
+          alignment: align,
+          spacing: { before: 40, after: 40 },
+          children: [new TextRun({
+            text,
+            size: fontSize * 2,
+            bold: obj.fontWeight === 'bold',
+            italics: obj.fontStyle === 'italic',
+            underline: obj.underline ? { type: UnderlineType.SINGLE } : undefined,
+            color: (obj.fill || '#000000').replace('#', ''),
+            font: obj.fontFamily || 'Arial',
+          })]
+        }));
+
+      } else if (obj.type === 'rect') {
+        // Colored block as table cell
+        const fillColor = (obj.fill || '#ffffff').replace('#', '');
+        const strokeColor = (obj.stroke || '#000000').replace('#', '');
+        const widthPct = Math.round((obj.width * (obj.scaleX || 1) / PAGE_W_PX) * 100 * 50);
+        children.push(new Table({
+          width: { size: widthPct, type: WidthType.PERCENTAGE },
+          rows: [new TableRow({ children: [
+            new TableCell({
+              shading: { fill: fillColor, type: ShadingType.CLEAR },
+              borders: {
+                top: { style: BorderStyle.SINGLE, size: Math.round((obj.strokeWidth || 0) * 8), color: strokeColor },
+                bottom: { style: BorderStyle.SINGLE, size: Math.round((obj.strokeWidth || 0) * 8), color: strokeColor },
+                left: { style: BorderStyle.SINGLE, size: Math.round((obj.strokeWidth || 0) * 8), color: strokeColor },
+                right: { style: BorderStyle.SINGLE, size: Math.round((obj.strokeWidth || 0) * 8), color: strokeColor },
+              },
+              children: [new Paragraph({ children: [] })]
+            })
+          ]})]
+        }));
+        children.push(new Paragraph({ children: [] }));
+
+      } else if (obj.type === 'line') {
+        const strokeColor = (obj.stroke || '#000000').replace('#', '');
+        children.push(new Paragraph({
+          border: { bottom: { style: BorderStyle.SINGLE, size: Math.round((obj.strokeWidth || 1) * 8), color: strokeColor, space: 1 } },
+          children: []
+        }));
+
+      } else if (obj.type === 'image') {
+        // Image stored as base64 in src
+        if (obj.src && obj.src.startsWith('data:')) {
+          const matches = obj.src.match(/^data:([^;]+);base64,(.+)$/);
+          if (matches) {
+            const mimeType = matches[1];
+            const imgData = Buffer.from(matches[2], 'base64');
+            const imgW = Math.round(obj.width * (obj.scaleX || 1));
+            const imgH = Math.round(obj.height * (obj.scaleY || 1));
+            // Convert px to EMU (1px = 9525 EMU)
+            children.push(new Paragraph({
+              children: [new ImageRun({
+                data: imgData,
+                transformation: { width: imgW, height: imgH },
+                type: mimeType.includes('png') ? 'png' : 'jpg',
+              })]
+            }));
+          }
+        }
+
+      } else if (obj.type === 'group') {
+        // Groups (tables, signatures) - extract text from children
+        if (obj.objects) {
+          const texts = obj.objects
+            .filter(o => o.type === 'text' || o.type === 'i-text')
+            .map(o => o.text || '')
+            .join(' ');
+          if (texts) {
+            children.push(new Paragraph({
+              children: [new TextRun({ text: texts, size: 22, font: 'Arial' })]
+            }));
+          }
+        }
+      }
+    }
+
+    if (!children.length) children.push(new Paragraph({ children: [] }));
+
+    const doc = new Document({
+      sections: [{
+        properties: {
+          page: {
+            size: { width: 12240, height: 15840 },
+            margin: { top: 1080, right: 1440, bottom: 1440, left: 1440 }
+          }
+        },
+        children
+      }]
+    });
+
+    const buffer = await Packer.toBuffer(doc);
+
+    // Save to DB as template
+    const filename = templateName.replace(/[^a-zA-Z0-9\-_]/g, '_') + '.docx';
+    await pool.query(
+      'INSERT INTO templates (account_id, filename, data) VALUES ($1,$2,$3) ON CONFLICT (account_id, filename) DO UPDATE SET data=$3',
+      [req.accountId, filename, buffer]
+    );
+
+    res.json({ success: true, filename });
+  } catch(err) {
+    console.error('Editor save error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
