@@ -564,10 +564,12 @@ app.get('/pdf-status/:jobId', async (req, res) => {
   }
 });
 
-app.get('/download-pdf/:filename', requireAuth, async (req, res) => {
+app.get('/download-pdf/:filename', async (req, res) => {
   const filename = req.params.filename;
+  const accountId = req.headers['x-account-id'] || req.query.account_id;
+  if (!accountId) return res.status(400).json({ error: 'Se requiere account_id' });
   try {
-    const result = await pool.query('SELECT pdf_data FROM pdf_jobs WHERE filename=$1 AND account_id=$2', [filename, req.accountId]);
+    const result = await pool.query('SELECT pdf_data FROM pdf_jobs WHERE filename=$1 AND account_id=$2', [filename, accountId]);
     if (result.rows.length && result.rows[0].pdf_data) {
       res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
       res.setHeader('Content-Type', 'application/pdf');
