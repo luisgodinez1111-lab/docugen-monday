@@ -144,6 +144,13 @@
       <button class="btn btn-primary" id="generate-btn" onclick="generateDocument()" disabled>Generar documento</button>
       <div id="generate-status"></div>
     </div>
+
+    <div class="card" id="historial-card">
+      <div class="card-label">Historial</div>
+      <div class="section-title">Documentos generados</div>
+      <div class="section-desc">Tus ultimos 20 documentos generados.</div>
+      <div id="historial-list"><div class="empty">Cargando historial...</div></div>
+    </div>
   </div>
 </div>
 
@@ -165,6 +172,34 @@
   let selectedItem = null;
   let variablesOpen = false;
 
+
+  async function loadHistorial() {
+    try {
+      const res = await fetch(API + '/documents', {
+        headers: { 'x-account-id': accountId }
+      });
+      const data = await res.json();
+      const list = document.getElementById('historial-list');
+      if (!data.documents || !data.documents.length) {
+        list.innerHTML = '<div class="empty">No hay documentos generados aun</div>';
+        return;
+      }
+      list.innerHTML = data.documents.map(doc => {
+        const fecha = new Date(doc.created_at).toLocaleDateString('es-MX', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+        return '<div class="item-row" style="cursor:default">' +
+          '<span>📄</span>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + doc.item_name + '</div>' +
+            '<div style="font-size:11px;color:var(--muted)">' + doc.template_name + ' · ' + fecha + '</div>' +
+          '</div>' +
+          '<a href="' + API + '/download/' + doc.filename + '" target="_blank" style="font-size:11px;color:var(--accent);text-decoration:none;white-space:nowrap">⬇ Descargar</a>' +
+        '</div>';
+      }).join('');
+    } catch(e) {
+      document.getElementById('historial-list').innerHTML = '<div class="empty">Error al cargar historial</div>';
+    }
+  }
+
   async function init() {
     if (!accountId) { document.getElementById('auth-wall').style.display = 'block'; return; }
     try {
@@ -184,6 +219,7 @@
 
     await loadTemplates();
     if (boardId) await loadBoardItems(boardId);
+    await loadHistorial();
   }
 
   function startAuth() { window.location.href = API + '/oauth/start'; }
@@ -324,7 +360,8 @@
       });
       const data = await res.json();
       if (data.success) {
-        status.innerHTML = '<div class="status success"><strong>✓ Documento generado</strong><br><span style="font-size:12px">' + selectedItem.name + '</span><br><a class="download-btn" href="' + API + data.download_url + '" target="_blank">⬇ Descargar ' + data.filename + '</a></div>';
+        await loadHistorial();
+      status.innerHTML = '<div class="status success"><strong>✓ Documento generado</strong><br><span style="font-size:12px">' + selectedItem.name + '</span><br><a class="download-btn" href="' + API + data.download_url + '" target="_blank">⬇ Descargar ' + data.filename + '</a></div>';
       } else {
         status.innerHTML = '<div class="status error">✗ ' + (data.error || 'Error') + '</div>';
       }
