@@ -215,7 +215,7 @@ app.post('/board-items', requireAuth, async (req, res) => {
   const { board_id } = req.body;
   try {
     const query = 'query { boards(ids: ' + board_id + ') { name columns { id title type } items_page(limit: 50) { items { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } } } }';
-    const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: accessToken, 'Content-Type': 'application/json' } });
+    const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: req.accessToken, 'Content-Type': 'application/json' } });
     res.json(response.data);
   } catch (error) {
     console.error('GraphQL error:', JSON.stringify(error.response?.data || error.message));
