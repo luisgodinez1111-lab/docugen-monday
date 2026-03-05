@@ -308,6 +308,26 @@ app.get('/documents', requireAuth, async (req, res) => {
   }
 });
 
+
+// Convertir .docx existente a PDF
+app.get('/download-pdf/:filename', async (req, res) => {
+  const { exec } = require('child_process');
+  const docxPath = path.join(outputsDir, req.params.filename);
+  if (!fs.existsSync(docxPath)) return res.status(404).json({ error: 'Archivo no encontrado' });
+  
+  const pdfName = req.params.filename.replace('.docx', '.pdf');
+  const pdfPath = path.join(outputsDir, pdfName);
+  
+  // Si ya existe el PDF, descargarlo directamente
+  if (fs.existsSync(pdfPath)) return res.download(pdfPath);
+  
+  exec('libreoffice --headless --convert-to pdf --outdir ' + outputsDir + ' ' + docxPath, (err) => {
+    if (err) return res.status(500).json({ error: 'Error convirtiendo a PDF', details: err.message });
+    if (!fs.existsSync(pdfPath)) return res.status(500).json({ error: 'PDF no generado' });
+    res.download(pdfPath);
+  });
+});
+
 app.get('/download/:filename', (req, res) => {
   const filePath = path.join(outputsDir, req.params.filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Archivo no encontrado' });
