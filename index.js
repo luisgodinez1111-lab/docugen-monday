@@ -191,9 +191,11 @@ app.post('/board-items', requireAuth, async (req, res) => {
                 column_values {
                   id
                   text
-                  display_value
                   value
                   column { title type }
+                  ... on MirrorValue { display_value }
+                  ... on BoardRelationValue { display_value }
+                  ... on FormulaValue { display_value }
                 }
                 subitems {
                   id
@@ -201,9 +203,11 @@ app.post('/board-items', requireAuth, async (req, res) => {
                   column_values {
                     id
                     text
-                    display_value
                     value
                     column { title type }
+                    ... on MirrorValue { display_value }
+                    ... on BoardRelationValue { display_value }
+                    ... on FormulaValue { display_value }
                   }
                 }
               }
@@ -230,14 +234,20 @@ app.post('/item-variables', requireAuth, async (req, res) => {
           items(ids: ${item_id}) {
             id name
             column_values {
-              id text display_value value
+              id text value
               column { title type }
+              ... on MirrorValue { display_value }
+              ... on BoardRelationValue { display_value }
+              ... on FormulaValue { display_value }
             }
             subitems {
               id name
               column_values {
-                id text display_value value
+                id text value
                 column { title type }
+                ... on MirrorValue { display_value }
+                ... on BoardRelationValue { display_value }
+                ... on FormulaValue { display_value }
               }
             }
           }
@@ -324,14 +334,20 @@ app.post('/generate-from-monday', requireAuth, async (req, res) => {
           items(ids: ${item_id}) {
             id name
             column_values {
-              id text display_value value
+              id text value
               column { title type }
+              ... on MirrorValue { display_value }
+              ... on BoardRelationValue { display_value }
+              ... on FormulaValue { display_value }
             }
             subitems {
               id name
               column_values {
-                id text display_value value
+                id text value
                 column { title type }
+                ... on MirrorValue { display_value }
+                ... on BoardRelationValue { display_value }
+                ... on FormulaValue { display_value }
               }
             }
           }
