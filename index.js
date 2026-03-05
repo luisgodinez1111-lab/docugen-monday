@@ -138,6 +138,32 @@ async function createDocxtemplater(zip, accountId) {
   return new Docxtemplater(zip, opts);
 }
 
+async function createDocxtemplater(zip, accountId) {
+  let logoBuffer = null;
+  try {
+    const logoResult = await pool.query('SELECT data FROM logos WHERE account_id = $1', [accountId]);
+    if (logoResult.rows.length) logoBuffer = logoResult.rows[0].data;
+  } catch(e) {}
+
+  const opts = {
+    paragraphLoop: true,
+    linebreaks: true,
+    delimiters: { start: '{{', end: '}}' }
+  };
+
+  if (logoBuffer) {
+    const imageModule = new ImageModule({
+      centered: false,
+      fileType: 'docx',
+      getImage: () => logoBuffer,
+      getSize: () => [150, 60]
+    });
+    opts.modules = [imageModule];
+  }
+
+  return new Docxtemplater(zip, opts);
+}
+
 function calcularTotales(data, subitems, columnValues) {
   // Calcular desde subitems
   if (subitems && subitems.length > 0) {
