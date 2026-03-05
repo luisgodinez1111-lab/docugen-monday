@@ -34,6 +34,7 @@ async function initDB() {
         updated_at TIMESTAMP DEFAULT NOW()
       );
     `);
+    await pool.query(`ALTER TABLE tokens ADD COLUMN IF NOT EXISTS user_id TEXT`);
     await pool.query(`
       CREATE TABLE IF NOT EXISTS templates (
         id SERIAL PRIMARY KEY,
@@ -67,16 +68,6 @@ if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir);
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Extraer account_id del JWT de monday
-function extractAccountId(accessToken) {
-  try {
-    const decoded = jwt.decode(accessToken);
-    return decoded?.actid?.toString() || null;
-  } catch(e) {
-    return null;
-  }
-}
-
 async function saveToken(accountId, userId, token) {
   await pool.query(`
     INSERT INTO tokens (account_id, user_id, access_token, updated_at)
@@ -90,21 +81,43 @@ async function getToken(accountId) {
   return res.rows[0]?.access_token || null;
 }
 
-// Middleware para verificar sesión
 async function requireAuth(req, res, next) {
   const accountId = req.headers['x-account-id'] || req.query.account_id || req.body?.account_id;
   if (!accountId) return res.status(401).json({ error: 'Se requiere account_id' });
-  
   const token = await getToken(accountId);
   if (!token) return res.status(401).json({ error: 'No hay sesión. Haz OAuth primero.', needs_auth: true });
-  
   req.accountId = accountId;
   req.accessToken = token;
   next();
 }
 
+// Función para extraer valor de cualquier tipo de columna
+function extractColumnValue(col) {
+  // Para columnas mirror y board_relation usar display_value
+  if (col.column?.type === 'mirror' || col.column?.type === 'board_relation') {
+    return col.display_value || col.text || '';
+  }
+  // Para location usar solo la dirección formateada
+  if (col.column?.type === 'location') {
+    if (col.text) return col.text;
+    try {
+      const val = JSON.parse(col.value || '{}');
+      return val.address || '';
+    } catch(e) { return ''; }
+  }
+  return col.text || col.display_value || '';
+}
+
+// Función para sanitizar nombre de variable
+function toVarName(title) {
+  return title.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quitar acentos
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_]/g, '');
+}
+
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'DocuGen for monday', version: '2.0.0' });
+  res.json({ status: 'ok', message: 'DocuGen for monday', version: '3.0.0' });
 });
 
 app.get('/health', (req, res) => {
@@ -121,7 +134,6 @@ app.get('/oauth/start', (req, res) => {
 app.get('/oauth/callback', async (req, res) => {
   const { code } = req.query;
   if (!code) return res.status(400).json({ error: 'No se recibió código' });
-
   try {
     const response = await axios.post('https://auth.monday.com/oauth2/token', {
       client_id: process.env.MONDAY_CLIENT_ID,
@@ -129,18 +141,12 @@ app.get('/oauth/callback', async (req, res) => {
       code,
       redirect_uri: process.env.REDIRECT_URI
     });
-
     const { access_token } = response.data;
-    
-    // Extraer account_id y user_id del JWT
     const decoded = jwt.decode(access_token);
     const accountId = decoded?.actid?.toString() || 'default';
     const userId = decoded?.uid?.toString() || null;
-
     await saveToken(accountId, userId, access_token);
     console.log(`✅ Token guardado — account: ${accountId}, user: ${userId}`);
-
-    // Redirigir a la UI con el account_id
     res.redirect(`/view?account_id=${accountId}`);
   } catch (error) {
     console.error('❌ Error OAuth:', error.response?.data || error.message);
@@ -148,7 +154,6 @@ app.get('/oauth/callback', async (req, res) => {
   }
 });
 
-// Verificar sesión
 app.get('/auth/check', async (req, res) => {
   const accountId = req.query.account_id;
   if (!accountId) return res.json({ authenticated: false });
@@ -181,9 +186,26 @@ app.post('/board-items', requireAuth, async (req, res) => {
             columns { id title type }
             items_page(limit: 50) {
               items {
-                id name
-                column_values { id text column { title } }
-                subitems { id name column_values { id text column { title } } }
+                id
+                name
+                column_values {
+                  id
+                  text
+                  display_value
+                  value
+                  column { title type }
+                }
+                subitems {
+                  id
+                  name
+                  column_values {
+                    id
+                    text
+                    display_value
+                    value
+                    column { title type }
+                  }
+                }
               }
             }
           }
@@ -197,17 +219,71 @@ app.post('/board-items', requireAuth, async (req, res) => {
   }
 });
 
+// Endpoint para obtener variables disponibles de un item
+app.post('/item-variables', requireAuth, async (req, res) => {
+  const { board_id, item_id } = req.body;
+  try {
+    const response = await axios.post(
+      'https://api.monday.com/v2',
+      {
+        query: `query {
+          items(ids: ${item_id}) {
+            id name
+            column_values {
+              id text display_value value
+              column { title type }
+            }
+            subitems {
+              id name
+              column_values {
+                id text display_value value
+                column { title type }
+              }
+            }
+          }
+        }`
+      },
+      { headers: { Authorization: req.accessToken, 'Content-Type': 'application/json' } }
+    );
+
+    const item = response.data.data.items[0];
+    const variables = [{ variable: 'nombre', value: item.name, type: 'name' }];
+
+    item.column_values.forEach(col => {
+      const varName = toVarName(col.column.title);
+      const value = extractColumnValue(col);
+      variables.push({
+        variable: varName,
+        original_title: col.column.title,
+        value: value || '(vacío)',
+        type: col.column.type
+      });
+    });
+
+    if (item.subitems?.length) {
+      variables.push({
+        variable: 'subelementos',
+        value: `Lista de ${item.subitems.length} subelementos`,
+        type: 'subitems',
+        note: 'Usar {{#subelementos}}...{{/subelementos}} en la plantilla'
+      });
+    }
+
+    res.json({ variables, item_name: item.name });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener variables', details: error.message });
+  }
+});
+
 app.post('/templates/upload', upload.single('template'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
   const accountId = req.body.account_id || 'default';
-
   try {
     await pool.query(`
       INSERT INTO templates (account_id, filename, data)
       VALUES ($1, $2, $3)
       ON CONFLICT (account_id, filename) DO UPDATE SET data = $3
     `, [accountId, req.file.originalname, req.file.buffer]);
-
     res.json({ success: true, filename: req.file.originalname });
   } catch (err) {
     res.status(500).json({ error: 'Error al guardar plantilla', details: err.message });
@@ -231,6 +307,7 @@ app.post('/generate-from-monday', requireAuth, async (req, res) => {
   const { board_id, item_id, template_name } = req.body;
 
   try {
+    // Obtener plantilla de DB
     const tplResult = await pool.query(
       'SELECT data FROM templates WHERE account_id = $1 AND filename = $2',
       [req.accountId, template_name]
@@ -239,14 +316,24 @@ app.post('/generate-from-monday', requireAuth, async (req, res) => {
       return res.status(404).json({ error: `Plantilla "${template_name}" no encontrada` });
     }
 
+    // Obtener datos del item con todos los tipos de columna
     const response = await axios.post(
       'https://api.monday.com/v2',
       {
         query: `query {
           items(ids: ${item_id}) {
             id name
-            column_values { id text column { title } }
-            subitems { id name column_values { id text column { title } } }
+            column_values {
+              id text display_value value
+              column { title type }
+            }
+            subitems {
+              id name
+              column_values {
+                id text display_value value
+                column { title type }
+              }
+            }
           }
         }`
       },
@@ -254,28 +341,33 @@ app.post('/generate-from-monday', requireAuth, async (req, res) => {
     );
 
     const item = response.data.data.items[0];
-    
-    // Construir datos para plantilla
+
+    // Construir datos para la plantilla
     const data = { nombre: item.name };
+
     item.column_values.forEach(col => {
-      const k = col.column.title.toLowerCase()
-        .replace(/\s+/g, '_')
-        .replace(/[^a-z0-9_]/g, '');
-      data[k] = col.text || '';
+      const k = toVarName(col.column.title);
+      data[k] = extractColumnValue(col);
     });
 
-    // Subitems como lista
+    // Subitems como array para loops en plantilla
     if (item.subitems?.length) {
-      data.items = item.subitems.map(sub => {
-        const subData = { nombre: sub.name };
+      data.subelementos = item.subitems.map((sub, index) => {
+        const subData = {
+          nombre: sub.name,
+          numero: index + 1
+        };
         sub.column_values.forEach(col => {
-          const k = col.column.title.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-          subData[k] = col.text || '';
+          const k = toVarName(col.column.title);
+          subData[k] = extractColumnValue(col);
         });
         return subData;
       });
     }
 
+    console.log('📋 Variables para plantilla:', JSON.stringify(data, null, 2));
+
+    // Generar documento
     const zip = new PizZip(tplResult.rows[0].data);
     const doc = new Docxtemplater(zip, {
       paragraphLoop: true,
@@ -289,7 +381,6 @@ app.post('/generate-from-monday', requireAuth, async (req, res) => {
     const outputFilename = `${item.name.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.docx`;
     fs.writeFileSync(path.join(outputsDir, outputFilename), outputBuffer);
 
-    // Guardar registro en DB
     await pool.query(
       'INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename) VALUES ($1,$2,$3,$4,$5,$6)',
       [req.accountId, board_id, item_id, item.name, template_name, outputFilename]
@@ -307,7 +398,6 @@ app.post('/generate-from-monday', requireAuth, async (req, res) => {
   }
 });
 
-// Historial de documentos por cuenta
 app.get('/documents', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
@@ -326,6 +416,17 @@ app.get('/download/:filename', (req, res) => {
   res.download(filePath);
 });
 
+// Endpoint temporal de migración
+app.post('/migrate', async (req, res) => {
+  if (req.body.secret !== 'docugen2026') return res.status(403).json({ error: 'No autorizado' });
+  try {
+    await pool.query('ALTER TABLE tokens ADD COLUMN IF NOT EXISTS user_id TEXT');
+    res.json({ success: true, message: 'Migración completada' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/view', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'view.html'));
@@ -339,18 +440,3 @@ app.listen(PORT, async () => {
 });
 
 module.exports = app;
-
-// Endpoint temporal de migración
-app.post('/migrate', async (req, res) => {
-  if (req.body.secret !== 'docugen2026') return res.status(403).json({ error: 'No autorizado' });
-  try {
-    await pool.query('ALTER TABLE tokens ADD COLUMN IF NOT EXISTS user_id TEXT');
-    await pool.query('ALTER TABLE documents ADD COLUMN IF NOT EXISTS board_id TEXT');
-    await pool.query('ALTER TABLE documents ADD COLUMN IF NOT EXISTS item_id TEXT');
-    await pool.query('ALTER TABLE documents ADD COLUMN IF NOT EXISTS item_name TEXT');
-    await pool.query('ALTER TABLE documents ADD COLUMN IF NOT EXISTS template_name TEXT');
-    res.json({ success: true, message: 'Migración completada' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
