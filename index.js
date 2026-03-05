@@ -116,26 +116,33 @@ async function createDocxtemplater(zip, accountId) {
   let logoBuffer = null;
   try {
     const logoResult = await pool.query('SELECT data FROM logos WHERE account_id = $1', [accountId]);
-    if (logoResult.rows.length) logoBuffer = logoResult.rows[0].data;
-  } catch(e) {}
+    if (logoResult.rows.length) {
+      logoBuffer = logoResult.rows[0].data;
+      console.log('Logo encontrado:', logoBuffer.length, 'bytes');
+    } else {
+      console.log('No hay logo para account:', accountId);
+    }
+  } catch(e) { console.log('Error obteniendo logo:', e.message); }
 
-  const imageModule = new ImageModule({
-    centered: false,
-    fileType: 'docx',
-    getImage: (tagValue, tagName) => {
-      console.log('getImage llamado, tagValue:', tagValue, 'logoBuffer:', logoBuffer ? 'presente' : 'null');
-      if (logoBuffer) return logoBuffer;
-      return null;
-    },
-    getSize: () => [150, 60]
-  });
+  const modules = [];
+  if (logoBuffer) {
+    const imageModule = new ImageModule({
+      centered: false,
+      fileType: 'docx',
+      getImage: (tagValue) => {
+        console.log('getImage llamado con tagValue:', tagValue);
+        return logoBuffer;
+      },
+      getSize: () => [150, 60]
+    });
+    modules.push(imageModule);
+  }
 
-  console.log('createDocxtemplater - logoBuffer:', logoBuffer ? logoBuffer.length + ' bytes' : 'null');
   return new Docxtemplater(zip, {
     paragraphLoop: true,
     linebreaks: true,
     delimiters: { start: '{{', end: '}}' },
-    modules: [imageModule]
+    modules
   });
 }
 
