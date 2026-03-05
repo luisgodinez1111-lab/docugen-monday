@@ -403,7 +403,7 @@ app.post('/generate-pdf-async', requireAuth, async (req, res) => {
     if (!tplResult.rows.length) { await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', 'Plantilla no encontrada', jobId]); return; }
 
     const query = 'query { items(ids: ' + item_id + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
-    const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: req.accessToken, 'Content-Type': 'application/json' } });
+    const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: accessToken, 'Content-Type': 'application/json' } });
     const item = response.data.data.items[0];
 
     const data = { nombre: item.name };
