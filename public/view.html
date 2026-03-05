@@ -358,10 +358,13 @@
     status.innerHTML = '';
     try {
       const endpoint = format === 'pdf' ? '/generate-from-monday-pdf' : '/generate-from-monday';
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000);
       const res = await fetch(API + endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
-        body: JSON.stringify({ account_id: accountId, board_id: boardId, item_id: selectedItem.id, template_name: selectedTemplate })
+        body: JSON.stringify({ account_id: accountId, board_id: boardId, item_id: selectedItem.id, template_name: selectedTemplate }),
+        signal: controller.signal
       });
       const data = await res.json();
       if (data.success) {
