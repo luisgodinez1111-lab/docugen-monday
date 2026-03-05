@@ -284,6 +284,7 @@ app.post('/generate-from-monday', requireAuth, async (req, res) => {
     const query = 'query { items(ids: ' + item_id + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
     const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: req.accessToken, 'Content-Type': 'application/json' } });
     const item = response.data.data.items[0];
+    console.log('Item obtenido:', item?.name);
 
     const data = { nombre: item.name };
     item.column_values.forEach(col => {
@@ -352,7 +353,8 @@ app.post('/generate-from-monday-pdf', requireAuth, async (req, res) => {
     fs.writeFileSync(docxPath, outputBuffer);
 
     // Convertir a PDF con LibreOffice
-    console.log('Ejecutando LibreOffice...');
+    console.log('Renderizando plantilla...');
+
     exec('libreoffice --headless --convert-to pdf --outdir ' + outputsDir + ' ' + docxPath, async (err) => {
       console.log('LibreOffice terminó, err:', err?.message, 'pdf existe:', fs.existsSync(pdfPath));
       // Limpiar docx temporal
