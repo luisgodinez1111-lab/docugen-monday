@@ -278,7 +278,7 @@ app.get('/templates', async (req, res) => {
 app.post('/generate-from-monday', requireAuth, async (req, res) => {
   const { board_id, item_id, template_name } = req.body;
   try {
-    const tplResult = await pool.query('SELECT data FROM templates WHERE account_id = $1 AND filename = $2', [req.accountId, template_name]);
+    const tplResult = await pool.query('SELECT data FROM templates WHERE account_id = $1 AND filename = $2', [accountId, template_name]);
     if (!tplResult.rows.length) return res.status(404).json({ error: 'Plantilla "' + template_name + '" no encontrada' });
 
     const query = 'query { items(ids: ' + item_id + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
@@ -403,7 +403,7 @@ app.post('/generate-pdf-async', requireAuth, async (req, res) => {
     if (!tplResult.rows.length) { await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', 'Plantilla no encontrada', jobId]); return; }
 
     const query = 'query { items(ids: ' + item_id + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
-    const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: accessToken, 'Content-Type': 'application/json' } });
+    const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: accessToken, 'Content-Type': 'application/json' }, timeout: 15000 });
     const item = response.data.data.items[0];
 
     const data = { nombre: item.name };
