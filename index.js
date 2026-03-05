@@ -384,58 +384,81 @@ app.post('/generate-from-monday-pdf', requireAuth, async (req, res) => {
 console.log('PDF async endpoint registrado');
 
 app.post('/generate-pdf-async', requireAuth, async (req, res) => {
-  console.log('PDF request recibido:', req.body);
   const { exec } = require('child_process');
   const { board_id, item_id, template_name } = req.body;
   const jobId = Date.now().toString();
-  await pool.query('INSERT INTO pdf_jobs (job_id, account_id, status) VALUES ($1,$2,$3)', [jobId, req.accountId, 'processing']);
-  
-  // Capturar valores antes de responder
-  const accessToken = req.accessToken;
   const accountId = req.accountId;
-  
-  // Responder inmediatamente con job_id
-  res.json({ job_id: jobId, status: 'processing' });
-  console.log('Job creado:', jobId);
+  const accessToken = req.accessToken;
+
+  console.log('PDF async - inicio, job:', jobId, 'token:', accessToken ? 'ok' : 'missing');
 
   try {
-    const tplResult = await pool.query('SELECT data FROM templates WHERE account_id = $1 AND filename = $2', [req.accountId, template_name]);
-    console.log('Plantillas encontradas:', tplResult.rows.length);
-    console.log('Iniciando query GraphQL para item:', item_id);
-    if (!tplResult.rows.length) { await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', 'Plantilla no encontrada', jobId]); return; }
+    await pool.query('INSERT INTO pdf_jobs (job_id, account_id, status) VALUES ($1,$2,$3)', [jobId, accountId, 'processing']);
+    res.json({ job_id: jobId, status: 'processing' });
+  } catch(e) {
+    return res.status(500).json({ error: e.message });
+  }
 
-    const query = 'query { items(ids: ' + item_id + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
-    const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: accessToken, 'Content-Type': 'application/json' }, timeout: 15000 });
-    const item = response.data.data.items[0];
-
-    const data = { nombre: item.name };
-    item.column_values.forEach(col => { data[toVarName(col.column.title)] = extractColumnValue(col); });
-    calcularTotales(data, item.subitems, item.column_values);
-
-    const zip = new PizZip(tplResult.rows[0].data);
-    const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true, delimiters: { start: '{{', end: '}}' } });
-    doc.render(data);
-
-    const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
-    const baseName = item.name.replace(/[^a-zA-Z0-9]/g, '_') + '_' + Date.now();
-    const docxPath = path.join(outputsDir, baseName + '.docx');
-    const pdfPath = path.join(outputsDir, baseName + '.pdf');
-    fs.writeFileSync(docxPath, outputBuffer);
-
-    exec('libreoffice --headless --convert-to pdf --outdir ' + outputsDir + ' ' + docxPath, async (err) => {
-      try { fs.unlinkSync(docxPath); } catch(e) {}
-      if (err || !fs.existsSync(pdfPath)) {
-        await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', 'Error convirtiendo a PDF', jobId]);
+  // Usar setImmediate para ejecutar fuera del ciclo del request
+  setImmediate(async () => {
+    try {
+      console.log('PDF async - obteniendo plantilla...');
+      const tplResult = await pool.query('SELECT data FROM templates WHERE account_id = $1 AND filename = $2', [accountId, template_name]);
+      if (!tplResult.rows.length) {
+        await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', 'Plantilla no encontrada', jobId]);
         return;
       }
-      await pool.query('UPDATE pdf_jobs SET status=$1, filename=$2, item_name=$3 WHERE job_id=$4', ['ready', baseName + '.pdf', item.name, jobId]);
-      await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename) VALUES ($1,$2,$3,$4,$5,$6)', [req.accountId, board_id, item_id, item.name, template_name, baseName + '.pdf']);
-    });
-  } catch(err) {
-    console.error('Error en PDF async:', err.message);
-    await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', err.message, jobId]).catch(()=>{});
-  }
+
+      console.log('PDF async - consultando monday...');
+      const query = 'query { items(ids: ' + item_id + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
+      
+      const response = await axios.post('https://api.monday.com/v2', { query }, {
+        headers: { Authorization: accessToken, 'Content-Type': 'application/json' },
+        timeout: 20000
+      });
+
+      const item = response.data.data?.items?.[0];
+      if (!item) {
+        await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', 'Item no encontrado', jobId]);
+        return;
+      }
+      console.log('PDF async - item obtenido:', item.name);
+
+      const data = { nombre: item.name };
+      item.column_values.forEach(col => { data[toVarName(col.column.title)] = extractColumnValue(col); });
+      calcularTotales(data, item.subitems, item.column_values);
+
+      const zip = new PizZip(tplResult.rows[0].data);
+      const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true, delimiters: { start: '{{', end: '}}' } });
+      doc.render(data);
+
+      const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
+      const baseName = item.name.replace(/[^a-zA-Z0-9]/g, '_') + '_' + Date.now();
+      const docxPath = path.join(outputsDir, baseName + '.docx');
+      const pdfPath = path.join(outputsDir, baseName + '.pdf');
+      fs.writeFileSync(docxPath, outputBuffer);
+
+      console.log('PDF async - convirtiendo con LibreOffice...');
+      exec('libreoffice --headless --convert-to pdf --outdir ' + outputsDir + ' ' + docxPath, async (err) => {
+        try { fs.unlinkSync(docxPath); } catch(e) {}
+        if (err || !fs.existsSync(pdfPath)) {
+          console.error('PDF async - error LibreOffice:', err?.message);
+          await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', 'Error convirtiendo a PDF: ' + (err?.message || 'unknown'), jobId]);
+          return;
+        }
+        console.log('PDF async - PDF listo:', pdfPath);
+        await pool.query('UPDATE pdf_jobs SET status=$1, filename=$2, item_name=$3 WHERE job_id=$4', ['ready', baseName + '.pdf', item.name, jobId]);
+        await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename) VALUES ($1,$2,$3,$4,$5,$6)', [accountId, board_id, item_id, item.name, template_name, baseName + '.pdf']);
+      });
+
+    } catch(err) {
+      console.error('PDF async - error:', err.message);
+      await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', err.message, jobId]).catch(()=>{});
+    }
+  });
+
 });
+
 
 app.get('/pdf-status/:jobId', async (req, res) => {
   try {
