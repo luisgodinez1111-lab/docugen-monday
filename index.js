@@ -134,6 +134,7 @@ async function createDocxtemplater(zip, accountId) {
   return new Docxtemplater(zip, {
     paragraphLoop: true,
     linebreaks: true,
+    delimiters: { start: '{{', end: '}}' },
     modules: [imageModule]
   });
 }
