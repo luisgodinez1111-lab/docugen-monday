@@ -944,14 +944,33 @@ app.get('/sign/:token/download', async (req, res) => {
       return res.send(sig.signed_pdf);
     }
 
-    // 2. Buscar doc_data en documents
-    const docR = await pool.query('SELECT doc_data, filename FROM documents WHERE filename=$1 LIMIT 1', [filename]);
+    // 2. Buscar doc_data en documents por filename exacto o template_name
+    const docR = await pool.query(
+      'SELECT doc_data, filename FROM documents WHERE (filename=$1 OR template_name=$1) AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+      [filename]
+    );
     if (docR.rows.length && docR.rows[0].doc_data) {
-      const ext = filename.split('.').pop().toLowerCase();
+      const fn = docR.rows[0].filename || filename;
+      const ext = fn.split('.').pop().toLowerCase();
       const mime = ext === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      res.set('Content-Disposition', 'attachment; filename="' + filename + '"');
+      res.set('Content-Disposition', 'attachment; filename="' + fn + '"');
       res.set('Content-Type', mime);
       return res.send(docR.rows[0].doc_data);
+    }
+    // 2b. Buscar por account_id + template_name
+    if (sig.account_id) {
+      const docR2 = await pool.query(
+        'SELECT doc_data, filename FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+        [sig.account_id]
+      );
+      if (docR2.rows.length && docR2.rows[0].doc_data) {
+        const fn = docR2.rows[0].filename || filename;
+        const ext = fn.split('.').pop().toLowerCase();
+        const mime = ext === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        res.set('Content-Disposition', 'attachment; filename="' + fn + '"');
+        res.set('Content-Type', mime);
+        return res.send(docR2.rows[0].doc_data);
+      }
     }
 
     // 3. Buscar en outputs filesystem
