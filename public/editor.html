@@ -1231,7 +1231,7 @@ async function loadVariables() {
 // ============================================================
 async function saveTemplate() {
   const name = document.getElementById('templateName').value || 'Mi Plantilla';
-  const json = canvas.toJSON(['isGrid', 'varName']);
+  const json = canvas.toJSON(['isGrid', 'varName', 'tableType', 'tableCols', 'tableLoop', 'tableHeaderColor']);
   json.name = name;
 
   // Save locally
