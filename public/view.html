@@ -100,6 +100,46 @@
       <div class="account-badge" id="account-badge"></div>
       <div class="board-badge" id="board-badge" style="display:none"></div>
     </div>
+
+    <div class="card">
+      <div class="card-label">Paso 1 — Plantilla</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div class="section-title" style="margin-bottom:0">Selecciona una plantilla</div>
+        <button class="btn" onclick="openEditor()" style="font-size:11px;padding:5px 10px;background:var(--accent);color:white;border:none;border-radius:6px;cursor:pointer">✏ Diseñar</button>
+      </div>
+      <div class="section-desc">Elige una plantilla con variables <span class="badge">{{variable}}</span></div>
+      <div id="template-list" class="template-list"><div class="empty">Cargando...</div></div>
+      <div class="divider">o sube nueva</div>
+      <div class="upload-area" id="upload-area">
+        <input type="file" accept=".docx" id="file-input" onchange="handleFileUpload(event)">
+        <div class="upload-icon">📄</div>
+        <div class="upload-text"><strong>Click para subir</strong> un .docx</div>
+        <div class="upload-filename" id="upload-filename"></div>
+      </div>
+      <div id="upload-status"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-label">Paso 2 — Item</div>
+      <div class="section-title">Selecciona un item</div>
+      <div class="section-desc" id="items-desc">Items del tablero activo</div>
+      <div id="items-list" class="items-list"><div class="empty">Cargando...</div></div>
+
+      <!-- Panel de variables -->
+      <div id="variables-panel" class="variables-panel" style="display:none">
+        <div class="variables-header" onclick="toggleVariables()">
+          <span>Variables disponibles</span>
+          <span class="toggle" id="toggle-icon">▼ ver</span>
+        </div>
+        <div class="variables-table" id="variables-table">
+          <div id="variables-list"></div>
+          <div class="var-row" style="background:#F9F8F5">
+            <span class="copy-hint" style="font-size:11px;color:var(--muted);padding:4px 0">Click en una variable para copiarla al portapapeles</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-label">Paso 3 — Generar</div>
       <div class="section-title">Genera el documento</div>
