@@ -275,15 +275,16 @@
       const res = await fetch(API + '/templates?account_id=' + accountId);
       const data = await res.json();
       const list = document.getElementById('template-list');
-      const tpls = data.templates.map(t => typeof t === 'string' ? t : t.filename);
+      const tpls = (data.templates || []).map(t => typeof t === 'string' ? t : t.filename);
       if (!tpls.length) { list.innerHTML = '<div class="empty">No hay plantillas. Sube una.</div>'; return; }
       list.innerHTML = tpls.map(t =>
-        '<div class="template-item" onclick="selectTemplate(\'' + t + '\')" id="tpl-' + t.replace(/[.\s]/g,'-') + '"><span>📄</span><span>' + t + '</span></div>'
+        '<div class="template-item" onclick="selectTemplate(\'' + t + '\')" id="tpl-' + t.replace(/[\.\s]/g,'-') + '"><span>📄</span><span>' + t + '</span></div>'
       ).join('');
     } catch(e) { document.getElementById('template-list').innerHTML = '<div class="empty">Error al cargar</div>'; }
   }
 
   async function loadBoardItems(bid) {
+    try {
       const res = await fetch(API + '/board-items', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
