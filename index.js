@@ -929,68 +929,101 @@ app.get('/sign/:token/info', async (req, res) => {
   } catch(e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
-// DOWNLOAD endpoint
+// DOWNLOAD endpoint — siempre sirve PDF
 app.get('/sign/:token/download', async (req, res) => {
   try {
     const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
     if (!r.rows.length) return res.status(404).send('No encontrado');
     const sig = r.rows[0];
     const filename = sig.document_filename;
+    const PDFDocument = require('pdf-lib').PDFDocument;
+    const { rgb } = require('pdf-lib');
 
-    // 1. Buscar signed_pdf si ya fue firmado
-    console.log('Download - status:', sig.status, 'has signed_pdf:', !!sig.signed_pdf, 'filename:', filename);
-    if (sig.status === 'signed') {
-      // Verificar en DB si tiene signed_pdf
-      const sigR = await pool.query('SELECT signed_pdf FROM signature_requests WHERE token=$1', [req.params.token]);
-      const spdf = sigR.rows[0]?.signed_pdf;
-      console.log('signed_pdf bytes:', spdf ? spdf.length : 0);
-      if (spdf && spdf.length > 0) {
-        res.set('Content-Disposition', 'attachment; filename="firmado_' + filename.replace('.docx','.pdf') + '"');
-        res.set('Content-Type', 'application/pdf');
-        return res.send(spdf);
-      }
+    // 1. Si tiene signed_pdf ya generado, servirlo
+    const sigR = await pool.query('SELECT signed_pdf, signature_data, signer_name, signed_at, signer_ip FROM signature_requests WHERE token=$1', [req.params.token]);
+    const sigRow = sigR.rows[0];
+    if (sigRow?.signed_pdf?.length > 0) {
+      res.set('Content-Disposition', 'attachment; filename="' + filename.replace(/\.\w+$/, '') + '_firmado.pdf"');
+      res.set('Content-Type', 'application/pdf');
+      return res.send(sigRow.signed_pdf);
     }
 
-    // 2. Buscar doc_data en documents por filename exacto o template_name
+    // 2. Buscar doc_data del documento
+    let docData = null;
     const docR = await pool.query(
-      'SELECT doc_data, filename FROM documents WHERE (filename=$1 OR template_name=$1) AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+      'SELECT doc_data FROM documents WHERE (filename=$1 OR template_name=$1) AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
       [filename]
     );
-    if (docR.rows.length && docR.rows[0].doc_data) {
-      const fn = docR.rows[0].filename || filename;
-      const ext = fn.split('.').pop().toLowerCase();
-      const mime = ext === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      res.set('Content-Disposition', 'attachment; filename="' + fn + '"');
-      res.set('Content-Type', mime);
-      return res.send(docR.rows[0].doc_data);
-    }
-    // 2b. Buscar por account_id + template_name
-    if (sig.account_id) {
+    if (docR.rows.length) docData = docR.rows[0].doc_data;
+
+    if (!docData && sig.account_id) {
       const docR2 = await pool.query(
-        'SELECT doc_data, filename FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+        'SELECT doc_data FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
         [sig.account_id]
       );
-      if (docR2.rows.length && docR2.rows[0].doc_data) {
-        const fn = docR2.rows[0].filename || filename;
-        const ext = fn.split('.').pop().toLowerCase();
-        const mime = ext === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-        res.set('Content-Disposition', 'attachment; filename="' + fn + '"');
-        res.set('Content-Type', mime);
-        return res.send(docR2.rows[0].doc_data);
-      }
+      if (docR2.rows.length) docData = docR2.rows[0].doc_data;
     }
 
-    // 3. Buscar en outputs filesystem
-    const filePath = path.join(outputsDir, filename);
-    if (fs.existsSync(filePath)) return res.download(filePath);
+    // 3. Generar PDF con info del documento + firma si existe
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([595, 842]);
+    const { width, height } = page.getSize();
 
-    // 4. Buscar cualquier archivo que empiece igual
-    const baseName = filename.replace(/\.[^.]+$/, '');
-    const files = fs.readdirSync(outputsDir).filter(f => f.startsWith(baseName));
-    if (files.length) return res.download(path.join(outputsDir, files[0]));
+    // Header
+    page.drawRectangle({ x:0, y:height-80, width, height:80, color:rgb(0.11,0.27,0.53) });
+    page.drawText('DOCUMENTO DIGITAL', { x:40, y:height-35, size:20, color:rgb(1,1,1) });
+    page.drawText(filename, { x:40, y:height-58, size:10, color:rgb(0.8,0.9,1) });
 
-    res.status(404).send('Archivo no encontrado. Genera el documento primero desde DocuGen.');
-  } catch(e) { res.status(500).send('Error: ' + e.message); }
+    // Info
+    let y = height - 110;
+    const info = [
+      ['Documento', filename],
+      ['Destinatario', sig.signer_name || '—'],
+      ['Email', sig.signer_email || '—'],
+      ['Estado', sig.status === 'signed' ? '✅ Firmado' : '⏳ Pendiente'],
+      ['Generado', sig.created_at ? new Date(sig.created_at).toLocaleString('es-MX') : '—'],
+    ];
+    if (sig.status === 'signed') {
+      info.push(['Firmado el', sigRow?.signed_at ? new Date(sigRow.signed_at).toLocaleString('es-MX') : '—']);
+      info.push(['IP del firmante', sigRow?.signer_ip || '—']);
+    }
+    for (const [label, val] of info) {
+      page.drawText(label + ':', { x:40, y, size:10, color:rgb(0.4,0.4,0.4) });
+      page.drawText(String(val), { x:160, y, size:10, color:rgb(0.1,0.1,0.1) });
+      y -= 22;
+    }
+
+    // Firma
+    if (sig.status === 'signed' && sigRow?.signature_data) {
+      y -= 10;
+      page.drawLine({ start:{x:40,y}, end:{x:555,y}, thickness:1, color:rgb(0.85,0.85,0.85) });
+      y -= 25;
+      page.drawText('FIRMA DEL FIRMANTE', { x:40, y, size:10, color:rgb(0.4,0.4,0.4) });
+      y -= 15;
+      try {
+        const b64 = sigRow.signature_data.replace(/^data:image\/\w+;base64,/, '');
+        const imgBytes = Buffer.from(b64, 'base64');
+        const sigImg = sigRow.signature_data.includes('png')
+          ? await pdfDoc.embedPng(imgBytes)
+          : await pdfDoc.embedJpg(imgBytes);
+        const dims = sigImg.scaleToFit(280, 100);
+        page.drawImage(sigImg, { x:40, y:y-dims.height, width:dims.width, height:dims.height });
+        y -= dims.height + 20;
+      } catch(e) { console.error('Sig embed:', e.message); }
+    }
+
+    // Footer
+    page.drawLine({ start:{x:40,y:60}, end:{x:555,y:60}, thickness:1, color:rgb(0.85,0.85,0.85) });
+    page.drawText('Documento generado y gestionado por DocuGen · docugen-monday-production.up.railway.app', {
+      x:40, y:45, size:8, color:rgb(0.6,0.6,0.6)
+    });
+
+    const pdfBytes = await pdfDoc.save();
+    const pdfName = filename.replace(/\.\w+$/, '') + (sig.status === 'signed' ? '_firmado' : '') + '.pdf';
+    res.set('Content-Disposition', 'attachment; filename="' + pdfName + '"');
+    res.set('Content-Type', 'application/pdf');
+    res.send(Buffer.from(pdfBytes));
+  } catch(e) { console.error('Download error:', e); res.status(500).send('Error: ' + e.message); }
 });
 
 // PORTAL - debe ir DESPUÉS de /info y /download
