@@ -362,6 +362,22 @@ function applyTheme(t, el) {
   activeTheme = t;
   document.querySelectorAll('.theme-swatch').forEach(s => s.classList.remove('active'));
   el.classList.add('active');
+
+  // Aplicar tema al fondo del canvas
+  canvas.setBackgroundColor(t.background, canvas.renderAll.bind(canvas));
+
+  // Aplicar colores a objetos existentes
+  canvas.getObjects().forEach(obj => {
+    if (obj.type === 'i-text' || obj.type === 'text' || obj.type === 'textbox') {
+      obj.set('fill', t.text);
+    } else if (obj.type === 'rect') {
+      if (obj.fill && obj.fill !== 'transparent') obj.set('fill', t.secondary);
+      if (obj.stroke) obj.set('stroke', t.primary);
+    } else if (obj.type === 'line') {
+      obj.set('stroke', t.primary);
+    }
+  });
+  canvas.renderAll();
   showToast('Tema aplicado: ' + t.name, 'success');
 }
 
