@@ -240,6 +240,28 @@
       document.getElementById('logo-status').innerHTML = '<div class="status error">✗ Error al subir logo</div>';
     }
   }
+  async function duplicateTemplate(filename) {
+    const newName = prompt('Nombre para la copia:', filename.replace('.docx','') + '_copia');
+    if (!newName) return;
+    const res = await fetch(API + '/templates/' + encodeURIComponent(filename) + '/duplicate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
+      body: JSON.stringify({ newName })
+    });
+    const data = await res.json();
+    if (data.success) { await loadTemplates(); }
+    else alert('Error: ' + data.error);
+  }
+
+  async function deleteTemplate(filename) {
+    if (!confirm('¿Eliminar plantilla ' + filename + '?')) return;
+    const res = await fetch(API + '/templates/' + encodeURIComponent(filename), {
+      method: 'DELETE', headers: { 'x-account-id': accountId }
+    });
+    const data = await res.json();
+    if (data.success) { await loadTemplates(); }
+    else alert('Error: ' + data.error);
+  }
+
   function openEditor() {
     const url = '/editor?account_id=' + accountId + (boardId ? '&boardId=' + boardId : '');
     window.open(url, '_blank');
@@ -278,7 +300,12 @@
       const tpls = (data.templates || []).map(t => typeof t === 'string' ? t : t.filename);
       if (!tpls.length) { list.innerHTML = '<div class="empty">No hay plantillas. Sube una.</div>'; return; }
       list.innerHTML = tpls.map(t =>
-        '<div class="template-item" onclick="selectTemplate(\'' + t + '\')" id="tpl-' + t.replace(/[\.\s]/g,'-') + '"><span>📄</span><span>' + t + '</span></div>'
+        '<div class="template-item" id="tpl-' + t.replace(/[\.\s]/g,'-') + '" style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px">' +
+        '<div onclick="selectTemplate(\'' + t + '\')" style="display:flex;align-items:center;gap:8px;flex:1;cursor:pointer"><span>📄</span><span style="font-size:12px">' + t + '</span></div>' +
+        '<div style="display:flex;gap:3px">' +
+        '<button onclick="event.stopPropagation();duplicateTemplate(\'' + t + '\')" title="Duplicar" style="padding:2px 6px;font-size:10px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer">⧉</button>' +
+        '<button onclick="event.stopPropagation();deleteTemplate(\'' + t + '\')" title="Eliminar" style="padding:2px 6px;font-size:10px;background:transparent;border:1px solid #f87171;border-radius:4px;color:#f87171;cursor:pointer">🗑</button>' +
+        '</div></div>'
       ).join('');
     } catch(e) { document.getElementById('template-list').innerHTML = '<div class="empty">Error al cargar</div>'; }
   }
