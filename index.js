@@ -976,11 +976,11 @@ app.get('/sign/:token/download', async (req, res) => {
       ['Documento', filename],
       ['Destinatario', sig.signer_name || '—'],
       ['Email', sig.signer_email || '—'],
-      ['Estado', sig.status === 'signed' ? '✅ Firmado' : '⏳ Pendiente'],
+      ['Estado', sig.status === 'signed' ? 'FIRMADO' : 'PENDIENTE'],
       ['Generado', sig.created_at ? new Date(sig.created_at).toLocaleString('es-MX') : '—'],
     ];
     if (sig.status === 'signed') {
-      info.push(['Firmado el', sigRow?.signed_at ? new Date(sigRow.signed_at).toLocaleString('es-MX') : '—']);
+      info.push(['Fecha de firma', sigRow?.signed_at ? new Date(sigRow.signed_at).toLocaleString('es-MX') : '—']);
       info.push(['IP del firmante', sigRow?.signer_ip || '—']);
     }
     for (const [label, val] of info) {
