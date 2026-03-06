@@ -843,3 +843,173 @@ app.post('/templates/:filename/rename', requireAuth, async (req, res) => {
     res.json({ success: true, filename: newFilename });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
+
+// ─── FIRMA DIGITAL ────────────────────────────────────────
+app.post('/signatures/request', requireAuth, async (req, res) => {
+  const { document_filename, signer_name, signer_email, item_id, board_id } = req.body;
+  if (!document_filename || !signer_name) return res.status(400).json({ error: 'Faltan datos' });
+  try {
+    const token = require('crypto').randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 días
+    await pool.query(`CREATE TABLE IF NOT EXISTS signature_requests (
+      id SERIAL PRIMARY KEY,
+      token TEXT UNIQUE NOT NULL,
+      account_id TEXT NOT NULL,
+      document_filename TEXT NOT NULL,
+      signer_name TEXT,
+      signer_email TEXT,
+      item_id TEXT,
+      board_id TEXT,
+      status TEXT DEFAULT 'pending',
+      signature_data TEXT,
+      signed_at TIMESTAMP,
+      expires_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`);
+    await pool.query(
+      'INSERT INTO signature_requests (token, account_id, document_filename, signer_name, signer_email, item_id, board_id, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+      [token, req.accountId, document_filename, signer_name, signer_email, item_id, board_id, expiresAt]
+    );
+    const signUrl = process.env.APP_URL + '/sign/' + token;
+    res.json({ success: true, token, sign_url: signUrl });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/sign/:token', async (req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
+    if (!r.rows.length) return res.status(404).send('Link no válido');
+    const sig = r.rows[0];
+    if (sig.status === 'signed') return res.send(signedPage(sig));
+    if (new Date() > new Date(sig.expires_at)) return res.send(expiredPage());
+    res.send(signPage(sig));
+  } catch(e) { res.status(500).send('Error: ' + e.message); }
+});
+
+app.post('/sign/:token', async (req, res) => {
+  const { signature_data, signer_name } = req.body;
+  if (!signature_data) return res.status(400).json({ error: 'Firma requerida' });
+  try {
+    const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1 AND status=$2', [req.params.token, 'pending']);
+    if (!r.rows.length) return res.status(404).json({ error: 'Link no válido o ya firmado' });
+    const sig = r.rows[0];
+    if (new Date() > new Date(sig.expires_at)) return res.status(400).json({ error: 'Link expirado' });
+    await pool.query(
+      'UPDATE signature_requests SET status=$1, signature_data=$2, signer_name=$3, signed_at=NOW() WHERE token=$4',
+      ['signed', signature_data, signer_name || sig.signer_name, req.params.token]
+    );
+    res.json({ success: true, message: 'Documento firmado exitosamente' });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/signatures', requireAuth, async (req, res) => {
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS signature_requests (
+      id SERIAL PRIMARY KEY, token TEXT UNIQUE NOT NULL, account_id TEXT NOT NULL,
+      document_filename TEXT NOT NULL, signer_name TEXT, signer_email TEXT,
+      item_id TEXT, board_id TEXT, status TEXT DEFAULT 'pending',
+      signature_data TEXT, signed_at TIMESTAMP, expires_at TIMESTAMP, created_at TIMESTAMP DEFAULT NOW()
+    )`);
+    const r = await pool.query('SELECT id, document_filename, signer_name, signer_email, status, signed_at, created_at, token FROM signature_requests WHERE account_id=$1 ORDER BY created_at DESC LIMIT 50', [req.accountId]);
+    res.json({ signatures: r.rows });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+function signPage(sig) {
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Firma de documento</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#f5f5f5;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.card{background:white;border-radius:12px;padding:28px;max-width:480px;width:100%;box-shadow:0 4px 24px rgba(0,0,0,0.1)}
+h2{font-size:20px;margin-bottom:6px;color:#111}
+.doc-name{font-size:13px;color:#666;margin-bottom:20px;padding:8px 12px;background:#f8f8f8;border-radius:6px}
+label{font-size:12px;font-weight:600;color:#444;display:block;margin-bottom:5px}
+input{width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;margin-bottom:14px;outline:none}
+input:focus{border-color:#5b6af5}
+.canvas-wrap{border:2px dashed #ddd;border-radius:8px;background:#fafafa;margin-bottom:14px;position:relative}
+canvas{display:block;touch-action:none;cursor:crosshair}
+.canvas-label{position:absolute;top:8px;left:12px;font-size:11px;color:#aaa;pointer-events:none}
+.btn-row{display:flex;gap:8px}
+.btn{flex:1;padding:10px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all 0.15s}
+.btn-clear{background:#f5f5f5;color:#666}
+.btn-submit{background:#5b6af5;color:white}
+.btn-submit:hover{background:#6b7aff}
+.expires{font-size:11px;color:#aaa;text-align:center;margin-top:12px}
+</style></head><body>
+<div class="card">
+  <h2>✍️ Firma requerida</h2>
+  <div class="doc-name">📄 ${sig.document_filename}</div>
+  <label>Tu nombre completo</label>
+  <input id="signerName" value="${sig.signer_name || ''}" placeholder="Nombre del firmante">
+  <label>Firma aquí abajo</label>
+  <div class="canvas-wrap">
+    <canvas id="sigCanvas" width="424" height="160"></canvas>
+    <div class="canvas-label">Dibuja tu firma</div>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-clear" onclick="clearSig()">🗑 Limpiar</button>
+    <button class="btn btn-submit" onclick="submitSig()">✓ Firmar documento</button>
+  </div>
+  <div class="expires">Este link expira el ${new Date(sig.expires_at).toLocaleDateString('es-MX')}</div>
+</div>
+<script>
+const canvas = document.getElementById('sigCanvas');
+const ctx = canvas.getContext('2d');
+let drawing = false, hasSig = false;
+ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+function getPos(e) {
+  const r = canvas.getBoundingClientRect();
+  const src = e.touches ? e.touches[0] : e;
+  return { x: src.clientX - r.left, y: src.clientY - r.top };
+}
+canvas.addEventListener('mousedown', e => { drawing=true; const p=getPos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); });
+canvas.addEventListener('mousemove', e => { if(!drawing) return; const p=getPos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); hasSig=true; });
+canvas.addEventListener('mouseup', () => drawing=false);
+canvas.addEventListener('touchstart', e => { e.preventDefault(); drawing=true; const p=getPos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); }, {passive:false});
+canvas.addEventListener('touchmove', e => { e.preventDefault(); if(!drawing) return; const p=getPos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); hasSig=true; }, {passive:false});
+canvas.addEventListener('touchend', () => drawing=false);
+
+function clearSig() { ctx.clearRect(0,0,canvas.width,canvas.height); hasSig=false; }
+
+async function submitSig() {
+  if (!hasSig) { alert('Por favor dibuja tu firma'); return; }
+  const name = document.getElementById('signerName').value;
+  if (!name) { alert('Por favor ingresa tu nombre'); return; }
+  const sigData = canvas.toDataURL('image/png');
+  const btn = document.querySelector('.btn-submit');
+  btn.textContent = 'Firmando...'; btn.disabled = true;
+  try {
+    const res = await fetch(window.location.pathname, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ signature_data: sigData, signer_name: name })
+    });
+    const data = await res.json();
+    if (data.success) {
+      document.querySelector('.card').innerHTML = '<div style="text-align:center;padding:20px"><div style="font-size:48px;margin-bottom:16px">✅</div><h2 style="color:#059669;margin-bottom:8px">¡Documento firmado!</h2><p style="color:#666;font-size:13px">Tu firma ha sido registrada exitosamente.</p></div>';
+    } else { alert('Error: ' + data.error); btn.textContent = '✓ Firmar'; btn.disabled=false; }
+  } catch(e) { alert('Error de conexión'); btn.textContent = '✓ Firmar'; btn.disabled=false; }
+}
+</script></body></html>`;
+}
+
+function signedPage(sig) {
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Ya firmado</title>
+  <style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f5f5f5}
+  .card{background:white;border-radius:12px;padding:32px;text-align:center;max-width:400px;box-shadow:0 4px 24px rgba(0,0,0,0.1)}</style></head>
+  <body><div class="card"><div style="font-size:48px;margin-bottom:16px">✅</div>
+  <h2 style="color:#059669;margin-bottom:8px">Documento ya firmado</h2>
+  <p style="color:#666;font-size:13px">Este documento fue firmado el ${sig.signed_at ? new Date(sig.signed_at).toLocaleDateString('es-MX') : ''}.</p>
+  </div></body></html>`;
+}
+
+function expiredPage() {
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Link expirado</title>
+  <style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f5f5f5}
+  .card{background:white;border-radius:12px;padding:32px;text-align:center;max-width:400px;box-shadow:0 4px 24px rgba(0,0,0,0.1)}</style></head>
+  <body><div class="card"><div style="font-size:48px;margin-bottom:16px">⏰</div>
+  <h2 style="color:#dc2626;margin-bottom:8px">Link expirado</h2>
+  <p style="color:#666;font-size:13px">Este link de firma ya no es válido. Solicita uno nuevo.</p>
+  </div></body></html>`;
+}
