@@ -1188,22 +1188,23 @@ async function saveTemplate() {
   // Save locally
   localStorage.setItem('docugen_template_' + name, JSON.stringify(json));
 
-  // Save to server
-  if (accountId) {
-    try {
-      const blob = await canvasToDocx();
-      const formData = new FormData();
-      formData.append('template', blob, name + '.docx');
-      formData.append('account_id', accountId);
-      const res = await fetch(API + '/upload-template', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (data.success) showToast('Plantilla guardada: ' + name + '.docx', 'success');
-      else showToast('Error guardando: ' + data.error, 'error');
-    } catch(e) {
-      showToast('Guardado local OK. Error servidor: ' + e.message, 'error');
+  if (!accountId) { showToast('Guardado local', 'success'); return; }
+
+  try {
+    showToast('Guardando plantilla...', '');
+    const res = await fetch(API + '/editor/save-template', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
+      body: JSON.stringify({ canvasJson: json, templateName: name })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('✓ Plantilla guardada: ' + data.filename, 'success');
+    } else {
+      showToast('Error: ' + data.error, 'error');
     }
-  } else {
-    showToast('Guardado local', 'success');
+  } catch(e) {
+    showToast('Error: ' + e.message, 'error');
   }
 }
 
