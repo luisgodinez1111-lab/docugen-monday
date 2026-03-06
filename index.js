@@ -906,6 +906,49 @@ app.post('/signatures/request', requireAuth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// INFO endpoint - debe ir ANTES del portal
+app.get('/sign/:token/info', async (req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
+    if (!r.rows.length) return res.status(404).json({ success: false, error: 'Token no válido' });
+    const sig = r.rows[0];
+    const expired = sig.expires_at && new Date(sig.expires_at) < new Date();
+    res.json({
+      success: true,
+      document_filename: sig.document_filename,
+      signer_name: sig.signer_name,
+      signer_email: sig.signer_email,
+      status: sig.status || 'pending',
+      signed_at: sig.signed_at,
+      created_at: sig.created_at,
+      expires_at: sig.expires_at,
+      expired,
+      needs_otp: !!(sig.otp_code && !sig.otp_verified),
+      group_id: sig.group_id
+    });
+  } catch(e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// DOWNLOAD endpoint
+app.get('/sign/:token/download', async (req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
+    if (!r.rows.length) return res.status(404).send('No encontrado');
+    const sig = r.rows[0];
+    const filename = sig.document_filename;
+    const docR = await pool.query('SELECT doc_data FROM documents WHERE filename=$1 LIMIT 1', [filename]);
+    if (docR.rows.length && docR.rows[0].doc_data) {
+      res.set('Content-Disposition', 'attachment; filename="' + filename + '"');
+      res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      return res.send(docR.rows[0].doc_data);
+    }
+    const filePath = path.join(outputsDir, filename);
+    if (fs.existsSync(filePath)) return res.download(filePath);
+    res.status(404).send('Archivo no encontrado');
+  } catch(e) { res.status(500).send('Error: ' + e.message); }
+});
+
+// PORTAL - debe ir DESPUÉS de /info y /download
 app.get('/sign/:token', async (req, res) => {
   return res.sendFile(require('path').join(__dirname, 'public', 'portal.html'));
 });
