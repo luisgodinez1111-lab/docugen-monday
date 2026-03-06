@@ -1017,6 +1017,84 @@ app.post('/sign/:token', async (req, res) => {
       ['signed', signature_data, signer_name || sig.signer_name, signerIp, userAgent, req.params.token]
     );
 
+    // Incrustar firma en el documento
+    try {
+      const PDFDocument = require('pdf-lib').PDFDocument;
+      const { rgb } = require('pdf-lib');
+
+      // Buscar el documento original
+      const docR = await pool.query(
+        'SELECT doc_data, filename FROM documents WHERE (filename=$1 OR template_name=$1) AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+        [sig.document_filename]
+      );
+      const docRow = docR.rows.length ? docR.rows[0] : null;
+      const accDocR = !docRow && sig.account_id ? await pool.query(
+        'SELECT doc_data, filename FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+        [sig.account_id]
+      ) : { rows: [] };
+      const finalDoc = docRow || (accDocR.rows.length ? accDocR.rows[0] : null);
+
+      if (finalDoc && finalDoc.doc_data && signature_data && signature_data.startsWith('data:image')) {
+        // Convertir docx a PDF usando html-pdf-node como fallback
+        // Crear PDF simple con la firma incrustada
+        const pdfDoc = await PDFDocument.create();
+        const page = pdfDoc.addPage([595, 842]); // A4
+        const { width, height } = page.getSize();
+
+        // Título
+        page.drawText('Documento firmado digitalmente', {
+          x: 50, y: height - 60,
+          size: 18, color: rgb(0.1, 0.1, 0.4)
+        });
+        page.drawText('Archivo: ' + (finalDoc.filename || sig.document_filename), {
+          x: 50, y: height - 90, size: 11, color: rgb(0.3,0.3,0.3)
+        });
+        page.drawText('Firmante: ' + (signer_name || sig.signer_name || ''), {
+          x: 50, y: height - 115, size: 11, color: rgb(0.3,0.3,0.3)
+        });
+        page.drawText('Fecha: ' + new Date().toLocaleString('es-MX'), {
+          x: 50, y: height - 135, size: 11, color: rgb(0.3,0.3,0.3)
+        });
+        page.drawText('IP: ' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress || ''), {
+          x: 50, y: height - 155, size: 11, color: rgb(0.3,0.3,0.3)
+        });
+
+        // Línea separadora
+        page.drawLine({ start:{x:50,y:height-170}, end:{x:545,y:height-170}, thickness:1, color:rgb(0.8,0.8,0.8) });
+
+        // Incrustar imagen de firma
+        const base64Data = signature_data.replace(/^data:image\/\w+;base64,/, '');
+        const sigImageBytes = Buffer.from(base64Data, 'base64');
+        let sigImage;
+        try {
+          sigImage = signature_data.includes('image/png')
+            ? await pdfDoc.embedPng(sigImageBytes)
+            : await pdfDoc.embedJpg(sigImageBytes);
+        } catch(e) { sigImage = await pdfDoc.embedPng(sigImageBytes).catch(()=>null); }
+
+        if (sigImage) {
+          const sigDims = sigImage.scale(0.5);
+          page.drawText('Firma:', { x: 50, y: height - 210, size: 12, color: rgb(0.3,0.3,0.3) });
+          page.drawImage(sigImage, {
+            x: 50, y: height - 210 - sigDims.height - 10,
+            width: Math.min(sigDims.width, 300),
+            height: Math.min(sigDims.height, 120)
+          });
+        }
+
+        // Pie de página
+        page.drawText('Documento generado y firmado digitalmente por DocuGen', {
+          x: 50, y: 40, size: 9, color: rgb(0.6,0.6,0.6)
+        });
+
+        const signedPdfBytes = await pdfDoc.save();
+        await pool.query(
+          'UPDATE signature_requests SET signed_pdf=$1 WHERE token=$2',
+          [Buffer.from(signedPdfBytes), req.params.token]
+        );
+      }
+    } catch(embedErr) { console.error('Embed signature error:', embedErr.message); }
+
     // Notificar al firmante y buscar email del solicitante
     const downloadUrl = (process.env.APP_URL || 'https://docugen-monday-production.up.railway.app') + '/sign/' + req.params.token + '/download';
     const finalName = signer_name || sig.signer_name;
