@@ -866,6 +866,8 @@ app.post('/signatures/request', requireAuth, async (req, res) => {
       expires_at TIMESTAMP,
       created_at TIMESTAMP DEFAULT NOW()
     )`);
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signer_ip TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS user_agent TEXT');
     await pool.query(
       'INSERT INTO signature_requests (token, account_id, document_filename, signer_name, signer_email, item_id, board_id, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
       [token, req.accountId, document_filename, signer_name, signer_email, item_id, board_id, expiresAt]
@@ -894,9 +896,11 @@ app.post('/sign/:token', async (req, res) => {
     if (!r.rows.length) return res.status(404).json({ error: 'Link no válido o ya firmado' });
     const sig = r.rows[0];
     if (new Date() > new Date(sig.expires_at)) return res.status(400).json({ error: 'Link expirado' });
+    const signerIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const userAgent = req.headers['user-agent'] || '';
     await pool.query(
-      'UPDATE signature_requests SET status=$1, signature_data=$2, signer_name=$3, signed_at=NOW() WHERE token=$4',
-      ['signed', signature_data, signer_name || sig.signer_name, req.params.token]
+      'UPDATE signature_requests SET status=$1, signature_data=$2, signer_name=$3, signed_at=NOW(), signer_ip=$4, user_agent=$5 WHERE token=$6',
+      ['signed', signature_data, signer_name || sig.signer_name, signerIp, userAgent, req.params.token]
     );
     res.json({ success: true, message: 'Documento firmado exitosamente' });
   } catch(e) { res.status(500).json({ error: e.message }); }
