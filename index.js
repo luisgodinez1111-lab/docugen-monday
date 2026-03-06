@@ -246,7 +246,6 @@ const GRAPHQL_COLUMN_FRAGMENT = `
 `;
 
 app.get('/', (req, res) => { res.json({ status: 'ok', message: 'DocuGen for monday', version: '3.0.0' }); });
-app.get('/health', (req, res) => { res.json({ status: 'healthy', timestamp: new Date().toISOString() }); });
 
 app.get('/oauth/start', (req, res) => {
   const clientId = process.env.MONDAY_CLIENT_ID;
