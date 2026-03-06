@@ -256,6 +256,18 @@
       document.getElementById('logo-status').innerHTML = '<div class="status error">✗ Error al subir logo</div>';
     }
   }
+  async function renameTemplate(filename) {
+    const newName = prompt('Nuevo nombre:', filename.replace('.docx',''));
+    if (!newName || newName + '.docx' === filename) return;
+    const res = await fetch(API + '/templates/' + encodeURIComponent(filename) + '/rename', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
+      body: JSON.stringify({ newName })
+    });
+    const data = await res.json();
+    if (data.success) { await loadTemplates(); }
+    else alert('Error: ' + data.error);
+  }
+
   async function duplicateTemplate(filename) {
     const newName = prompt('Nombre para la copia:', filename.replace('.docx','') + '_copia');
     if (!newName) return;
