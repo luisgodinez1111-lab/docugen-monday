@@ -1564,3 +1564,170 @@ app.delete('/webhooks/triggers/:id', requireAuth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+
+
+// ─── MOTOR DE AUTOMATIZACIÓN ──────────────────────────────
+async function executeAutomation(accountId, itemId, boardId, templateName, accessToken) {
+  try {
+    const tplResult = await pool.query('SELECT data FROM templates WHERE account_id=$1 AND filename=$2', [accountId, templateName]);
+    if (!tplResult.rows.length) throw new Error('Plantilla no encontrada: ' + templateName);
+
+    const query = 'query { items(ids: ' + itemId + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
+    const response = await withRetry(() =>
+      axios.post('https://api.monday.com/v2', { query }, {
+        headers: { Authorization: accessToken, 'Content-Type': 'application/json' }
+      })
+    );
+    const item = response.data.data.items[0];
+    if (!item) throw new Error('Item no encontrado: ' + itemId);
+
+    const data = { nombre: item.name };
+    item.column_values.forEach(col => { data[toVarName(col.column.title)] = extractColumnValue(col); });
+    calcularTotales(data, item.subitems, item.column_values);
+
+    const zip = new PizZip(tplResult.rows[0].data);
+    const doc = await createDocxtemplater(zip, accountId);
+    doc.render(data);
+    const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
+    const outputFilename = item.name.replace(/[^a-zA-Z0-9]/g, '_') + '_auto_' + Date.now() + '.docx';
+    fs.writeFileSync(path.join(outputsDir, outputFilename), outputBuffer);
+
+    await pool.query(
+      'INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [accountId, String(boardId), String(itemId), item.name, templateName, outputFilename, outputBuffer]
+    );
+
+    // Comentar en monday que se generó el doc
+    const commentQuery = `mutation { create_update(item_id: ${itemId}, body: "📄 Documento generado automáticamente: ${outputFilename}") { id } }`;
+    await axios.post('https://api.monday.com/v2', { query: commentQuery }, {
+      headers: { Authorization: accessToken, 'Content-Type': 'application/json' }
+    }).catch(e => console.error('Comment error:', e.message));
+
+    return { success: true, filename: outputFilename };
+  } catch(e) {
+    await logError(accountId, 'automation', e.message, e.stack);
+    return { success: false, error: e.message };
+  }
+}
+
+// Procesar triggers pendientes del webhook
+async function processPendingTriggers() {
+  try {
+    const pending = await pool.query(
+      "SELECT * FROM webhook_events WHERE event_type='trigger_fired' AND column_value='pending' LIMIT 10"
+    );
+    for (const evt of pending.rows) {
+      const trigger = await pool.query(
+        'SELECT * FROM webhook_triggers WHERE account_id=$1 AND template_name=$2 LIMIT 1',
+        [evt.account_id, evt.column_id]
+      );
+      if (!trigger.rows.length) continue;
+      const acc = await pool.query('SELECT access_token FROM accounts WHERE account_id=$1', [evt.account_id]);
+      if (!acc.rows.length) continue;
+
+      const result = await executeAutomation(evt.account_id, evt.item_id, evt.board_id, evt.column_id, acc.rows[0].access_token);
+      await pool.query("UPDATE webhook_events SET column_value=$1 WHERE id=$2", [result.success ? 'done' : 'error:' + result.error, evt.id]);
+      console.log('Trigger procesado:', evt.item_id, result.success ? '✅' : '❌');
+    }
+  } catch(e) { console.error('processPendingTriggers error:', e.message); }
+}
+
+// Correr cada minuto
+cron.schedule('* * * * *', processPendingTriggers);
+
+// ─── GENERACIÓN MASIVA ────────────────────────────────────
+app.post('/generate-bulk', requireAuth, async (req, res) => {
+  const { board_id, item_ids, template_name } = req.body;
+  if (!item_ids || !item_ids.length || !template_name) return res.status(400).json({ error: 'Faltan parámetros' });
+  if (item_ids.length > 50) return res.status(400).json({ error: 'Máximo 50 items a la vez' });
+
+  const results = [];
+  for (const itemId of item_ids) {
+    const r = await executeAutomation(req.accountId, itemId, board_id, template_name, req.accessToken);
+    results.push({ item_id: itemId, ...r });
+    await new Promise(resolve => setTimeout(resolve, 300)); // rate limit
+  }
+  const success = results.filter(r => r.success).length;
+  res.json({ success: true, total: item_ids.length, generated: success, failed: item_ids.length - success, results });
+});
+
+// ─── AUTOMATIZACIONES PROGRAMADAS ─────────────────────────
+app.post('/scheduled-automations', requireAuth, async (req, res) => {
+  const { name, cron_expression, board_id, template_name, condition_column, condition_value } = req.body;
+  if (!cron_expression || !board_id || !template_name) return res.status(400).json({ error: 'Faltan parámetros' });
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS scheduled_automations (
+      id SERIAL PRIMARY KEY, account_id TEXT, name TEXT, cron_expression TEXT,
+      board_id TEXT, template_name TEXT, condition_column TEXT, condition_value TEXT,
+      last_run TIMESTAMP, next_run TIMESTAMP, status TEXT DEFAULT 'active',
+      created_at TIMESTAMP DEFAULT NOW()
+    )`);
+    await pool.query(
+      'INSERT INTO scheduled_automations (account_id, name, cron_expression, board_id, template_name, condition_column, condition_value) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [req.accountId, name, cron_expression, board_id, template_name, condition_column, condition_value]
+    );
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/scheduled-automations', requireAuth, async (req, res) => {
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS scheduled_automations (
+      id SERIAL PRIMARY KEY, account_id TEXT, name TEXT, cron_expression TEXT,
+      board_id TEXT, template_name TEXT, condition_column TEXT, condition_value TEXT,
+      last_run TIMESTAMP, next_run TIMESTAMP, status TEXT DEFAULT 'active',
+      created_at TIMESTAMP DEFAULT NOW()
+    )`);
+    const r = await pool.query('SELECT * FROM scheduled_automations WHERE account_id=$1 ORDER BY created_at DESC', [req.accountId]);
+    res.json({ automations: r.rows });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/scheduled-automations/:id', requireAuth, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM scheduled_automations WHERE id=$1 AND account_id=$2', [req.params.id, req.accountId]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Ejecutar automatizaciones programadas cada hora
+cron.schedule('0 * * * *', async () => {
+  try {
+    const now = new Date();
+    const autos = await pool.query("SELECT * FROM scheduled_automations WHERE status='active'").catch(() => ({ rows: [] }));
+    for (const auto of autos.rows) {
+      // Verificar si toca ejecutar según cron_expression
+      // daily = cada día, weekly = cada lunes, monthly = primer día del mes
+      let shouldRun = false;
+      if (auto.cron_expression === 'daily') shouldRun = now.getHours() === 8;
+      else if (auto.cron_expression === 'weekly') shouldRun = now.getDay() === 1 && now.getHours() === 8;
+      else if (auto.cron_expression === 'monthly') shouldRun = now.getDate() === 1 && now.getHours() === 8;
+
+      if (!shouldRun) continue;
+
+      const acc = await pool.query('SELECT access_token FROM accounts WHERE account_id=$1', [auto.account_id]);
+      if (!acc.rows.length) continue;
+
+      // Obtener items del board
+      const boardQuery = `query { boards(ids: ${auto.board_id}) { items_page(limit: 100) { items { id name column_values { id text } } } } }`;
+      const boardRes = await axios.post('https://api.monday.com/v2', { query: boardQuery }, {
+        headers: { Authorization: acc.rows[0].access_token, 'Content-Type': 'application/json' }
+      }).catch(e => null);
+
+      if (!boardRes) continue;
+      const items = boardRes.data?.data?.boards?.[0]?.items_page?.items || [];
+
+      for (const item of items) {
+        // Aplicar condición si existe
+        if (auto.condition_column && auto.condition_value) {
+          const col = item.column_values.find(c => c.id === auto.condition_column);
+          if (!col || col.text !== auto.condition_value) continue;
+        }
+        await executeAutomation(auto.account_id, item.id, auto.board_id, auto.template_name, acc.rows[0].access_token);
+        await new Promise(r => setTimeout(r, 500));
+      }
+
+      await pool.query('UPDATE scheduled_automations SET last_run=$1 WHERE id=$2', [now, auto.id]);
+    }
+  } catch(e) { console.error('Scheduled automation error:', e.message); }
+});
