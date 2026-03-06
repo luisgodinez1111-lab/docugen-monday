@@ -707,8 +707,56 @@ app.post('/editor/save-template', requireAuth, async (req, res) => {
         }
 
       } else if (obj.type === 'group') {
-        // Groups (tables, signatures) - extract text from children
-        if (obj.objects) {
+        if (obj.tableType === 'products' && obj.tableCols) {
+          // Real table with loop
+          const cols = obj.tableCols;
+          const headerColor = (obj.tableHeaderColor || '#2D5BE3').replace('#','');
+          const loopName = obj.tableLoop || 'subelementos';
+          const colWidthPct = Math.floor(100 / cols.length);
+
+          // Header row
+          const headerCells = cols.map(col => new TableCell({
+            shading: { fill: headerColor, type: ShadingType.CLEAR },
+            borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
+            width: { size: colWidthPct, type: WidthType.PERCENTAGE },
+            children: [new Paragraph({
+              alignment: AlignmentType.LEFT,
+              children: [new TextRun({ text: col.header, bold: true, color: 'FFFFFF', size: 20, font: 'Arial' })]
+            })]
+          }));
+
+          // Data row with loop variables
+          const dataCells = cols.map((col, i) => {
+            const isFirst = i === 0;
+            const isLast = i === cols.length - 1;
+            const cellText = (isFirst ? '{#' + loopName + '}' : '') + col.variable + (isLast ? '{/' + loopName + '}' : '');
+            return new TableCell({
+              shading: { fill: 'F8F9FF', type: ShadingType.CLEAR },
+              borders: {
+                top: { style: BorderStyle.SINGLE, size: 4, color: 'E0E4FF' },
+                bottom: { style: BorderStyle.SINGLE, size: 4, color: 'E0E4FF' },
+                left: { style: BorderStyle.SINGLE, size: 4, color: 'E0E4FF' },
+                right: { style: BorderStyle.SINGLE, size: 4, color: 'E0E4FF' },
+              },
+              width: { size: colWidthPct, type: WidthType.PERCENTAGE },
+              children: [new Paragraph({
+                children: [new TextRun({ text: cellText, size: 20, font: 'Arial' })]
+              })]
+            });
+          });
+
+          const table = new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+              new TableRow({ children: headerCells }),
+              new TableRow({ children: dataCells })
+            ]
+          });
+          children.push(table);
+          children.push(new Paragraph({ children: [] }));
+
+        } else if (obj.objects) {
+          // Other groups - extract text
           const texts = obj.objects
             .filter(o => o.type === 'text' || o.type === 'i-text')
             .map(o => o.text || '')
