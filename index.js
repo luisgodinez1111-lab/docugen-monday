@@ -1,6 +1,8 @@
 const express = require('express');
 const { Resend } = require('resend');
 const resend = new Resend(process.env.RESEND_API_KEY);
+const cron = require('node-cron');
+const cron = require('node-cron');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const axios = require('axios');
@@ -1191,3 +1193,143 @@ function emailSignConfirm(signerName, docName, downloadUrl, signerIp) {
   </div>
 </body></html>`;
 }
+
+// ─── HEALTH CHECK ─────────────────────────────────────────
+app.get('/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    const uptime = process.uptime();
+    const mem = process.memoryUsage();
+    res.json({
+      status: 'ok',
+      uptime_seconds: Math.round(uptime),
+      memory_mb: Math.round(mem.heapUsed / 1024 / 1024),
+      db: 'connected',
+      timestamp: new Date().toISOString()
+    });
+  } catch(e) {
+    res.status(500).json({ status: 'error', db: 'disconnected', error: e.message });
+  }
+});
+
+// ─── MÉTRICAS ─────────────────────────────────────────────
+app.get('/metrics', requireAuth, async (req, res) => {
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS error_logs (
+      id SERIAL PRIMARY KEY, account_id TEXT, error_type TEXT, message TEXT,
+      stack TEXT, created_at TIMESTAMP DEFAULT NOW()
+    )`);
+    const [docs, sigs, tpls, errors, docsToday, sigsToday] = await Promise.all([
+      pool.query('SELECT COUNT(*) FROM documents WHERE account_id=$1', [req.accountId]),
+      pool.query('SELECT COUNT(*) FROM signature_requests WHERE account_id=$1', [req.accountId]),
+      pool.query('SELECT COUNT(*) FROM templates WHERE account_id=$1', [req.accountId]),
+      pool.query('SELECT COUNT(*) FROM error_logs WHERE account_id=$1 AND created_at > NOW() - INTERVAL \'7 days\'', [req.accountId]),
+      pool.query('SELECT COUNT(*) FROM documents WHERE account_id=$1 AND created_at > NOW() - INTERVAL \'1 day\'', [req.accountId]),
+      pool.query('SELECT COUNT(*) FROM signature_requests WHERE account_id=$1 AND created_at > NOW() - INTERVAL \'1 day\'', [req.accountId]),
+    ]);
+    const docsByDay = await pool.query(
+      'SELECT DATE(created_at) as day, COUNT(*) as count FROM documents WHERE account_id=$1 AND created_at > NOW() - INTERVAL \'30 days\' GROUP BY DATE(created_at) ORDER BY day',
+      [req.accountId]
+    );
+    const sigsByStatus = await pool.query(
+      'SELECT status, COUNT(*) as count FROM signature_requests WHERE account_id=$1 GROUP BY status',
+      [req.accountId]
+    );
+    res.json({
+      totals: {
+        documents: parseInt(docs.rows[0].count),
+        signatures: parseInt(sigs.rows[0].count),
+        templates: parseInt(tpls.rows[0].count),
+        errors_7d: parseInt(errors.rows[0].count),
+      },
+      today: {
+        documents: parseInt(docsToday.rows[0].count),
+        signatures: parseInt(sigsToday.rows[0].count),
+      },
+      charts: {
+        docs_by_day: docsByDay.rows,
+        sigs_by_status: sigsByStatus.rows,
+      },
+      system: {
+        uptime_seconds: Math.round(process.uptime()),
+        memory_mb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+        node_version: process.version,
+      }
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── BACKUP AUTOMÁTICO ────────────────────────────────────
+async function runBackup() {
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS backups (
+      id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT NOW(),
+      tables_backed_up INT, total_rows INT, status TEXT, error TEXT
+    )`);
+    // Contar filas de tablas principales
+    const [d, t, s, l] = await Promise.all([
+      pool.query('SELECT COUNT(*) FROM documents'),
+      pool.query('SELECT COUNT(*) FROM templates'),
+      pool.query('SELECT COUNT(*) FROM signature_requests'),
+      pool.query('SELECT COUNT(*) FROM logos'),
+    ]);
+    const totalRows = [d,t,s,l].reduce((sum, r) => sum + parseInt(r.rows[0].count), 0);
+
+    // Exportar templates como JSON backup
+    const tplData = await pool.query('SELECT account_id, filename, created_at FROM templates');
+    const docData = await pool.query('SELECT account_id, item_name, template_name, filename, created_at FROM documents ORDER BY created_at DESC LIMIT 1000');
+
+    const backupJson = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      templates: tplData.rows,
+      documents: docData.rows,
+    });
+
+    // Guardar en tabla de backups
+    await pool.query(`CREATE TABLE IF NOT EXISTS backup_data (
+      id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT NOW(), data TEXT
+    )`);
+    await pool.query('INSERT INTO backup_data (data) VALUES ($1)', [backupJson]);
+    // Mantener solo los últimos 7 backups
+    await pool.query('DELETE FROM backup_data WHERE id NOT IN (SELECT id FROM backup_data ORDER BY created_at DESC LIMIT 7)');
+    await pool.query('INSERT INTO backups (tables_backed_up, total_rows, status) VALUES ($1,$2,$3)', [4, totalRows, 'success']);
+
+    console.log('Backup completado:', totalRows, 'filas,', new Date().toISOString());
+  } catch(e) {
+    console.error('Backup error:', e.message);
+    try {
+      await pool.query('INSERT INTO backups (tables_backed_up, total_rows, status, error) VALUES ($1,$2,$3,$4)', [0, 0, 'error', e.message]);
+      // Alertar por email si hay RESEND_API_KEY
+      if (process.env.RESEND_API_KEY && process.env.ADMIN_EMAIL) {
+        await resend.emails.send({
+          from: 'DocuGen <onboarding@resend.dev>',
+          to: process.env.ADMIN_EMAIL,
+          subject: '⚠️ Error en backup de DocuGen',
+          html: '<p>El backup automático falló: ' + e.message + '</p>'
+        });
+      }
+    } catch(e2) {}
+  }
+}
+
+// Backup cada 24 horas a las 3am
+cron.schedule('0 3 * * *', runBackup);
+
+// Endpoint para ver historial de backups
+app.get('/backups', requireAuth, async (req, res) => {
+  try {
+    const r = await pool.query('SELECT id, created_at, tables_backed_up, total_rows, status, error FROM backups ORDER BY created_at DESC LIMIT 10');
+    res.json({ backups: r.rows });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Endpoint para descargar último backup
+app.get('/backups/latest', requireAuth, async (req, res) => {
+  try {
+    const r = await pool.query('SELECT data, created_at FROM backup_data ORDER BY created_at DESC LIMIT 1');
+    if (!r.rows.length) return res.status(404).json({ error: 'Sin backups' });
+    res.set('Content-Type', 'application/json');
+    res.set('Content-Disposition', 'attachment; filename="docugen_backup_' + new Date().toISOString().split('T')[0] + '.json"');
+    res.send(r.rows[0].data);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
