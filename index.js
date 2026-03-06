@@ -936,15 +936,34 @@ app.get('/sign/:token/download', async (req, res) => {
     if (!r.rows.length) return res.status(404).send('No encontrado');
     const sig = r.rows[0];
     const filename = sig.document_filename;
-    const docR = await pool.query('SELECT doc_data FROM documents WHERE filename=$1 LIMIT 1', [filename]);
+
+    // 1. Buscar signed_pdf si ya fue firmado
+    if (sig.status === 'signed' && sig.signed_pdf) {
+      res.set('Content-Disposition', 'attachment; filename="firmado_' + filename.replace('.docx','.pdf') + '"');
+      res.set('Content-Type', 'application/pdf');
+      return res.send(sig.signed_pdf);
+    }
+
+    // 2. Buscar doc_data en documents
+    const docR = await pool.query('SELECT doc_data, filename FROM documents WHERE filename=$1 LIMIT 1', [filename]);
     if (docR.rows.length && docR.rows[0].doc_data) {
+      const ext = filename.split('.').pop().toLowerCase();
+      const mime = ext === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
       res.set('Content-Disposition', 'attachment; filename="' + filename + '"');
-      res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.set('Content-Type', mime);
       return res.send(docR.rows[0].doc_data);
     }
+
+    // 3. Buscar en outputs filesystem
     const filePath = path.join(outputsDir, filename);
     if (fs.existsSync(filePath)) return res.download(filePath);
-    res.status(404).send('Archivo no encontrado');
+
+    // 4. Buscar cualquier archivo que empiece igual
+    const baseName = filename.replace(/\.[^.]+$/, '');
+    const files = fs.readdirSync(outputsDir).filter(f => f.startsWith(baseName));
+    if (files.length) return res.download(path.join(outputsDir, files[0]));
+
+    res.status(404).send('Archivo no encontrado. Genera el documento primero desde DocuGen.');
   } catch(e) { res.status(500).send('Error: ' + e.message); }
 });
 
