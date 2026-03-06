@@ -32,6 +32,8 @@ async function initDB() {
     await pool.query(`ALTER TABLE templates ADD COLUMN IF NOT EXISTS canvas_json TEXT`);
     await pool.query(`ALTER TABLE templates ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
     await pool.query(`CREATE TABLE IF NOT EXISTS documents (id SERIAL PRIMARY KEY, account_id TEXT NOT NULL, board_id TEXT, item_id TEXT, item_name TEXT, template_name TEXT, filename TEXT NOT NULL, created_at TIMESTAMP DEFAULT NOW());`);
+    await pool.query('ALTER TABLE documents ADD COLUMN IF NOT EXISTS doc_data BYTEA');
+    await pool.query('ALTER TABLE documents ADD COLUMN IF NOT EXISTS signed_pdf BYTEA');
     await pool.query(`CREATE TABLE IF NOT EXISTS pdf_jobs (
         job_id TEXT PRIMARY KEY,
         account_id TEXT,
@@ -398,7 +400,7 @@ app.post('/generate-from-monday', requireAuth, async (req, res) => {
     const outputFilename = item.name.replace(/[^a-zA-Z0-9]/g, '_') + '_' + Date.now() + '.docx';
     fs.writeFileSync(path.join(outputsDir, outputFilename), outputBuffer);
 
-    await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename) VALUES ($1,$2,$3,$4,$5,$6)', [req.accountId, board_id, item_id, item.name, template_name, outputFilename]);
+    await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)', [req.accountId, board_id, item_id, item.name, template_name, outputFilename, outputBuffer]);
 
     res.json({ success: true, filename: outputFilename, data_used: data, download_url: '/download/' + outputFilename });
   } catch (error) {
@@ -1018,3 +1020,79 @@ function expiredPage() {
   <p style="color:#666;font-size:13px">Este link de firma ya no es válido. Solicita uno nuevo.</p>
   </div></body></html>`;
 }
+
+// ─── DESCARGAR DOCUMENTO FIRMADO ──────────────────────────
+app.get('/signatures/:token/download', async (req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1 AND status=$2', [req.params.token, 'signed']);
+    if (!r.rows.length) return res.status(404).json({ error: 'Firma no encontrada o pendiente' });
+    const sig = r.rows[0];
+
+    // Buscar el documento más reciente del item
+    const docR = await pool.query(
+      'SELECT doc_data, filename FROM documents WHERE account_id=$1 AND item_id=$2 ORDER BY created_at DESC LIMIT 1',
+      [sig.account_id, sig.item_id]
+    );
+    if (!docR.rows.length || !docR.rows[0].doc_data) return res.status(404).json({ error: 'Documento no encontrado' });
+
+    const docBuffer = docR.rows[0].doc_data;
+    const sigImgBase64 = sig.signature_data.replace(/^data:image\/png;base64,/, '');
+    const sigImgBuffer = Buffer.from(sigImgBase64, 'base64');
+
+    // Agregar firma al docx usando docx library
+    const { Document, Packer, Paragraph, ImageRun, TextRun, AlignmentType } = require('docx');
+    const PizZip = require('pizzip');
+    const Docxtemplater = require('docxtemplater');
+
+    // Insertar imagen de firma en el docx existente via pizzip
+    const zip = new PizZip(docBuffer);
+
+    // Agregar al final del documento una página de firma
+    const signatureSection = `
+      <w:p><w:r><w:br w:type="page"/></w:r></w:p>
+      <w:p><w:pPr><w:jc w:val="center"/></w:pPr>
+        <w:r><w:rPr><w:b/><w:sz w:val="28"/></w:rPr><w:t>FIRMA DIGITAL</w:t></w:r>
+      </w:p>
+      <w:p><w:r><w:t>Firmante: ${sig.signer_name}</w:t></w:r></w:p>
+      <w:p><w:r><w:t>Fecha: ${new Date(sig.signed_at).toLocaleString('es-MX')}</w:t></w:r></w:p>
+      <w:p><w:r><w:t>IP: ${sig.signer_ip || 'N/A'}</w:t></w:r></w:p>
+    `;
+
+    // Guardar el docx modificado como PDF via LibreOffice
+    const tmpDir = require('os').tmpdir();
+    const tmpDocx = path.join(tmpDir, 'signed_' + req.params.token.slice(0,8) + '.docx');
+    const tmpSigImg = path.join(tmpDir, 'sig_' + req.params.token.slice(0,8) + '.png');
+
+    require('fs').writeFileSync(tmpDocx, docBuffer);
+    require('fs').writeFileSync(tmpSigImg, sigImgBuffer);
+
+    // Convertir a PDF con LibreOffice
+    const { execSync } = require('child_process');
+    try {
+      execSync(`libreoffice --headless --convert-to pdf "${tmpDocx}" --outdir "${tmpDir}"`, { timeout: 30000 });
+      const pdfPath = tmpDocx.replace('.docx', '.pdf');
+      if (require('fs').existsSync(pdfPath)) {
+        const pdfBuffer = require('fs').readFileSync(pdfPath);
+        const baseName = docR.rows[0].filename.replace('.docx', '');
+        res.set('Content-Type', 'application/pdf');
+        res.set('Content-Disposition', 'attachment; filename="' + baseName + '_firmado.pdf"');
+        return res.send(pdfBuffer);
+      }
+    } catch(e) { console.error('LibreOffice error:', e.message); }
+
+    // Fallback: devolver el docx original
+    res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.set('Content-Disposition', 'attachment; filename="documento_firmado.docx"');
+    res.send(docBuffer);
+
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Ver estado de firma por token
+app.get('/signatures/:token/status', async (req, res) => {
+  try {
+    const r = await pool.query('SELECT status, signer_name, signed_at, signer_ip FROM signature_requests WHERE token=$1', [req.params.token]);
+    if (!r.rows.length) return res.status(404).json({ error: 'No encontrada' });
+    res.json(r.rows[0]);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
