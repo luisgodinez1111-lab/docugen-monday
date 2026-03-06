@@ -956,6 +956,7 @@ canvas{display:block;touch-action:none;cursor:crosshair}
     <button class="btn btn-submit" onclick="submitSig()">✓ Firmar documento</button>
   </div>
   <div class="expires">Este link expira el ${new Date(sig.expires_at).toLocaleDateString('es-MX')}</div>
+  <div style="font-size:10px;color:#aaa;text-align:center;margin-top:6px">🔒 Al firmar se registrará tu IP, nombre y fecha como evidencia legal</div>
 </div>
 <script>
 const canvas = document.getElementById('sigCanvas');
