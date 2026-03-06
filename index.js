@@ -1143,7 +1143,7 @@ async function submitSig() {
     } else { alert('Error: '+data.error); btn.textContent='✓ Firmar'; btn.disabled=false; }
   } catch(e) { alert('Error de conexión'); btn.textContent='✓ Firmar'; btn.disabled=false; }
 }
-</script></body></html>\`;
+</script></body></html>`;
 }
 
 
@@ -1825,8 +1825,8 @@ app.post('/signatures/request-multi', requireAuth, async (req, res) => {
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS group_id TEXT');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_code TEXT');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_verified BOOLEAN DEFAULT FALSE');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signature_type TEXT DEFAULT 'drawn'');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS locked BOOLEAN DEFAULT FALSE');
+    await pool.query("ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signature_type TEXT DEFAULT 'drawn'");
+    await pool.query("ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS locked BOOLEAN DEFAULT FALSE");
 
     const groupId = require('crypto').randomBytes(16).toString('hex');
     const tokens = [];
