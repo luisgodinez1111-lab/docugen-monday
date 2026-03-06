@@ -275,8 +275,8 @@
       const res = await fetch(API + '/templates?account_id=' + accountId);
       const data = await res.json();
       const list = document.getElementById('template-list');
-      if (!data.templates.length) { list.innerHTML = '<div class="empty">No hay plantillas. Sube una.</div>'; return; }
-      list.innerHTML = data.templates.map(t =>
+      list.innerHTML = tpls.map(t =>
+      if (!tpls.length) { list.innerHTML = '<div class="empty">No hay plantillas. Sube una.</div>'; return; }
         '<div class="template-item" onclick="selectTemplate(\'' + t + '\')" id="tpl-' + t.replace(/[\.\s]/g,'-') + '"><span>📄</span><span>' + t + '</span></div>'
       ).join('');
     } catch(e) { document.getElementById('template-list').innerHTML = '<div class="empty">Error al cargar</div>'; }
