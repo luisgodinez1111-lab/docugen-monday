@@ -1021,6 +1021,16 @@ function expiredPage() {
   </div></body></html>`;
 }
 
+// DEBUG TEMPORAL
+app.get('/debug/docs/:accountId', async (req, res) => {
+  const r = await pool.query('SELECT id, item_id, item_name, filename, doc_data IS NOT NULL as has_data FROM documents WHERE account_id=$1 ORDER BY created_at DESC LIMIT 5', [req.params.accountId]);
+  res.json(r.rows);
+});
+app.get('/debug/sigs/:accountId', async (req, res) => {
+  const r = await pool.query('SELECT id, item_id, signer_name, status FROM signature_requests WHERE account_id=$1 ORDER BY created_at DESC LIMIT 5', [req.params.accountId]);
+  res.json(r.rows);
+});
+
 // ─── DESCARGAR DOCUMENTO FIRMADO ──────────────────────────
 app.get('/signatures/:token/download', async (req, res) => {
   try {
