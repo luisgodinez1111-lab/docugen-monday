@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DocuGen — Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0f0f11; --surface: #18181c; --surface2: #222228;
+  --border: #2e2e38; --accent: #5b6af5; --text: #e8e8f0; --text2: #8888a0;
+  --success: #34d399; --danger: #f87171; --warning: #fbbf24;
+}
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; height: 52px; display: flex; align-items: center; gap: 12px; }
+.logo { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+.logo-dot { width: 7px; height: 7px; background: var(--accent); border-radius: 50%; box-shadow: 0 0 8px var(--accent); }
+.nav { display: flex; gap: 4px; margin-left: 16px; }
+.nav a { padding: 5px 12px; border-radius: 6px; font-size: 12px; color: var(--text2); text-decoration: none; transition: all 0.15s; }
+.nav a:hover { background: var(--surface2); color: var(--text); }
+.nav a.active { background: rgba(91,106,245,0.15); color: var(--accent); }
+.spacer { flex: 1; }
+.health-badge { display: flex; align-items: center; gap: 5px; font-size: 11px; padding: 4px 10px; border-radius: 20px; border: 1px solid var(--border); }
+.health-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+.main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+.page-title { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
+.page-sub { font-size: 13px; color: var(--text2); margin-bottom: 24px; }
+
+/* STAT CARDS */
+.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+.stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+.stat-label { font-size: 11px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+.stat-value { font-size: 32px; font-weight: 700; font-family: 'DM Mono', monospace; }
+.stat-sub { font-size: 11px; color: var(--text2); margin-top: 4px; }
+.stat-today { font-size: 11px; margin-top: 6px; padding: 3px 8px; background: rgba(91,106,245,0.1); border-radius: 4px; color: var(--accent); display: inline-block; }
+
+/* CHARTS */
+.charts-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-bottom: 24px; }
+.chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+.chart-title { font-size: 13px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 7px; }
+.chart-wrap { position: relative; height: 200px; }
+
+/* TABLES */
+.tables-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 24px; }
+.table-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+.table-title { font-size: 13px; font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.data-table th { color: var(--text2); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+.data-table td { padding: 8px; border-bottom: 1px solid rgba(46,46,56,0.5); }
+.data-table tr:last-child td { border-bottom: none; }
+.badge { padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+.badge-success { background: rgba(52,211,153,0.15); color: var(--success); }
+.badge-warning { background: rgba(251,191,36,0.15); color: var(--warning); }
+.badge-danger { background: rgba(248,113,113,0.15); color: var(--danger); }
+
+/* SYSTEM */
+.system-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 24px; }
+.sys-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.sys-label { font-size: 11px; color: var(--text2); margin-bottom: 6px; }
+.sys-value { font-size: 18px; font-weight: 600; font-family: 'DM Mono', monospace; }
+.sys-bar { height: 4px; background: var(--border); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+.sys-bar-fill { height: 100%; border-radius: 2px; background: var(--accent); transition: width 0.5s; }
+
+.btn { padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer; border: none; font-family: 'DM Sans', sans-serif; }
+.btn-ghost { background: transparent; color: var(--text2); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--surface2); color: var(--text); }
+.btn-primary { background: var(--accent); color: white; }
+.empty { color: var(--text2); font-size: 12px; text-align: center; padding: 16px; }
+
+::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><div class="logo-dot"></div>DocuGen</div>
+  <nav class="nav">
+    <a href="/view">← Volver</a>
+    <a href="#" class="active">📊 Dashboard</a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="health-badge" id="healthBadge">
+    <div class="health-dot"></div>
+    <span id="healthText">Cargando...</span>
+  </div>
+  <button class="btn btn-ghost" style="margin-left:8px" onclick="loadAll()">⟳ Actualizar</button>
+</header>
+
+<div class="main">
+  <div class="page-title">📊 Dashboard</div>
+  <div class="page-sub" id="lastUpdated">Cargando métricas...</div>
+
+  <!-- STAT CARDS -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">📄 Documentos</div>
+      <div class="stat-value" id="statDocs">—</div>
+      <div class="stat-today" id="statDocsToday">+0 hoy</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">✍️ Firmas</div>
+      <div class="stat-value" id="statSigs">—</div>
+      <div class="stat-today" id="statSigsToday">+0 hoy</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">📋 Plantillas</div>
+      <div class="stat-value" id="statTpls">—</div>
+      <div class="stat-sub">activas</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">⚡ Uptime</div>
+      <div class="stat-value" id="statUptime">—</div>
+      <div class="stat-sub" id="statMem">—</div>
+    </div>
+  </div>
+
+  <!-- CHARTS -->
+  <div class="charts-grid">
+    <div class="chart-card">
+      <div class="chart-title">📈 Documentos generados — últimos 30 días</div>
+      <div class="chart-wrap"><canvas id="docsChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">✍️ Estado de firmas</div>
+      <div class="chart-wrap"><canvas id="sigsChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- TABLES -->
+  <div class="tables-grid">
+    <div class="table-card">
+      <div class="table-title">
+        <span>🗄 Historial de backups</span>
+        <a href="/backups/latest" class="btn btn-ghost" style="font-size:10px;padding:3px 10px;text-decoration:none">⬇ Descargar</a>
+      </div>
+      <table class="data-table">
+        <thead><tr><th>Fecha</th><th>Filas</th><th>Estado</th></tr></thead>
+        <tbody id="backupsTable"><tr><td colspan="3" class="empty">Cargando...</td></tr></tbody>
+      </table>
+    </div>
+    <div class="table-card">
+      <div class="table-title"><span>⚡ Estado del sistema</span></div>
+      <table class="data-table">
+        <thead><tr><th>Métrica</th><th>Valor</th></tr></thead>
+        <tbody id="systemTable"><tr><td colspan="2" class="empty">Cargando...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = window.location.origin;
+const params = new URLSearchParams(window.location.search);
+const accountId = params.get('account_id') || '';
+
+let docsChartInst, sigsChartInst;
+
+async function loadHealth() {
+  try {
+    const r = await fetch(API + '/health');
+    const d = await r.json();
+    const badge = document.getElementById('healthBadge');
+    const dot = badge.querySelector('.health-dot');
+    document.getElementById('healthText').textContent = d.status === 'ok' ? 'Sistema OK' : 'Error';
+    dot.style.background = d.status === 'ok' ? 'var(--success)' : 'var(--danger)';
+    document.getElementById('statUptime').textContent = formatUptime(d.uptime_seconds);
+    document.getElementById('statMem').textContent = d.memory_mb + ' MB RAM';
+  } catch(e) {
+    document.getElementById('healthText').textContent = 'Sin respuesta';
+    document.getElementById('healthBadge').querySelector('.health-dot').style.background = 'var(--danger)';
+  }
+}
+
+async function loadMetrics() {
+  if (!accountId) { document.getElementById('lastUpdated').textContent = 'Agrega ?account_id=XXX a la URL'; return; }
+  try {
+    const r = await fetch(API + '/metrics', { headers: { 'x-account-id': accountId } });
+    const d = await r.json();
+
+    document.getElementById('statDocs').textContent = d.totals.documents;
+    document.getElementById('statSigs').textContent = d.totals.signatures;
+    document.getElementById('statTpls').textContent = d.totals.templates;
+    document.getElementById('statDocsToday').textContent = '+' + d.today.documents + ' hoy';
+    document.getElementById('statSigsToday').textContent = '+' + d.today.signatures + ' hoy';
+    document.getElementById('lastUpdated').textContent = 'Actualizado: ' + new Date().toLocaleString('es-MX');
+
+    // System table
+    document.getElementById('systemTable').innerHTML = [
+      ['Node.js', d.system.node_version],
+      ['Uptime', formatUptime(d.system.uptime_seconds)],
+      ['Memoria', d.system.memory_mb + ' MB'],
+      ['Errores 7d', d.totals.errors_7d],
+    ].map(([k,v]) => '<tr><td style="color:var(--text2)">' + k + '</td><td style="font-family:monospace">' + v + '</td></tr>').join('');
+
+    // Docs chart
+    const days = d.charts.docs_by_day;
+    const labels = days.map(r => new Date(r.day).toLocaleDateString('es-MX', { month:'short', day:'numeric' }));
+    const values = days.map(r => parseInt(r.count));
+    if (docsChartInst) docsChartInst.destroy();
+    docsChartInst = new Chart(document.getElementById('docsChart'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{ label: 'Documentos', data: values, backgroundColor: 'rgba(91,106,245,0.7)', borderRadius: 4 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#8888a0', font: { size: 10 } }, grid: { color: '#2e2e38' } },
+          y: { ticks: { color: '#8888a0', font: { size: 10 } }, grid: { color: '#2e2e38' }, beginAtZero: true }
+        }
+      }
+    });
+
+    // Sigs chart
+    const sigsData = d.charts.sigs_by_status;
+    if (sigsChartInst) sigsChartInst.destroy();
+    sigsChartInst = new Chart(document.getElementById('sigsChart'), {
+      type: 'doughnut',
+      data: {
+        labels: sigsData.map(r => r.status),
+        datasets: [{ data: sigsData.map(r => parseInt(r.count)), backgroundColor: ['#34d399','#fbbf24','#f87171'], borderWidth: 0 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#8888a0', font: { size: 11 }, padding: 16 } }
+        }
+      }
+    });
+
+  } catch(e) { document.getElementById('lastUpdated').textContent = 'Error: ' + e.message; }
+}
+
+async function loadBackups() {
+  try {
+    const r = await fetch(API + '/backups', { headers: { 'x-account-id': accountId } });
+    const d = await r.json();
+    const tbody = document.getElementById('backupsTable');
+    if (!d.backups || !d.backups.length) {
+      tbody.innerHTML = '<tr><td colspan="3" class="empty">Sin backups aún</td></tr>';
+      return;
+    }
+    tbody.innerHTML = d.backups.map(b => {
+      const status = b.status === 'success'
+        ? '<span class="badge badge-success">✓ OK</span>'
+        : '<span class="badge badge-danger">✗ Error</span>';
+      return '<tr><td>' + new Date(b.created_at).toLocaleDateString('es-MX') + '</td><td style="font-family:monospace">' + (b.total_rows||0) + '</td><td>' + status + '</td></tr>';
+    }).join('');
+  } catch(e) {}
+}
+
+function formatUptime(s) {
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 24) return Math.floor(h/24) + 'd ' + (h%24) + 'h';
+  return h + 'h ' + m + 'm';
+}
+
+async function loadAll() {
+  await Promise.all([loadHealth(), loadMetrics(), loadBackups()]);
+}
+
+loadAll();
+setInterval(loadHealth, 30000); // health cada 30s
+setInterval(loadAll, 300000);   // todo cada 5min
+</script>
+</body>
+</html>
