@@ -140,6 +140,7 @@ header { height: var(--header-h); background: var(--surface); border-bottom: 1px
     <button class="btn btn-ghost" onclick="previewTemplate()">👁 Preview</button>
     <button class="btn btn-ghost" onclick="undo()">↩</button>
     <button class="btn btn-ghost" onclick="redo()">↪</button>
+    <button class="btn btn-ghost" onclick="showPreview()">👁 Preview</button>
     <button class="btn btn-primary" onclick="saveTemplate()">💾 Guardar</button>
     <button class="btn btn-success" onclick="saveTemplate()">⬇ Exportar</button>
   </div>
@@ -182,6 +183,7 @@ header { height: var(--header-h); background: var(--surface); border-bottom: 1px
         <div class="blocks-grid">
           <button class="block-btn" onclick="addImage()"><span class="block-icon">🖼</span>Imagen</button>
           <button class="block-btn" onclick="addTable()"><span class="block-icon">⊞</span>Tabla</button>
+          <button class="block-btn" onclick="addSignaturePlaceholder()"><span class="block-icon">✍</span>Firma</button>
           <button class="block-btn" onclick="addSignature()"><span class="block-icon">✍</span>Firma</button>
           <button class="block-btn" onclick="addQRPlaceholder()"><span class="block-icon">⊡</span>QR Code</button>
           <button class="block-btn" onclick="addPageNum()"><span class="block-icon">#</span>Folio</button>
@@ -849,6 +851,22 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey||e.ctrlKey) && e.key==='s') { e.preventDefault(); saveTemplate(); }
   if ((e.metaKey||e.ctrlKey) && e.key==='d') { e.preventDefault(); duplicateSelected(); }
 });
+
+function addSignaturePlaceholder() {
+  const rect = new fabric.Rect({ width: 220, height: 80, fill: 'rgba(91,106,245,0.05)', stroke: '#5b6af5', strokeWidth: 1.5, strokeDashArray: [6,3], rx: 6, ry: 6 });
+  const label = new fabric.Text('✍  FIRMA AQUÍ', { left: 35, top: 28, fontSize: 12, fill: '#5b6af5', fontFamily: 'Helvetica', fontWeight: '600', selectable: false, evented: false });
+  const group = new fabric.Group([rect, label], { left: 150, top: 300, customType: 'signature_placeholder' });
+  canvas.add(group); canvas.setActiveObject(group); canvas.renderAll();
+}
+
+function showPreview() {
+  const img = canvas.toDataURL({ format: 'png', multiplier: 0.7 });
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px';
+  overlay.onclick = e => { if(e.target===overlay) overlay.remove(); };
+  overlay.innerHTML = '<div style="background:#18181c;border-radius:12px;padding:20px;max-width:680px;width:100%;max-height:90vh;overflow-y:auto;border:1px solid #2e2e38"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><span style="font-weight:600;color:#e8e8f0">👁 Vista previa</span><button onclick="this.closest('div[style*=fixed]').remove()" style="background:transparent;border:none;color:#8888a0;font-size:20px;cursor:pointer">✕</button></div><div style="background:white;border-radius:6px;overflow:hidden"><img src="' + img + '" style="width:100%;display:block"></div><p style="margin-top:10px;font-size:11px;color:#8888a0;text-align:center">Las variables se sustituirán al generar el documento</p></div>';
+  document.body.appendChild(overlay);
+}
 
 window.addEventListener('load', init);
 </script>
