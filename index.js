@@ -948,6 +948,27 @@ app.post('/sign/:token', async (req, res) => {
       } catch(e) { console.error('Email confirm error:', e.message); }
     }
 
+    // Sincronizar con monday: actualizar columna si hay item_id
+    let itemId = sig.item_id;
+    try { const p = JSON.parse(itemId); if (p.id) itemId = p.id; } catch(e) {}
+
+    if (itemId && sig.board_id) {
+      try {
+        // Buscar access token de la cuenta
+        const accR = await pool.query('SELECT access_token FROM accounts WHERE account_id=$1', [sig.account_id]);
+        if (accR.rows.length && accR.rows[0].access_token) {
+          const token = accR.rows[0].access_token;
+          // Actualizar columna de texto con estado de firma
+          const updateQuery = `mutation {
+            create_update(item_id: ${itemId}, body: "✅ Documento firmado por ${finalName} el ${new Date(sig.signed_at||new Date()).toLocaleDateString('es-MX')} — IP: ${signerIp}") { id }
+          }`;
+          await axios.post('https://api.monday.com/v2', { query: updateQuery }, {
+            headers: { Authorization: token, 'Content-Type': 'application/json' }
+          });
+        }
+      } catch(syncErr) { console.error('Monday sync error:', syncErr.message); }
+    }
+
     res.json({ success: true, message: 'Documento firmado exitosamente', download_url: downloadUrl });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -1430,3 +1451,116 @@ app.post('/export-xlsx', requireAuth, async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// ─── ESCRITURA DE COLUMNAS ────────────────────────────────
+async function updateMondayColumn(accessToken, itemId, boardId, columnId, value) {
+  const query = `mutation {
+    change_column_value(item_id: ${itemId}, board_id: ${boardId}, column_id: "${columnId}", value: ${JSON.stringify(JSON.stringify(value))}) { id }
+  }`;
+  return axios.post('https://api.monday.com/v2', { query }, {
+    headers: { Authorization: accessToken, 'Content-Type': 'application/json' }
+  });
+}
+
+async function updateMondayStatus(accessToken, itemId, boardId, columnId, label) {
+  const query = `mutation {
+    change_simple_column_value(item_id: ${itemId}, board_id: ${boardId}, column_id: "${columnId}", value: "${label}") { id }
+  }`;
+  return axios.post('https://api.monday.com/v2', { query }, {
+    headers: { Authorization: accessToken, 'Content-Type': 'application/json' }
+  });
+}
+
+// Endpoint para escribir columna desde la UI
+app.post('/monday/update-column', requireAuth, async (req, res) => {
+  const { item_id, board_id, column_id, value, type } = req.body;
+  if (!item_id || !board_id || !column_id) return res.status(400).json({ error: 'Faltan parámetros' });
+  try {
+    let r;
+    if (type === 'status') {
+      r = await updateMondayStatus(req.accessToken, item_id, board_id, column_id, value);
+    } else {
+      r = await updateMondayColumn(req.accessToken, item_id, board_id, column_id, value);
+    }
+    res.json({ success: true, data: r.data });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── WEBHOOKS DE MONDAY ───────────────────────────────────
+app.post('/webhooks/monday', async (req, res) => {
+  // Verificación de challenge de monday
+  if (req.body.challenge) return res.json({ challenge: req.body.challenge });
+
+  const event = req.body.event;
+  if (!event) return res.sendStatus(200);
+
+  console.log('Monday webhook:', event.type, event.itemId);
+
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS webhook_events (
+      id SERIAL PRIMARY KEY, event_type TEXT, item_id TEXT, board_id TEXT,
+      column_id TEXT, column_value TEXT, account_id TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`);
+
+    await pool.query(
+      'INSERT INTO webhook_events (event_type, item_id, board_id, column_id, column_value) VALUES ($1,$2,$3,$4,$5)',
+      [event.type, event.itemId, event.boardId, event.columnId, JSON.stringify(event.value)]
+    );
+
+    // Trigger: si columna de status cambia a valor configurado, auto-generar doc
+    if (event.type === 'change_column_value') {
+      const triggers = await pool.query(
+        'SELECT * FROM webhook_triggers WHERE board_id=$1 AND column_id=$2 AND trigger_value=$3',
+        [String(event.boardId), event.columnId, event.value?.label?.text || event.value]
+      );
+      for (const trigger of triggers.rows) {
+        console.log('Trigger activado:', trigger.action, 'item:', event.itemId);
+        // Guardar evento pendiente para procesar
+        await pool.query(
+          'INSERT INTO webhook_events (event_type, item_id, board_id, column_id, column_value, account_id) VALUES ($1,$2,$3,$4,$5,$6)',
+          ['trigger_fired', String(event.itemId), String(event.boardId), trigger.template_name, 'pending', trigger.account_id]
+        );
+      }
+    }
+  } catch(e) { console.error('Webhook error:', e.message); }
+
+  res.sendStatus(200);
+});
+
+// Configurar triggers de webhooks
+app.post('/webhooks/triggers', requireAuth, async (req, res) => {
+  const { board_id, column_id, trigger_value, template_name, action } = req.body;
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS webhook_triggers (
+      id SERIAL PRIMARY KEY, account_id TEXT, board_id TEXT, column_id TEXT,
+      trigger_value TEXT, template_name TEXT, action TEXT DEFAULT 'generate_doc',
+      created_at TIMESTAMP DEFAULT NOW()
+    )`);
+    await pool.query(
+      'INSERT INTO webhook_triggers (account_id, board_id, column_id, trigger_value, template_name, action) VALUES ($1,$2,$3,$4,$5,$6)',
+      [req.accountId, board_id, column_id, trigger_value, template_name, action || 'generate_doc']
+    );
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/webhooks/triggers', requireAuth, async (req, res) => {
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS webhook_triggers (
+      id SERIAL PRIMARY KEY, account_id TEXT, board_id TEXT, column_id TEXT,
+      trigger_value TEXT, template_name TEXT, action TEXT DEFAULT 'generate_doc',
+      created_at TIMESTAMP DEFAULT NOW()
+    )`);
+    const r = await pool.query('SELECT * FROM webhook_triggers WHERE account_id=$1 ORDER BY created_at DESC', [req.accountId]);
+    res.json({ triggers: r.rows });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/webhooks/triggers/:id', requireAuth, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM webhook_triggers WHERE id=$1 AND account_id=$2', [req.params.id, req.accountId]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
