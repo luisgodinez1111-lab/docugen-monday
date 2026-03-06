@@ -3,262 +3,220 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DocuGen · Portal de Documentos</title>
+<title>DocuGen · Portal de Firma</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
-:root {
-  --ink: #0f0e17;
-  --paper: #fffcf5;
-  --cream: #f5f0e8;
-  --gold: #c9a84c;
-  --gold-light: #e8d5a3;
-  --sage: #4a6741;
-  --rust: #c0392b;
-  --muted: #7a7468;
-  --border: #e0d9cc;
-  --shadow: 0 2px 24px rgba(15,14,23,0.08);
-}
+:root{--ink:#0f0e17;--paper:#fffcf5;--cream:#f5f0e8;--gold:#c9a84c;--gold-light:#e8d5a3;--sage:#2d6b2d;--rust:#c0392b;--muted:#7a7468;--border:#e0d9cc;--shadow:0 2px 24px rgba(15,14,23,0.08)}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);min-height:100vh}
-
-/* ── HEADER ── */
-.header{border-bottom:1px solid var(--border);padding:18px 32px;display:flex;align-items:center;justify-content:space-between;background:var(--paper)}
-.logo{font-family:'DM Serif Display',serif;font-size:22px;letter-spacing:-0.5px;color:var(--ink)}
+body{font-family:'DM Sans',sans-serif;background:#f0ece4;color:var(--ink);min-height:100vh}
+.header{background:var(--ink);padding:14px 28px;display:flex;align-items:center;justify-content:space-between}
+.logo{font-family:'DM Serif Display',serif;font-size:20px;color:white;letter-spacing:-0.5px}
 .logo span{color:var(--gold)}
-.secure-badge{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);background:var(--cream);padding:5px 12px;border-radius:20px;border:1px solid var(--border)}
+.secure{font-size:11px;color:rgba(255,255,255,0.5);display:flex;align-items:center;gap:5px}
 
-/* ── SCREENS ── */
-.screen{display:none;min-height:calc(100vh - 65px);padding:40px 20px}
-.screen.active{display:flex;align-items:center;justify-content:center}
+/* SCREENS */
+.screen{display:none;min-height:calc(100vh - 52px);padding:40px 20px;align-items:center;justify-content:center}
+.screen.active{display:flex}
 
-/* ── AUTH SCREEN ── */
-.auth-card{background:white;border:1px solid var(--border);border-radius:16px;padding:40px;max-width:420px;width:100%;box-shadow:var(--shadow)}
-.auth-card h1{font-family:'DM Serif Display',serif;font-size:28px;line-height:1.2;margin-bottom:8px}
-.auth-card p{color:var(--muted);font-size:14px;margin-bottom:28px;line-height:1.6}
-.doc-pill{display:inline-flex;align-items:center;gap:8px;background:var(--cream);border:1px solid var(--border);border-radius:8px;padding:8px 14px;font-size:12px;color:var(--muted);margin-bottom:24px}
-.field{margin-bottom:16px}
-.field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px}
-.field input{width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);outline:none;transition:border 0.2s}
-.field input:focus{border-color:var(--gold)}
-.btn-primary{width:100%;padding:13px;background:var(--ink);color:var(--paper);border:none;border-radius:8px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;transition:opacity 0.2s;margin-top:4px}
-.btn-primary:hover{opacity:0.85}
-.btn-primary:disabled{opacity:0.5;cursor:not-allowed}
-.error-msg{color:var(--rust);font-size:12px;margin-top:8px;text-align:center}
+/* AUTH */
+.auth-card{background:white;border-radius:16px;padding:36px;max-width:400px;width:100%;box-shadow:var(--shadow)}
+.auth-card h1{font-family:'DM Serif Display',serif;font-size:26px;margin-bottom:6px}
+.auth-card p{color:var(--muted);font-size:13px;margin-bottom:24px;line-height:1.6}
+.doc-chip{display:inline-flex;align-items:center;gap:6px;background:var(--cream);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:12px;color:var(--muted);margin-bottom:20px}
+label{display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px;margin-top:14px}
+input[type=text],input[type=email],input[type=tel]{width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);outline:none;transition:border 0.2s}
+input:focus{border-color:var(--gold)}
+.btn{width:100%;padding:12px;border-radius:8px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;border:none;transition:all 0.2s;margin-top:14px}
+.btn-dark{background:var(--ink);color:white}
+.btn-dark:hover{opacity:0.85}
+.btn-dark:disabled{opacity:0.4;cursor:not-allowed}
+.btn-green{background:var(--sage);color:white}
+.btn-green:hover{opacity:0.88}
+.err{color:var(--rust);font-size:12px;margin-top:8px;text-align:center}
+.notice{font-size:10px;color:var(--muted);text-align:center;margin-top:12px;line-height:1.5}
 
-/* ── PORTAL MAIN ── */
-.portal-wrap{max-width:960px;width:100%;margin:0 auto}
-.portal-header{margin-bottom:32px}
-.portal-header h1{font-family:'DM Serif Display',serif;font-size:32px;margin-bottom:6px}
-.portal-header p{color:var(--muted);font-size:14px}
-.portal-grid{display:grid;grid-template-columns:1fr 340px;gap:24px;align-items:start}
-@media(max-width:768px){.portal-grid{grid-template-columns:1fr}}
+/* MAIN PORTAL */
+#screen-portal{align-items:flex-start;padding:0;background:#e8e4dc}
+.portal-layout{display:grid;grid-template-columns:1fr 360px;width:100%;min-height:calc(100vh - 52px)}
+@media(max-width:800px){.portal-layout{grid-template-columns:1fr}}
 
-/* ── DOC PREVIEW ── */
-.doc-preview{background:white;border:1px solid var(--border);border-radius:16px;overflow:hidden;box-shadow:var(--shadow)}
-.preview-toolbar{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--cream)}
-.preview-toolbar span{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px}
-.preview-body{padding:32px;min-height:400px;font-size:13px;line-height:1.8;color:#333}
-.preview-body h2{font-family:'DM Serif Display',serif;font-size:20px;margin-bottom:12px;color:var(--ink)}
-.preview-body p{margin-bottom:10px}
-.preview-body .field-row{display:flex;gap:12px;margin-bottom:8px;padding:8px 12px;background:var(--cream);border-radius:6px}
-.preview-body .field-label{font-weight:600;font-size:12px;color:var(--muted);min-width:120px}
-.preview-body .field-val{font-size:13px;color:var(--ink)}
-.preview-loading{display:flex;align-items:center;justify-content:center;min-height:300px;color:var(--muted);font-size:14px;gap:10px}
+/* PDF VIEWER */
+.viewer-panel{background:#525659;display:flex;flex-direction:column}
+.viewer-toolbar{background:#3a3c3e;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.viewer-toolbar span{color:rgba(255,255,255,0.7);font-size:12px}
+.viewer-nav{display:flex;align-items:center;gap:8px}
+.viewer-nav button{background:rgba(255,255,255,0.1);border:none;color:white;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px}
+.viewer-nav button:hover{background:rgba(255,255,255,0.2)}
+.viewer-pages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;align-items:center;gap:12px}
+.viewer-pages canvas{box-shadow:0 2px 12px rgba(0,0,0,0.4);display:block;max-width:100%}
+.viewer-loading{color:rgba(255,255,255,0.5);font-size:13px;padding:60px;text-align:center}
 
-/* ── SIDEBAR ── */
-.sidebar{display:flex;flex-direction:column;gap:16px}
-.side-card{background:white;border:1px solid var(--border);border-radius:16px;padding:22px;box-shadow:var(--shadow)}
-.side-card h3{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin-bottom:14px}
+/* SIDEBAR */
+.sidebar-panel{background:var(--paper);overflow-y:auto;display:flex;flex-direction:column}
+.sidebar-inner{padding:24px;display:flex;flex-direction:column;gap:16px}
+.s-card{background:white;border:1px solid var(--border);border-radius:12px;padding:18px}
+.s-card h3{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin-bottom:12px}
 
-/* ── STATUS TIMELINE ── */
-.timeline{display:flex;flex-direction:column;gap:0}
-.tl-item{display:flex;gap:12px;position:relative}
-.tl-item:not(:last-child)::after{content:'';position:absolute;left:11px;top:26px;width:2px;height:calc(100% + 4px);background:var(--border)}
-.tl-dot{width:24px;height:24px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;position:relative;z-index:1}
+/* TIMELINE */
+.tl{display:flex;flex-direction:column;gap:0}
+.tl-item{display:flex;gap:10px;position:relative}
+.tl-item:not(:last-child)::after{content:'';position:absolute;left:10px;top:24px;width:2px;height:calc(100% + 2px);background:var(--border)}
+.tl-dot{width:22px;height:22px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10px;position:relative;z-index:1}
 .tl-dot.done{background:var(--sage);color:white}
-.tl-dot.active{background:var(--gold);color:white;box-shadow:0 0 0 4px var(--gold-light)}
+.tl-dot.active{background:var(--gold);color:white;box-shadow:0 0 0 3px var(--gold-light)}
 .tl-dot.pending{background:var(--cream);border:2px solid var(--border);color:var(--muted)}
-.tl-content{padding-bottom:16px}
-.tl-label{font-size:13px;font-weight:600;color:var(--ink)}
-.tl-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.tl-content{padding-bottom:14px}
+.tl-label{font-size:12px;font-weight:600}
+.tl-sub{font-size:10px;color:var(--muted);margin-top:2px}
 
-/* ── SIGNATURE AREA ── */
-.sig-tabs{display:flex;gap:4px;margin-bottom:14px}
-.sig-tab{flex:1;padding:8px 4px;text-align:center;border:1px solid var(--border);border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;background:var(--cream);color:var(--muted);transition:all 0.15s}
-.sig-tab.active{background:var(--ink);color:var(--paper);border-color:var(--ink)}
-.canvas-wrap{border:2px dashed var(--border);border-radius:8px;background:var(--cream);margin-bottom:10px;position:relative;overflow:hidden;min-height:114px;cursor:crosshair}
-canvas{display:block;touch-action:none;cursor:crosshair;width:100%}
-.typed-preview{min-height:70px;display:flex;align-items:center;justify-content:center;border:2px dashed var(--border);border-radius:8px;margin-bottom:10px;font-family:'DM Serif Display',serif;font-style:italic;font-size:26px;color:var(--ink);background:var(--cream);padding:12px}
-.upload-area{min-height:80px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--border);border-radius:8px;margin-bottom:10px;cursor:pointer;background:var(--cream);gap:4px;transition:border 0.2s}
-.upload-area:hover{border-color:var(--gold)}
-.upload-area span{font-size:11px;color:var(--muted)}
-.field-sm input{width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);outline:none;margin-bottom:10px}
-.field-sm input:focus{border-color:var(--gold)}
-.btn-sign{width:100%;padding:12px;background:var(--sage);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;transition:opacity 0.2s}
-.btn-sign:hover{opacity:0.88}
-.btn-sign:disabled{opacity:0.5;cursor:not-allowed}
-.btn-clear{width:100%;padding:8px;background:transparent;border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--muted);cursor:pointer;margin-bottom:8px;font-family:'DM Sans',sans-serif}
-
-/* ── DOWNLOAD ── */
-.btn-download{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:11px;background:var(--cream);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;color:var(--ink);text-decoration:none;transition:all 0.2s}
+/* SIG AREA */
+.sig-tabs{display:flex;gap:3px;margin-bottom:12px}
+.sig-tab{flex:1;padding:7px 4px;text-align:center;border:1px solid var(--border);border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;background:var(--cream);color:var(--muted);transition:all 0.15s}
+.sig-tab.active{background:var(--ink);color:white;border-color:var(--ink)}
+.canvas-wrap{border:2px dashed var(--border);border-radius:8px;background:var(--cream);margin-bottom:8px;cursor:crosshair;min-height:100px}
+canvas#sigCanvas{display:block;width:100%}
+.typed-preview{min-height:65px;display:flex;align-items:center;justify-content:center;border:2px dashed var(--border);border-radius:8px;margin-bottom:8px;font-family:'DM Serif Display',serif;font-style:italic;font-size:24px;color:var(--ink);background:var(--cream);padding:10px;text-align:center}
+.upload-zone{min-height:70px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--border);border-radius:8px;margin-bottom:8px;cursor:pointer;background:var(--cream);gap:4px;transition:border 0.2s}
+.upload-zone:hover{border-color:var(--gold)}
+.upload-zone span{font-size:11px;color:var(--muted)}
+.btn-clear{width:100%;padding:7px;background:transparent;border:1px solid var(--border);border-radius:5px;font-size:11px;color:var(--muted);cursor:pointer;margin-bottom:6px;font-family:'DM Sans',sans-serif}
+.signed-banner{background:linear-gradient(135deg,#1a3d1a,#2d6b2d);color:white;border-radius:10px;padding:16px;text-align:center}
+.signed-banner h3{font-family:'DM Serif Display',serif;font-size:16px;margin-bottom:3px}
+.signed-banner p{font-size:11px;opacity:0.8}
+.btn-download{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;padding:10px;background:var(--cream);border:1px solid var(--border);border-radius:7px;font-size:12px;font-weight:600;color:var(--ink);text-decoration:none;transition:all 0.2s;cursor:pointer}
 .btn-download:hover{background:var(--gold-light);border-color:var(--gold)}
 
-/* ── SIGNED STATE ── */
-.signed-banner{background:linear-gradient(135deg,#1a3d1a,#2d6b2d);color:white;border-radius:12px;padding:20px;text-align:center;margin-bottom:16px}
-.signed-banner h3{font-family:'DM Serif Display',serif;font-size:18px;margin-bottom:4px}
-.signed-banner p{font-size:12px;opacity:0.8}
-
-/* ── OTP ── */
-.otp-wrap{text-align:center;padding:10px 0}
-.otp-wrap p{font-size:13px;color:var(--muted);margin-bottom:16px}
-.otp-input{text-align:center;font-size:28px;font-weight:700;letter-spacing:10px;width:180px;padding:12px;border:2px solid var(--border);border-radius:8px;background:var(--paper);color:var(--ink);outline:none;font-family:'DM Sans',sans-serif}
+/* OTP */
+.otp-input{text-align:center;font-size:26px;font-weight:700;letter-spacing:8px;width:160px;padding:10px;border:2px solid var(--border);border-radius:8px;background:var(--paper);display:block;margin:12px auto;outline:none}
 .otp-input:focus{border-color:var(--gold)}
-
-.notice{font-size:10px;color:var(--muted);text-align:center;margin-top:10px;line-height:1.5}
-.chip{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:600}
-.chip.signed{background:#d1fae5;color:#065f46}
-.chip.pending{background:#fef3c7;color:#92400e}
-.chip.expired{background:#fee2e2;color:#991b1b}
 </style>
 </head>
 <body>
-
 <header class="header">
   <div class="logo">Docu<span>Gen</span></div>
-  <div class="secure-badge">🔒 Acceso seguro · Enlace privado</div>
+  <div class="secure">🔒 Enlace seguro y privado</div>
 </header>
 
-<!-- AUTH SCREEN -->
+<!-- AUTH -->
 <div class="screen active" id="screen-auth">
   <div class="auth-card">
-    <div class="doc-pill">📄 <span id="auth-docname">Documento</span></div>
+    <div class="doc-chip">📄 <span id="auth-docname">Cargando...</span></div>
     <h1>Accede al documento</h1>
-    <p>Ingresa tu nombre completo y el correo al que se envió este enlace para continuar.</p>
-    <div class="field">
-      <label>Nombre completo</label>
-      <input type="text" id="auth-name" placeholder="Tu nombre completo">
-    </div>
-    <div class="field">
-      <label>Correo electrónico</label>
-      <input type="email" id="auth-email" placeholder="tu@correo.com">
-    </div>
-    <button class="btn-primary" onclick="authAccess()">Acceder al documento →</button>
-    <div class="error-msg" id="auth-error"></div>
-    <div class="notice" style="margin-top:16px">🔒 Tu acceso quedará registrado · Enlace de uso único</div>
+    <p>Ingresa tu nombre para continuar al portal de firma.</p>
+    <label>Tu nombre completo</label>
+    <input type="text" id="auth-name" placeholder="Nombre completo">
+    <label>Correo electrónico (opcional)</label>
+    <input type="email" id="auth-email" placeholder="tu@correo.com">
+    <button class="btn btn-dark" onclick="authAccess()">Ver documento →</button>
+    <div class="err" id="auth-error"></div>
+    <div class="notice">Tu acceso quedará registrado · Enlace de uso único</div>
   </div>
 </div>
 
-<!-- OTP SCREEN -->
+<!-- OTP -->
 <div class="screen" id="screen-otp">
   <div class="auth-card">
     <h1>Verifica tu identidad</h1>
-    <p>Ingresa el código de 6 dígitos que se envió a tu correo.</p>
-    <div class="otp-wrap">
-      <input class="otp-input" id="otp-input" maxlength="6" placeholder="000000" type="tel">
-      <button class="btn-primary" onclick="verifyOtp()" style="margin-top:16px">Verificar →</button>
-      <div class="error-msg" id="otp-error"></div>
-    </div>
+    <p>Ingresa el código de 6 dígitos enviado a tu correo.</p>
+    <input class="otp-input" id="otp-input" maxlength="6" placeholder="000000" type="tel">
+    <button class="btn btn-dark" onclick="verifyOtp()">Verificar →</button>
+    <div class="err" id="otp-error"></div>
   </div>
 </div>
 
-<!-- PORTAL MAIN SCREEN -->
-<div class="screen" id="screen-portal" style="align-items:flex-start;padding-top:40px">
-  <div class="portal-wrap">
-    <div class="portal-header">
-      <h1 id="portal-title">Documento</h1>
-      <p id="portal-subtitle">Revisa el documento y firma cuando estés listo</p>
-    </div>
-    <div class="portal-grid">
+<!-- PORTAL -->
+<div class="screen" id="screen-portal">
+  <div class="portal-layout">
 
-      <!-- Preview -->
-      <div class="doc-preview">
-        <div class="preview-toolbar">
-          <span>Vista previa del documento</span>
-          <a id="dl-link" href="#" class="chip signed" style="text-decoration:none">⬇ Descargar</a>
-        </div>
-        <div class="preview-body" id="preview-body" style="padding:0;min-height:500px">
-          <div class="preview-loading" id="preview-loading" style="min-height:500px">
-            <span>⏳</span> Cargando documento...
-          </div>
-          <iframe id="preview-iframe" src="" style="width:100%;height:600px;border:none;display:none"></iframe>
+    <!-- PDF VIEWER -->
+    <div class="viewer-panel">
+      <div class="viewer-toolbar">
+        <span id="viewer-filename">Documento</span>
+        <div class="viewer-nav">
+          <button onclick="prevPage()">‹</button>
+          <span id="page-info" style="font-size:11px;color:rgba(255,255,255,0.6)">1 / 1</span>
+          <button onclick="nextPage()">›</button>
         </div>
       </div>
+      <div class="viewer-pages" id="viewer-pages">
+        <div class="viewer-loading" id="viewer-loading">Cargando documento...</div>
+      </div>
+    </div>
 
-      <!-- Sidebar -->
-      <div class="sidebar">
+    <!-- SIDEBAR -->
+    <div class="sidebar-panel">
+      <div class="sidebar-inner">
 
-        <!-- Estado -->
-        <div class="side-card">
+        <!-- Doc info -->
+        <div class="s-card">
+          <h3>Documento</h3>
+          <div style="font-size:13px;font-weight:600;margin-bottom:4px" id="doc-name">—</div>
+          <div style="font-size:11px;color:var(--muted)" id="doc-status">—</div>
+        </div>
+
+        <!-- Timeline -->
+        <div class="s-card">
           <h3>Estado</h3>
-          <div class="timeline" id="timeline">
+          <div class="tl">
             <div class="tl-item">
               <div class="tl-dot done">✓</div>
               <div class="tl-content">
-                <div class="tl-label">Documento generado</div>
+                <div class="tl-label">Generado</div>
                 <div class="tl-sub" id="tl-created">—</div>
               </div>
             </div>
             <div class="tl-item">
               <div class="tl-dot done">✓</div>
               <div class="tl-content">
-                <div class="tl-label">Enviado a firmante</div>
+                <div class="tl-label">Enviado</div>
                 <div class="tl-sub" id="tl-sent">—</div>
               </div>
             </div>
             <div class="tl-item">
-              <div class="tl-dot active" id="tl-sig-dot">✍</div>
+              <div class="tl-dot active" id="tl-dot3">✍</div>
               <div class="tl-content">
-                <div class="tl-label" id="tl-sig-label">Pendiente de firma</div>
-                <div class="tl-sub" id="tl-signed">En espera</div>
+                <div class="tl-label" id="tl-label3">Pendiente de firma</div>
+                <div class="tl-sub" id="tl-sub3">En espera</div>
               </div>
             </div>
           </div>
         </div>
 
         <!-- Firma -->
-        <div class="side-card" id="sig-card">
+        <div class="s-card" id="sig-card">
           <h3>Tu firma</h3>
-          <div class="field-sm">
-            <input type="text" id="signer-name" placeholder="Tu nombre completo">
-          </div>
+          <label style="margin-top:0">Nombre completo</label>
+          <input type="text" id="signer-name" placeholder="Tu nombre" style="margin-bottom:10px">
           <div class="sig-tabs">
             <div class="sig-tab active" onclick="setTab('draw',this)">✍ Dibujar</div>
             <div class="sig-tab" onclick="setTab('type',this)">T Tipográfica</div>
             <div class="sig-tab" onclick="setTab('upload',this)">⬆ Subir</div>
           </div>
-
           <div id="tab-draw">
-            <div class="canvas-wrap">
-              <canvas id="sigCanvas" height="100"></canvas>
-            </div>
-            <button class="btn-clear" onclick="clearSig()">🗑 Limpiar</button>
+            <div class="canvas-wrap"><canvas id="sigCanvas" height="100"></canvas></div>
+            <button class="btn-clear" onclick="clearSig()">Limpiar</button>
           </div>
-
           <div id="tab-type" style="display:none">
-            <input type="text" id="typed-sig" placeholder="Escribe tu firma" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-family:'DM Serif Display',serif;font-style:italic;font-size:16px;color:var(--ink);background:var(--paper);outline:none;margin-bottom:8px" oninput="renderTyped()">
+            <input type="text" id="typed-sig" placeholder="Escribe tu firma" style="font-family:'DM Serif Display',serif;font-style:italic;font-size:15px;margin-bottom:8px" oninput="renderTyped()">
             <div class="typed-preview" id="typed-preview">Tu firma</div>
           </div>
-
           <div id="tab-upload" style="display:none">
-            <div class="upload-area" onclick="document.getElementById('sig-file').click()">
-              <span style="font-size:24px">⬆</span>
-              <span>Click para subir imagen de firma</span>
-              <img id="upload-preview" style="max-width:200px;max-height:60px;display:none;margin-top:8px">
+            <div class="upload-zone" onclick="document.getElementById('sig-file').click()">
+              <span style="font-size:20px">⬆</span>
+              <span>Subir imagen de firma</span>
+              <img id="upload-preview" style="max-width:180px;max-height:60px;display:none;margin-top:6px">
             </div>
             <input type="file" id="sig-file" accept="image/*" style="display:none" onchange="handleUpload(event)">
           </div>
-
-          <button class="btn-sign" onclick="submitSignature()">✓ Firmar documento</button>
-          <div class="notice">🔒 Se registrará IP, nombre y fecha</div>
+          <button class="btn btn-green" onclick="submitSignature()" id="btn-sign">Firmar documento</button>
+          <div class="notice" style="margin-top:8px">Se registrará IP, nombre y fecha exacta</div>
         </div>
 
         <!-- Descarga -->
-        <div class="side-card">
+        <div class="s-card" id="download-card">
           <h3>Descargar</h3>
-          <a id="download-btn" href="#" class="btn-download">📄 Descargar documento</a>
-          <div id="cert-btn-wrap" style="margin-top:8px;display:none">
-            <a id="cert-btn" href="#" class="btn-download" style="margin-top:0">🏅 Certificado de auditoría</a>
-          </div>
+          <a id="download-btn" href="#" class="btn-download">📄 Descargar PDF</a>
         </div>
 
       </div>
@@ -267,200 +225,151 @@ canvas{display:block;touch-action:none;cursor:crosshair;width:100%}
 </div>
 
 <script>
-const TOKEN = window.location.pathname.split('/sign/')[1];
-let sigData = { type: 'drawn', data: null };
-let currentTab = 'draw';
-let docInfo = null;
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const TOKEN = window.location.pathname.split('/sign/')[1]?.split('/')[0];
+let pdfDoc = null, currentPage = 1, totalPages = 1;
+let uploadedSigData = null, currentTab = 'draw', hasSig = false, drawing = false;
 
 // ── CANVAS ──
 const canvas = document.getElementById('sigCanvas');
 const ctx = canvas.getContext('2d');
-let drawing = false, hasSig = false;
 
 function resizeCanvas() {
-  const wrap = canvas.parentElement;
-  const w = wrap ? Math.max(wrap.clientWidth, 280) : 280;
-  canvas.width = w;
-  canvas.height = 110;
-  ctx.strokeStyle = '#0f0e17';
-  ctx.lineWidth = 2.5;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
+  const w = canvas.parentElement.clientWidth || 280;
+  canvas.width = w; canvas.height = 100;
+  ctx.strokeStyle = '#0f0e17'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
 }
-// Esperar a que el DOM esté listo con tamaño real
-setTimeout(resizeCanvas, 100);
+setTimeout(resizeCanvas, 200);
 window.addEventListener('resize', resizeCanvas);
 
-function getPos(e) {
+function pos(e) {
   const r = canvas.getBoundingClientRect();
-  const scale = canvas.width / r.width;
+  const sc = canvas.width / r.width;
   const s = e.touches ? e.touches[0] : e;
-  return { x: (s.clientX - r.left) * scale, y: (s.clientY - r.top) * scale };
+  return { x:(s.clientX-r.left)*sc, y:(s.clientY-r.top)*sc };
 }
-canvas.addEventListener('mousedown', e => { drawing = true; const p = getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); });
-canvas.addEventListener('mousemove', e => { if (!drawing) return; const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); hasSig = true; });
-canvas.addEventListener('mouseup', () => drawing = false);
-canvas.addEventListener('mouseleave', () => drawing = false);
-canvas.addEventListener('touchstart', e => { e.preventDefault(); drawing = true; const p = getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }, { passive: false });
-canvas.addEventListener('touchmove', e => { e.preventDefault(); if (!drawing) return; const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); hasSig = true; }, { passive: false });
-canvas.addEventListener('touchend', () => drawing = false);
-function clearSig() { ctx.clearRect(0, 0, canvas.width, canvas.height); hasSig = false; }
+canvas.addEventListener('mousedown', e=>{drawing=true;const p=pos(e);ctx.beginPath();ctx.moveTo(p.x,p.y)});
+canvas.addEventListener('mousemove', e=>{if(!drawing)return;const p=pos(e);ctx.lineTo(p.x,p.y);ctx.stroke();hasSig=true});
+canvas.addEventListener('mouseup', ()=>drawing=false);
+canvas.addEventListener('mouseleave', ()=>drawing=false);
+canvas.addEventListener('touchstart', e=>{e.preventDefault();drawing=true;const p=pos(e);ctx.beginPath();ctx.moveTo(p.x,p.y)},{passive:false});
+canvas.addEventListener('touchmove', e=>{e.preventDefault();if(!drawing)return;const p=pos(e);ctx.lineTo(p.x,p.y);ctx.stroke();hasSig=true},{passive:false});
+canvas.addEventListener('touchend', ()=>drawing=false);
+function clearSig(){ctx.clearRect(0,0,canvas.width,canvas.height);hasSig=false}
 
-// ── TABS ──
-function setTab(tab, el) {
-  currentTab = tab;
-  document.querySelectorAll('.sig-tab').forEach(t => t.classList.remove('active'));
+function setTab(tab,el){
+  currentTab=tab;
+  document.querySelectorAll('.sig-tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
-  ['draw', 'type', 'upload'].forEach(t => {
-    document.getElementById('tab-' + t).style.display = t === tab ? 'block' : 'none';
-  });
+  ['draw','type','upload'].forEach(t=>document.getElementById('tab-'+t).style.display=t===tab?'block':'none');
+}
+function renderTyped(){document.getElementById('typed-preview').textContent=document.getElementById('typed-sig').value||'Tu firma'}
+function handleUpload(e){
+  const file=e.target.files[0]; if(!file) return;
+  const r=new FileReader();
+  r.onload=ev=>{uploadedSigData=ev.target.result;const img=document.getElementById('upload-preview');img.src=ev.target.result;img.style.display='block'};
+  r.readAsDataURL(file);
+}
+function getSig(){
+  if(currentTab==='draw'){if(!hasSig){alert('Dibuja tu firma');return null}return{type:'drawn',data:canvas.toDataURL('image/png')}}
+  if(currentTab==='type'){const v=document.getElementById('typed-sig').value;if(!v){alert('Escribe tu firma');return null}const c=document.createElement('canvas');c.width=320;c.height=80;const cx=c.getContext('2d');cx.fillStyle='white';cx.fillRect(0,0,320,80);cx.font='italic 42px DM Serif Display,Georgia,serif';cx.fillStyle='#0f0e17';cx.fillText(v,16,58);return{type:'typed',data:c.toDataURL('image/png')}}
+  if(!uploadedSigData){alert('Sube una imagen');return null}return{type:'uploaded',data:uploadedSigData};
 }
 
-function renderTyped() {
-  const val = document.getElementById('typed-sig').value;
-  document.getElementById('typed-preview').textContent = val || 'Tu firma';
-}
-
-function handleUpload(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = ev => {
-    sigData = { type: 'uploaded', data: ev.target.result };
-    const img = document.getElementById('upload-preview');
-    img.src = ev.target.result; img.style.display = 'block';
-  };
-  reader.readAsDataURL(file);
-}
-
-function getSigData() {
-  if (currentTab === 'draw') {
-    if (!hasSig) { alert('Por favor dibuja tu firma'); return null; }
-    return { type: 'drawn', data: canvas.toDataURL('image/png') };
-  } else if (currentTab === 'type') {
-    const val = document.getElementById('typed-sig').value;
-    if (!val) { alert('Escribe tu firma'); return null; }
-    const c = document.createElement('canvas'); c.width = 320; c.height = 80;
-    const cx = c.getContext('2d');
-    cx.fillStyle = 'white'; cx.fillRect(0, 0, 320, 80);
-    cx.font = 'italic 42px DM Serif Display, Georgia, serif';
-    cx.fillStyle = '#0f0e17'; cx.fillText(val, 16, 58);
-    return { type: 'typed', data: c.toDataURL('image/png') };
-  } else {
-    if (!sigData.data) { alert('Sube una imagen de firma'); return null; }
-    return sigData;
+// ── PDF VIEWER ──
+async function loadPDF() {
+  try {
+    const url = '/sign/' + TOKEN + '/download';
+    const loadingTask = pdfjsLib.getDocument(url);
+    pdfDoc = await loadingTask.promise;
+    totalPages = pdfDoc.numPages;
+    document.getElementById('viewer-loading').style.display = 'none';
+    await renderAllPages();
+  } catch(e) {
+    document.getElementById('viewer-loading').textContent = 'Error cargando documento: ' + e.message;
   }
+}
+
+async function renderAllPages() {
+  const container = document.getElementById('viewer-pages');
+  container.innerHTML = '';
+  for (let i = 1; i <= totalPages; i++) {
+    const page = await pdfDoc.getPage(i);
+    const viewport = page.getViewport({ scale: 1.4 });
+    const c = document.createElement('canvas');
+    c.width = viewport.width; c.height = viewport.height;
+    const ctx2 = c.getContext('2d');
+    await page.render({ canvasContext: ctx2, viewport }).promise;
+    container.appendChild(c);
+  }
+  document.getElementById('page-info').textContent = '1 / ' + totalPages;
+}
+
+function prevPage() { if(currentPage > 1) { currentPage--; scrollToPage(currentPage); } }
+function nextPage() { if(currentPage < totalPages) { currentPage++; scrollToPage(currentPage); } }
+function scrollToPage(n) {
+  const pages = document.getElementById('viewer-pages').querySelectorAll('canvas');
+  if (pages[n-1]) pages[n-1].scrollIntoView({ behavior:'smooth' });
+  document.getElementById('page-info').textContent = n + ' / ' + totalPages;
 }
 
 // ── AUTH ──
 async function authAccess() {
   const name = document.getElementById('auth-name').value.trim();
-  const email = document.getElementById('auth-email').value.trim();
   if (!name) { document.getElementById('auth-error').textContent = 'Ingresa tu nombre'; return; }
-  document.getElementById('auth-error').textContent = '';
-
-  // Cargar info del doc para verificar
   try {
     const res = await fetch('/sign/' + TOKEN + '/info');
     const data = await res.json();
     if (!data.success) { document.getElementById('auth-error').textContent = data.error || 'Enlace no válido'; return; }
-    docInfo = data;
-
-    // Si tiene OTP, ir a pantalla OTP
-    if (data.needs_otp) {
-      showScreen('otp');
-    } else {
-      loadPortal(name, data);
-    }
-  } catch(e) {
-    document.getElementById('auth-error').textContent = 'Error de conexión';
-  }
+    if (data.expired) { document.getElementById('auth-error').textContent = 'Este enlace ha expirado'; document.querySelector('.btn-dark').disabled = true; return; }
+    if (data.needs_otp) { showScreen('otp'); return; }
+    loadPortal(name, data);
+  } catch(e) { document.getElementById('auth-error').textContent = 'Error de conexión'; }
 }
 
 async function verifyOtp() {
   const otp = document.getElementById('otp-input').value;
-  const res = await fetch('/sign/' + TOKEN + '/verify-otp', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ otp })
-  });
+  const res = await fetch('/sign/' + TOKEN + '/verify-otp', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({otp}) });
   const data = await res.json();
-  if (data.success) {
-    loadPortal(document.getElementById('auth-name').value, docInfo);
-  } else {
-    document.getElementById('otp-error').textContent = 'Código incorrecto';
-  }
+  if (data.success) loadPortal(document.getElementById('auth-name').value, {});
+  else document.getElementById('otp-error').textContent = 'Codigo incorrecto';
 }
 
 function showScreen(name) {
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.getElementById('screen-' + name).classList.add('active');
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('screen-'+name).classList.add('active');
 }
 
 function loadPortal(name, data) {
   showScreen('portal');
-  document.getElementById('portal-title').textContent = data.document_filename || 'Documento';
-  document.getElementById('portal-subtitle').textContent = data.status === 'signed'
-    ? '✅ Este documento ya ha sido firmado'
-    : 'Revisa el contenido y firma cuando estés listo';
-
-  // Timeline
+  document.getElementById('doc-name').textContent = data.document_filename || 'Documento';
+  document.getElementById('viewer-filename').textContent = data.document_filename || 'Documento';
+  document.getElementById('doc-status').textContent = data.status === 'signed' ? 'Firmado' : 'Pendiente de firma';
   document.getElementById('tl-created').textContent = data.created_at ? new Date(data.created_at).toLocaleString('es-MX') : '—';
   document.getElementById('tl-sent').textContent = data.created_at ? new Date(data.created_at).toLocaleString('es-MX') : '—';
+  if (name) document.getElementById('signer-name').value = name;
+  document.getElementById('download-btn').href = '/sign/' + TOKEN + '/download';
 
   if (data.status === 'signed') {
-    document.getElementById('tl-sig-dot').className = 'tl-dot done';
-    document.getElementById('tl-sig-dot').textContent = '✓';
-    document.getElementById('tl-sig-label').textContent = 'Firmado';
-    document.getElementById('tl-signed').textContent = data.signed_at ? new Date(data.signed_at).toLocaleString('es-MX') : '—';
-    document.getElementById('sig-card').innerHTML = '<div class="signed-banner"><h3>✅ Documento firmado</h3><p>Firmado el ' + (data.signed_at ? new Date(data.signed_at).toLocaleDateString('es-MX') : '—') + '</p></div>';
-    if (data.group_id) {
-      document.getElementById('cert-btn-wrap').style.display = 'block';
-      document.getElementById('cert-btn').href = '/signatures/group/' + data.group_id + '/certificate';
-    }
+    document.getElementById('tl-dot3').className = 'tl-dot done';
+    document.getElementById('tl-dot3').textContent = '✓';
+    document.getElementById('tl-label3').textContent = 'Firmado';
+    document.getElementById('tl-sub3').textContent = data.signed_at ? new Date(data.signed_at).toLocaleString('es-MX') : '—';
+    document.getElementById('sig-card').innerHTML = '<div class="signed-banner"><h3>Documento firmado</h3><p>Firma registrada exitosamente</p></div>';
   }
 
-  // Prefill name
-  if (name) document.getElementById('signer-name').value = name;
-
-  // Download link
-  const dlBase = window.location.origin + '/outputs/' + data.document_filename;
-  document.getElementById('download-btn').href = '/sign/' + TOKEN + '/download';
-  document.getElementById('dl-link').href = '/sign/' + TOKEN + '/download';
-
-  // Preview
-  renderPreview(data);
+  loadPDF();
 }
 
-function renderPreview(data) {
-  const loading = document.getElementById('preview-loading');
-  const iframe = document.getElementById('preview-iframe');
-  const previewUrl = '/sign/' + TOKEN + '/download';
-
-  loading.style.display = 'flex';
-  iframe.style.display = 'none';
-
-  // Cargar PDF en iframe
-  iframe.src = previewUrl;
-  iframe.onload = () => {
-    loading.style.display = 'none';
-    iframe.style.display = 'block';
-  };
-  // Fallback si tarda más de 5s
-  setTimeout(() => {
-    loading.style.display = 'none';
-    iframe.style.display = 'block';
-  }, 5000);
-}
-
-// ── SIGN ──
+// ── FIRMA ──
 async function submitSignature() {
   const name = document.getElementById('signer-name').value.trim();
   if (!name) { alert('Ingresa tu nombre'); return; }
-  const sig = getSigData();
-  if (!sig) return;
-  const btn = document.querySelector('.btn-sign');
+  const sig = getSig(); if (!sig) return;
+  const btn = document.getElementById('btn-sign');
   btn.textContent = 'Firmando...'; btn.disabled = true;
+
   try {
     const res = await fetch('/sign/' + TOKEN, {
       method: 'POST',
@@ -469,41 +378,37 @@ async function submitSignature() {
     });
     const data = await res.json();
     if (data.success) {
-      document.getElementById('sig-card').innerHTML = '<div class="signed-banner"><h3>✅ ¡Documento firmado!</h3><p>Tu firma fue registrada exitosamente</p></div>';
-      document.getElementById('tl-sig-dot').className = 'tl-dot done';
-      document.getElementById('tl-sig-dot').textContent = '✓';
-      document.getElementById('tl-sig-label').textContent = 'Firmado';
-      document.getElementById('tl-signed').textContent = new Date().toLocaleString('es-MX');
-      document.getElementById('portal-subtitle').textContent = '✅ Documento firmado exitosamente';
-      if (data.download_url) document.getElementById('download-btn').href = data.download_url;
+      // Actualizar UI
+      document.getElementById('sig-card').innerHTML = '<div class="signed-banner"><h3>Documento firmado</h3><p>Firma registrada correctamente</p></div>';
+      document.getElementById('tl-dot3').className = 'tl-dot done';
+      document.getElementById('tl-dot3').textContent = '✓';
+      document.getElementById('tl-label3').textContent = 'Firmado';
+      document.getElementById('tl-sub3').textContent = new Date().toLocaleString('es-MX');
+      document.getElementById('doc-status').textContent = 'Firmado';
+      // Recargar PDF con firma incrustada
+      document.getElementById('viewer-pages').innerHTML = '<div class="viewer-loading">Generando PDF firmado...</div>';
+      setTimeout(() => loadPDF(), 1500);
+      // Actualizar link descarga
+      document.getElementById('download-btn').href = data.download_url || '/sign/' + TOKEN + '/download';
     } else {
       alert('Error: ' + data.error);
-      btn.textContent = '✓ Firmar documento'; btn.disabled = false;
+      btn.textContent = 'Firmar documento'; btn.disabled = false;
     }
   } catch(e) {
     alert('Error de conexión');
-    btn.textContent = '✓ Firmar documento'; btn.disabled = false;
+    btn.textContent = 'Firmar documento'; btn.disabled = false;
   }
 }
 
-// Cargar info básica para auth screen
-async function initAuth() {
-  if (!TOKEN) return;
+// Init
+async function init() {
   try {
     const res = await fetch('/sign/' + TOKEN + '/info');
     const data = await res.json();
-    if (data.document_filename) {
-      document.getElementById('auth-docname').textContent = data.document_filename;
-    }
-    if (data.expired) {
-      showScreen('auth');
-      document.getElementById('auth-error').textContent = '⏰ Este enlace ha expirado';
-      document.querySelector('.btn-primary').disabled = true;
-    }
+    if (data.document_filename) document.getElementById('auth-docname').textContent = data.document_filename;
   } catch(e) {}
 }
-
-initAuth();
+init();
 </script>
 </body>
 </html>
