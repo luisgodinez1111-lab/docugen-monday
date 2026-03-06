@@ -1038,10 +1038,14 @@ app.get('/signatures/:token/download', async (req, res) => {
     if (!r.rows.length) return res.status(404).json({ error: 'Firma no encontrada o pendiente' });
     const sig = r.rows[0];
 
-    // Buscar el documento más reciente del item
+    // Parsear item_id (puede ser JSON string o string plano)
+    let itemId = sig.item_id;
+    try { const parsed = JSON.parse(itemId); if (parsed.id) itemId = parsed.id; } catch(e) {}
+
+    // Buscar el documento más reciente del item con doc_data
     const docR = await pool.query(
-      'SELECT doc_data, filename FROM documents WHERE account_id=$1 AND item_id=$2 ORDER BY created_at DESC LIMIT 1',
-      [sig.account_id, sig.item_id]
+      'SELECT doc_data, filename FROM documents WHERE account_id=$1 AND item_id=$2 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+      [sig.account_id, itemId]
     );
     if (!docR.rows.length || !docR.rows[0].doc_data) return res.status(404).json({ error: 'Documento no encontrado' });
 
