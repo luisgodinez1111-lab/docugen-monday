@@ -171,6 +171,34 @@
         <div id="triggersList"><div class="empty">Cargando...</div></div>
       </div>
     </div>
+    <div class="card">
+      <div class="card-label">Automatización avanzada</div>
+
+      <div class="section-title">⚡ Generación masiva</div>
+      <div class="section-desc">Genera documentos para todos los items del board de una vez.</div>
+      <button onclick="generateBulk()" style="width:100%;padding:9px;background:#7C3AED;color:white;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;margin-top:8px">⚡ Generar para todos los items</button>
+      <div id="bulkResult" style="margin-top:8px"></div>
+
+      <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+        <div class="section-title">🕐 Automatización programada</div>
+        <div class="section-desc">Genera documentos automáticamente en un horario.</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+          <input id="autoName" placeholder="Nombre (ej: Facturas mensuales)" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;outline:none">
+          <select id="autoCron" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;outline:none">
+            <option value="daily">Cada día (8am)</option>
+            <option value="weekly">Cada semana (Lunes 8am)</option>
+            <option value="monthly">Cada mes (Día 1, 8am)</option>
+          </select>
+          <input id="autoCondCol" placeholder="Condición: ID columna (opcional)" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;outline:none">
+          <input id="autoCondVal" placeholder="Condición: valor requerido (opcional)" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;outline:none">
+          <button onclick="saveScheduledAuto()" style="width:100%;padding:9px;background:var(--accent);color:white;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">💾 Guardar automatización</button>
+        </div>
+        <div style="margin-top:12px">
+          <div class="section-title" style="margin-bottom:8px">Automatizaciones activas</div>
+          <div id="scheduledAutosList"><div class="empty">Cargando...</div></div>
+        </div>
+      </div>
+    </div>
 <div class="card">
       <div class="card-label">Paso 3 — Generar</div>
       <div class="section-title">Genera el documento</div>
@@ -306,6 +334,77 @@
     else alert('Error: ' + data.error);
   }
 
+  async function generateBulk() {
+    if (!selectedTemplate) { alert('Selecciona una plantilla primero'); return; }
+    if (!confirm('¿Generar documentos para todos los items del board?')) return;
+    const btn = event.target;
+    btn.textContent = 'Generando...'; btn.disabled = true;
+    try {
+      // Obtener items del board
+      const itemsRes = await fetch(API + '/board-items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: accountId, board_id: boardId })
+      });
+      const itemsData = await itemsRes.json();
+      const itemIds = (itemsData.items || []).map(i => i.id);
+      if (!itemIds.length) { alert('No hay items en el board'); return; }
+
+      const res = await fetch(API + '/generate-bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
+        body: JSON.stringify({ board_id: boardId, item_ids: itemIds, template_name: selectedTemplate })
+      });
+      const data = await res.json();
+      document.getElementById('bulkResult').innerHTML =
+        '<div class="status success">✅ ' + data.generated + '/' + data.total + ' documentos generados</div>';
+      await loadHistory();
+    } catch(e) {
+      document.getElementById('bulkResult').innerHTML = '<div class="status error">Error: ' + e.message + '</div>';
+    }
+    btn.textContent = '⚡ Generar para todos los items'; btn.disabled = false;
+  }
+
+  async function saveScheduledAuto() {
+    const name = document.getElementById('autoName').value;
+    const cron = document.getElementById('autoCron').value;
+    const condCol = document.getElementById('autoCondCol').value;
+    const condVal = document.getElementById('autoCondVal').value;
+    if (!name) { alert('Ingresa un nombre'); return; }
+    if (!selectedTemplate) { alert('Selecciona una plantilla'); return; }
+    const res = await fetch(API + '/scheduled-automations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
+      body: JSON.stringify({ name, cron_expression: cron, board_id: boardId, template_name: selectedTemplate, condition_column: condCol, condition_value: condVal })
+    });
+    const data = await res.json();
+    if (data.success) { alert('✅ Automatización guardada'); await loadScheduledAutos(); }
+    else alert('Error: ' + data.error);
+  }
+
+  async function loadScheduledAutos() {
+    try {
+      const res = await fetch(API + '/scheduled-automations', { headers: { 'x-account-id': accountId } });
+      const data = await res.json();
+      const list = document.getElementById('scheduledAutosList');
+      if (!data.automations || !data.automations.length) { list.innerHTML = '<div class="empty">Sin automatizaciones</div>'; return; }
+      const cronLabel = { daily: 'Diario', weekly: 'Semanal', monthly: 'Mensual' };
+      list.innerHTML = data.automations.map(a =>
+        '<div style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:5px;font-size:12px;display:flex;justify-content:space-between;align-items:center">' +
+        '<div><div>🕐 ' + a.name + ' — <b>' + (cronLabel[a.cron_expression]||a.cron_expression) + '</b></div>' +
+        '<div style="color:var(--text-muted);font-size:10px;margin-top:2px">📄 ' + a.template_name + (a.condition_column ? ' · si ' + a.condition_column + '=' + a.condition_value : '') + '</div></div>' +
+        '<button onclick="deleteScheduledAuto(' + a.id + ')" style="padding:2px 8px;background:transparent;border:1px solid var(--danger);color:var(--danger);border-radius:4px;font-size:10px;cursor:pointer">🗑</button>' +
+        '</div>'
+      ).join('');
+    } catch(e) {}
+  }
+
+  async function deleteScheduledAuto(id) {
+    if (!confirm('¿Eliminar automatización?')) return;
+    await fetch(API + '/scheduled-automations/' + id, { method: 'DELETE', headers: { 'x-account-id': accountId } });
+    await loadScheduledAutos();
+  }
+
   async function saveTrigger() {
     const columnId = document.getElementById('triggerColumnId').value;
     const triggerValue = document.getElementById('triggerValue').value;
@@ -341,6 +440,7 @@
     if (!confirm('¿Eliminar trigger?')) return;
     await fetch(API + '/webhooks/triggers/' + id, { method: 'DELETE', headers: { 'x-account-id': accountId } });
     await loadTriggers();
+    await loadScheduledAutos();
   }
 
   async function requestSignature() {
@@ -366,6 +466,7 @@
           '<div class="status success" style="word-break:break-all">✓ Link generado: <a href="' + data.sign_url + '" target="_blank" style="color:var(--accent)">' + data.sign_url + '</a></div>';
         await loadSignatures();
     await loadTriggers();
+    await loadScheduledAutos();
       } else {
         document.getElementById('signatureResult').innerHTML = '<div class="status error">✗ ' + data.error + '</div>';
       }
@@ -440,6 +541,7 @@
     await loadTemplates();
     await loadSignatures();
     await loadTriggers();
+    await loadScheduledAutos();
     if (boardId) await loadBoardItems(boardId);
     await loadHistorial();
   }
@@ -572,6 +674,7 @@
       await loadTemplates();
     await loadSignatures();
     await loadTriggers();
+    await loadScheduledAutos();
       selectTemplate(file.name);
     } catch(e) {
       document.getElementById('upload-status').innerHTML = '<div class="status error">✗ Error al subir</div>';
