@@ -315,10 +315,12 @@
       list.innerHTML = data.signatures.slice(0,5).map(s => {
         const statusColor = s.status === 'signed' ? 'var(--success)' : '#f59e0b';
         const statusIcon = s.status === 'signed' ? '✅' : '⏳';
+        const downloadBtn = s.status === 'signed' ?
+          '<a href="' + API + '/signatures/' + s.token + '/download" target="_blank" style="padding:2px 8px;background:#059669;color:white;border-radius:4px;font-size:10px;text-decoration:none;font-weight:600">⬇ Descargar</a>' : '';
         return '<div style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:5px;font-size:12px">' +
           '<div style="display:flex;justify-content:space-between;align-items:center">' +
           '<span>' + s.signer_name + '</span>' +
-          '<span style="color:' + statusColor + '">' + statusIcon + ' ' + s.status + '</span>' +
+          '<div style="display:flex;align-items:center;gap:6px"><span style="color:' + statusColor + '">' + statusIcon + ' ' + s.status + '</span>' + downloadBtn + '</div>' +
           '</div>' +
           '<div style="color:var(--text-muted);font-size:10px;margin-top:2px">' + s.document_filename + '</div>' +
           '</div>';
