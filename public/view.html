@@ -283,7 +283,7 @@
     } catch(e) { document.getElementById('template-list').innerHTML = '<div class="empty">Error al cargar</div>'; }
   }
 
-    try {
+  async function loadBoardItems(bid) {
       const res = await fetch(API + '/board-items', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
