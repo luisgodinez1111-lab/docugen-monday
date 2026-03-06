@@ -940,13 +940,9 @@ app.get('/sign/:token/download', async (req, res) => {
     const { rgb } = require('pdf-lib');
 
     // 1. Si tiene signed_pdf ya generado, servirlo
-    const sigR = await pool.query('SELECT signed_pdf, signature_data, signer_name, signed_at, signer_ip FROM signature_requests WHERE token=$1', [req.params.token]);
+    const sigR = await pool.query('SELECT signature_data, signer_name, signed_at, signer_ip FROM signature_requests WHERE token=$1', [req.params.token]);
     const sigRow = sigR.rows[0];
-    if (sigRow?.signed_pdf?.length > 0) {
-      res.set('Content-Disposition', 'attachment; filename="' + filename.replace(/\.\w+$/, '') + '_firmado.pdf"');
-      res.set('Content-Type', 'application/pdf');
-      return res.send(sigRow.signed_pdf);
-    }
+    // signed_pdf removed - always generate fresh PDF below
 
     // 2. Buscar doc_data del documento
     let docData = null;
