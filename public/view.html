@@ -292,6 +292,43 @@
     else alert('Error: ' + data.error);
   }
 
+  async function saveTrigger() {
+    const columnId = document.getElementById('triggerColumnId').value;
+    const triggerValue = document.getElementById('triggerValue').value;
+    if (!columnId || !triggerValue) { alert('Ingresa columna y valor'); return; }
+    if (!selectedTemplate) { alert('Selecciona una plantilla'); return; }
+    const res = await fetch(API + '/webhooks/triggers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
+      body: JSON.stringify({ board_id: boardId, column_id: columnId, trigger_value: triggerValue, template_name: selectedTemplate })
+    });
+    const data = await res.json();
+    if (data.success) { alert('✅ Trigger guardado'); await loadTriggers(); }
+    else alert('Error: ' + data.error);
+  }
+
+  async function loadTriggers() {
+    try {
+      const res = await fetch(API + '/webhooks/triggers', { headers: { 'x-account-id': accountId } });
+      const data = await res.json();
+      const list = document.getElementById('triggersList');
+      if (!data.triggers || !data.triggers.length) { list.innerHTML = '<div class="empty">Sin triggers</div>'; return; }
+      list.innerHTML = data.triggers.map(t =>
+        '<div style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:5px;font-size:12px;display:flex;justify-content:space-between;align-items:center">' +
+        '<div><div>⚡ ' + t.column_id + ' = <b>' + t.trigger_value + '</b></div>' +
+        '<div style="color:var(--text-muted);font-size:10px;margin-top:2px">📄 ' + t.template_name + '</div></div>' +
+        '<button onclick="deleteTrigger(' + t.id + ')" style="padding:2px 8px;background:transparent;border:1px solid var(--danger);color:var(--danger);border-radius:4px;font-size:10px;cursor:pointer">🗑</button>' +
+        '</div>'
+      ).join('');
+    } catch(e) {}
+  }
+
+  async function deleteTrigger(id) {
+    if (!confirm('¿Eliminar trigger?')) return;
+    await fetch(API + '/webhooks/triggers/' + id, { method: 'DELETE', headers: { 'x-account-id': accountId } });
+    await loadTriggers();
+  }
+
   async function requestSignature() {
     const signerName = document.getElementById('signerName').value;
     if (!signerName) { alert('Ingresa el nombre del firmante'); return; }
@@ -314,6 +351,7 @@
         document.getElementById('signatureResult').innerHTML =
           '<div class="status success" style="word-break:break-all">✓ Link generado: <a href="' + data.sign_url + '" target="_blank" style="color:var(--accent)">' + data.sign_url + '</a></div>';
         await loadSignatures();
+    await loadTriggers();
       } else {
         document.getElementById('signatureResult').innerHTML = '<div class="status error">✗ ' + data.error + '</div>';
       }
@@ -387,6 +425,7 @@
     await loadLogo();
     await loadTemplates();
     await loadSignatures();
+    await loadTriggers();
     if (boardId) await loadBoardItems(boardId);
     await loadHistorial();
   }
@@ -518,6 +557,7 @@
       document.getElementById('upload-status').innerHTML = '<div class="status success">✓ Plantilla subida</div>';
       await loadTemplates();
     await loadSignatures();
+    await loadTriggers();
       selectTemplate(file.name);
     } catch(e) {
       document.getElementById('upload-status').innerHTML = '<div class="status error">✗ Error al subir</div>';
