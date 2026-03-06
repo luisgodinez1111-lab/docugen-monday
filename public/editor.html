@@ -5,1336 +5,836 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DocuGen — Editor de Plantillas</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0f0f11;
+  --surface: #18181c;
+  --surface2: #222228;
+  --border: #2e2e38;
+  --accent: #5b6af5;
+  --text: #e8e8f0;
+  --text2: #8888a0;
+  --success: #34d399;
+  --danger: #f87171;
+  --panel-w: 240px;
+  --header-h: 50px;
+}
 
-  :root {
-    --bg: #0f0f11;
-    --surface: #18181c;
-    --surface2: #222228;
-    --border: #2e2e38;
-    --accent: #5b6af5;
-    --accent2: #8b5cf6;
-    --text: #e8e8f0;
-    --text2: #8888a0;
-    --success: #34d399;
-    --danger: #f87171;
-    --canvas-bg: #1e1e24;
-    --panel-w: 260px;
-    --header-h: 52px;
-  }
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
-  body {
-    font-family: 'DM Sans', sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
+/* HEADER */
+header { height: var(--header-h); background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 14px; gap: 10px; flex-shrink: 0; z-index: 100; }
+.logo { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+.logo-dot { width: 7px; height: 7px; background: var(--accent); border-radius: 50%; box-shadow: 0 0 8px var(--accent); }
+.tpl-input { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 5px 10px; border-radius: 6px; font-size: 12px; font-family: 'DM Sans', sans-serif; width: 200px; outline: none; transition: border-color 0.2s; }
+.tpl-input:focus { border-color: var(--accent); }
+.spacer { flex: 1; }
+.btn { padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; font-family: 'DM Sans', sans-serif; cursor: pointer; border: none; transition: all 0.15s; display: flex; align-items: center; gap: 5px; }
+.btn-ghost { background: transparent; color: var(--text2); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--surface2); color: var(--text); }
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover { background: #6b7aff; }
+.btn-success { background: var(--success); color: #0f1a14; font-weight: 600; }
+.btn-success:hover { background: #5eead4; }
 
-  /* HEADER */
-  header {
-    height: var(--header-h);
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    padding: 0 16px;
-    gap: 12px;
-    flex-shrink: 0;
-    z-index: 100;
-  }
+/* LAYOUT */
+.main { display: flex; flex: 1; overflow: hidden; }
 
-  .logo {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
+/* PANELS */
+.panel { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; width: var(--panel-w); }
+.panel-right { border-right: none; border-left: 1px solid var(--border); overflow-y: auto; }
 
-  .logo-dot {
-    width: 8px; height: 8px;
-    background: var(--accent);
-    border-radius: 50%;
-    box-shadow: 0 0 8px var(--accent);
-  }
+/* TABS */
+.panel-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.ptab { flex: 1; padding: 9px 4px; font-size: 10px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer; text-align: center; border-bottom: 2px solid transparent; transition: all 0.15s; }
+.ptab:hover { color: var(--text); }
+.ptab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-  .template-name-input {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 5px 12px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: 'DM Sans', sans-serif;
-    width: 220px;
-    outline: none;
-    transition: border-color 0.2s;
-  }
-  .template-name-input:focus { border-color: var(--accent); }
+.panel-body { flex: 1; overflow-y: auto; padding: 10px; }
+.panel-section { margin-bottom: 14px; }
+.panel-title { font-size: 10px; font-weight: 600; color: var(--text2); letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 8px; }
 
-  .spacer { flex: 1; }
+/* BLOCKS */
+.blocks-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.block-btn { background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 9px 6px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text2); font-size: 10px; font-family: 'DM Sans', sans-serif; transition: all 0.15s; user-select: none; }
+.block-btn:hover { border-color: var(--accent); color: var(--text); background: rgba(91,106,245,0.08); transform: translateY(-1px); }
+.block-icon { font-size: 16px; }
 
-  .header-actions { display: flex; gap: 8px; }
+/* THEMES */
+.themes-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 10px; }
+.theme-swatch { height: 28px; border-radius: 5px; cursor: pointer; border: 2px solid transparent; transition: all 0.15s; }
+.theme-swatch:hover, .theme-swatch.active { border-color: white; transform: scale(1.05); }
 
-  .btn {
-    padding: 6px 14px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 500;
-    font-family: 'DM Sans', sans-serif;
-    cursor: pointer;
-    border: none;
-    transition: all 0.15s;
-    display: flex; align-items: center; gap: 6px;
-  }
-  .btn-ghost {
-    background: transparent;
-    color: var(--text2);
-    border: 1px solid var(--border);
-  }
-  .btn-ghost:hover { background: var(--surface2); color: var(--text); }
-  .btn-primary {
-    background: var(--accent);
-    color: white;
-  }
-  .btn-primary:hover { background: #6b7aff; box-shadow: 0 0 12px rgba(91,106,245,0.4); }
-  .btn-success {
-    background: var(--success);
-    color: #0f1a14;
-    font-weight: 600;
-  }
-  .btn-success:hover { background: #5eead4; }
+/* COLOR PALETTE */
+.palette-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 8px; }
+.pal-color { width: 100%; aspect-ratio: 1; border-radius: 4px; cursor: pointer; border: 1px solid transparent; transition: all 0.12s; }
+.pal-color:hover { transform: scale(1.1); border-color: white; }
 
-  /* MAIN LAYOUT */
-  .main {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
-  }
+/* FONTS */
+.fonts-list { display: flex; flex-direction: column; gap: 4px; }
+.font-item { padding: 6px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 5px; cursor: pointer; font-size: 13px; transition: all 0.15s; }
+.font-item:hover, .font-item.active { border-color: var(--accent); color: var(--accent); }
 
-  /* LEFT PANEL */
-  .panel-left {
-    width: var(--panel-w);
-    background: var(--surface);
-    border-right: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    overflow-y: auto;
-    flex-shrink: 0;
-  }
+/* VARIABLES */
+.vars-list { display: flex; flex-direction: column; gap: 3px; }
+.var-chip { background: var(--surface2); border: 1px solid var(--border); border-radius: 5px; padding: 5px 8px; font-size: 10px; font-family: 'DM Mono', monospace; color: var(--accent); cursor: pointer; transition: all 0.12s; display: flex; justify-content: space-between; align-items: center; }
+.var-chip:hover { border-color: var(--accent); background: rgba(91,106,245,0.1); }
+.var-chip span { color: var(--text2); font-size: 9px; }
 
-  .panel-section {
-    padding: 14px 12px 10px;
-    border-bottom: 1px solid var(--border);
-  }
+/* CANVAS */
+.canvas-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #1a1a20; }
+.canvas-toolbar { height: 38px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 10px; gap: 3px; flex-shrink: 0; }
+.tool-btn { width: 26px; height: 26px; background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--text2); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; transition: all 0.12s; }
+.tool-btn:hover, .tool-btn.active { background: var(--surface2); border-color: var(--border); color: var(--text); }
+.tool-sep { width: 1px; height: 16px; background: var(--border); margin: 0 3px; }
+.zoom-info { font-size: 11px; color: var(--text2); font-family: 'DM Mono', monospace; min-width: 40px; text-align: center; }
+.canvas-scroll { flex: 1; overflow: auto; display: flex; align-items: flex-start; justify-content: center; padding: 28px; }
+.canvas-wrapper { box-shadow: 0 8px 40px rgba(0,0,0,0.6); }
 
-  .panel-title {
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--text2);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    margin-bottom: 10px;
-  }
+/* RIGHT PANEL PROPS */
+.prop-group { padding: 10px; border-bottom: 1px solid var(--border); }
+.prop-label { font-size: 10px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 7px; }
+.prop-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+.prop-fl { font-size: 10px; color: var(--text2); min-width: 44px; }
+.prop-input { flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 7px; border-radius: 4px; font-size: 11px; font-family: 'DM Sans', sans-serif; outline: none; transition: border-color 0.15s; }
+.prop-input:focus { border-color: var(--accent); }
+.prop-textarea { width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 5px 7px; border-radius: 4px; font-size: 11px; font-family: 'DM Mono', monospace; outline: none; resize: vertical; min-height: 55px; }
+.prop-textarea:focus { border-color: var(--accent); }
+.prop-select { flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 7px; border-radius: 4px; font-size: 11px; font-family: 'DM Sans', sans-serif; outline: none; }
+.color-btn { width: 26px; height: 26px; border-radius: 4px; border: 1px solid var(--border); cursor: pointer; padding: 0; overflow: hidden; position: relative; flex-shrink: 0; }
+.color-btn input { position: absolute; inset: -4px; width: calc(100% + 8px); height: calc(100% + 8px); cursor: pointer; border: none; padding: 0; }
+.style-btns { display: flex; gap: 3px; }
+.style-btn { width: 24px; height: 24px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text2); cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.12s; }
+.style-btn:hover, .style-btn.on { border-color: var(--accent); color: var(--accent); }
+.del-btn { width: 100%; padding: 6px; background: rgba(248,113,113,0.08); border: 1px solid var(--danger); border-radius: 5px; color: var(--danger); cursor: pointer; font-size: 11px; font-family: 'DM Sans', sans-serif; transition: all 0.15s; margin-top: 2px; }
+.del-btn:hover { background: rgba(248,113,113,0.18); }
+.props-empty { padding: 20px 14px; text-align: center; color: var(--text2); font-size: 11px; line-height: 1.7; }
+.props-empty-icon { font-size: 24px; margin-bottom: 8px; }
 
-  /* BLOCKS GRID */
-  .blocks-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-  }
+/* TOAST */
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(80px); background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 8px 16px; font-size: 12px; transition: transform 0.25s; z-index: 9999; white-space: nowrap; }
+.toast.show { transform: translateX(-50%) translateY(0); }
+.toast.success { border-color: var(--success); color: var(--success); }
+.toast.error { border-color: var(--danger); color: var(--danger); }
 
-  .block-btn {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 8px;
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 5px;
-    color: var(--text2);
-    font-size: 11px;
-    font-family: 'DM Sans', sans-serif;
-    transition: all 0.15s;
-    user-select: none;
-  }
-  .block-btn:hover {
-    background: var(--surface);
-    border-color: var(--accent);
-    color: var(--text);
-    transform: translateY(-1px);
-  }
-  .block-icon { font-size: 18px; }
+/* MODAL */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.modal { background: var(--surface); border: 1px solid var(--border); border-radius: 11px; padding: 22px; width: 480px; max-height: 85vh; overflow-y: auto; }
+.modal-title { font-size: 15px; font-weight: 600; margin-bottom: 14px; }
 
-  /* VARIABLES LIST */
-  .vars-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    max-height: 200px;
-    overflow-y: auto;
-  }
-
-  .var-chip {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    padding: 5px 10px;
-    font-size: 11px;
-    font-family: 'DM Mono', monospace;
-    color: var(--accent);
-    cursor: pointer;
-    transition: all 0.15s;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .var-chip:hover { border-color: var(--accent); background: rgba(91,106,245,0.1); }
-  .var-chip span { color: var(--text2); font-size: 10px; }
-
-  .vars-empty { font-size: 12px; color: var(--text2); text-align: center; padding: 12px 0; }
-
-  /* PAGES */
-  .pages-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .page-thumb {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 8px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    transition: all 0.15s;
-  }
-  .page-thumb:hover, .page-thumb.active {
-    border-color: var(--accent);
-    background: rgba(91,106,245,0.08);
-  }
-  .page-num {
-    width: 20px; height: 20px;
-    background: var(--accent);
-    border-radius: 4px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 10px; font-weight: 600; color: white;
-    flex-shrink: 0;
-  }
-
-  /* CANVAS AREA */
-  .canvas-area {
-    flex: 1;
-    background: var(--canvas-bg);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    position: relative;
-  }
-
-  .canvas-toolbar {
-    height: 40px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    padding: 0 12px;
-    gap: 4px;
-    flex-shrink: 0;
-  }
-
-  .tool-btn {
-    width: 28px; height: 28px;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 5px;
-    color: var(--text2);
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 13px;
-    transition: all 0.15s;
-  }
-  .tool-btn:hover, .tool-btn.active {
-    background: var(--surface2);
-    border-color: var(--border);
-    color: var(--text);
-  }
-
-  .tool-sep {
-    width: 1px; height: 18px;
-    background: var(--border);
-    margin: 0 4px;
-  }
-
-  .zoom-display {
-    font-size: 11px;
-    color: var(--text2);
-    font-family: 'DM Mono', monospace;
-    padding: 0 8px;
-    min-width: 44px;
-    text-align: center;
-  }
-
-  .canvas-scroll {
-    flex: 1;
-    overflow: auto;
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding: 32px;
-  }
-
-  .canvas-wrapper {
-    position: relative;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.5);
-    border-radius: 2px;
-  }
-
-  #mainCanvas {
-    display: block;
-  }
-
-  /* RIGHT PANEL */
-  .panel-right {
-    width: var(--panel-w);
-    background: var(--surface);
-    border-left: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    overflow-y: auto;
-    flex-shrink: 0;
-  }
-
-  .props-empty {
-    padding: 24px 16px;
-    text-align: center;
-    color: var(--text2);
-    font-size: 12px;
-    line-height: 1.6;
-  }
-  .props-empty-icon { font-size: 28px; margin-bottom: 8px; }
-
-  /* PROPERTY FIELDS */
-  .prop-group {
-    padding: 12px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .prop-label {
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--text2);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 8px;
-  }
-
-  .prop-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 6px;
-  }
-
-  .prop-field-label {
-    font-size: 11px;
-    color: var(--text2);
-    min-width: 52px;
-  }
-
-  .prop-input {
-    flex: 1;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 4px 8px;
-    border-radius: 5px;
-    font-size: 12px;
-    font-family: 'DM Sans', sans-serif;
-    outline: none;
-    transition: border-color 0.15s;
-  }
-  .prop-input:focus { border-color: var(--accent); }
-
-  .prop-color {
-    width: 28px; height: 28px;
-    border-radius: 5px;
-    border: 1px solid var(--border);
-    cursor: pointer;
-    padding: 0;
-    overflow: hidden;
-  }
-  .prop-color input[type="color"] {
-    width: 200%; height: 200%;
-    margin: -50%;
-    cursor: pointer;
-    border: none;
-    padding: 0;
-  }
-
-  .prop-textarea {
-    width: 100%;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 6px 8px;
-    border-radius: 5px;
-    font-size: 12px;
-    font-family: 'DM Mono', monospace;
-    outline: none;
-    resize: vertical;
-    min-height: 60px;
-    transition: border-color 0.15s;
-  }
-  .prop-textarea:focus { border-color: var(--accent); }
-
-  .prop-select {
-    flex: 1;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 4px 8px;
-    border-radius: 5px;
-    font-size: 12px;
-    font-family: 'DM Sans', sans-serif;
-    outline: none;
-  }
-
-  .font-size-btns {
-    display: flex;
-    gap: 4px;
-  }
-  .font-size-btn {
-    width: 24px; height: 24px;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: var(--text);
-    cursor: pointer;
-    font-size: 13px;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .font-size-btn:hover { border-color: var(--accent); }
-
-  .align-btns { display: flex; gap: 4px; }
-  .align-btn {
-    flex: 1;
-    padding: 4px;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: var(--text2);
-    cursor: pointer;
-    font-size: 12px;
-    transition: all 0.15s;
-  }
-  .align-btn:hover, .align-btn.active { border-color: var(--accent); color: var(--accent); }
-
-  .bold-italic-btns { display: flex; gap: 4px; }
-  .bi-btn {
-    width: 28px; height: 28px;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: var(--text2);
-    cursor: pointer;
-    font-size: 13px;
-    display: flex; align-items: center; justify-content: center;
-    transition: all 0.15s;
-  }
-  .bi-btn:hover, .bi-btn.active { border-color: var(--accent); color: var(--accent); }
-
-  .delete-btn {
-    width: 100%;
-    padding: 7px;
-    background: rgba(248,113,113,0.1);
-    border: 1px solid var(--danger);
-    border-radius: 5px;
-    color: var(--danger);
-    cursor: pointer;
-    font-size: 12px;
-    font-family: 'DM Sans', sans-serif;
-    transition: all 0.15s;
-    margin-top: 4px;
-  }
-  .delete-btn:hover { background: rgba(248,113,113,0.2); }
-
-  /* TOAST */
-  .toast {
-    position: fixed;
-    bottom: 24px;
-    left: 50%;
-    transform: translateX(-50%) translateY(100px);
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 18px;
-    font-size: 13px;
-    transition: transform 0.3s;
-    z-index: 9999;
-    white-space: nowrap;
-  }
-  .toast.show { transform: translateX(-50%) translateY(0); }
-  .toast.success { border-color: var(--success); color: var(--success); }
-  .toast.error { border-color: var(--danger); color: var(--danger); }
-
-  /* MODAL */
-  .modal-overlay {
-    position: fixed; inset: 0;
-    background: rgba(0,0,0,0.7);
-    display: flex; align-items: center; justify-content: center;
-    z-index: 1000;
-    opacity: 0; pointer-events: none;
-    transition: opacity 0.2s;
-  }
-  .modal-overlay.open { opacity: 1; pointer-events: all; }
-  .modal {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 24px;
-    width: 400px;
-    transform: scale(0.95);
-    transition: transform 0.2s;
-  }
-  .modal-overlay.open .modal { transform: scale(1); }
-  .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
-  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
-
-  /* SCROLLBAR */
-  ::-webkit-scrollbar { width: 5px; height: 5px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--text2); }
-
-  .ruler {
-    height: 20px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    position: relative;
-    overflow: hidden;
-    flex-shrink: 0;
-  }
+/* SCROLLBAR */
+::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 </style>
 </head>
 <body>
 
-<!-- HEADER -->
 <header>
-  <div class="logo">
-    <div class="logo-dot"></div>
-    DocuGen
-  </div>
-  <span style="color:var(--border);margin:0 4px">|</span>
-  <input class="template-name-input" id="templateName" placeholder="Nombre de plantilla..." value="Mi Plantilla">
+  <div class="logo"><div class="logo-dot"></div>DocuGen</div>
+  <span style="color:var(--border);margin:0 3px">|</span>
+  <input class="tpl-input" id="templateName" placeholder="Nombre de plantilla..." value="Mi Plantilla">
   <div class="spacer"></div>
-  <div class="header-actions">
-    <button class="btn btn-ghost" onclick="loadVariables()">⟳ Variables</button>
+  <div style="display:flex;gap:6px">
     <button class="btn btn-ghost" onclick="previewTemplate()">👁 Preview</button>
+    <button class="btn btn-ghost" onclick="undo()">↩</button>
+    <button class="btn btn-ghost" onclick="redo()">↪</button>
     <button class="btn btn-primary" onclick="saveTemplate()">💾 Guardar</button>
-    <button class="btn btn-success" onclick="exportAndGenerate()">⬇ Generar Doc</button>
+    <button class="btn btn-success" onclick="saveTemplate()">⬇ Exportar</button>
   </div>
 </header>
 
 <div class="main">
 
   <!-- LEFT PANEL -->
-  <div class="panel-left">
-
-    <div class="panel-section">
-      <div class="panel-title">Elementos</div>
-      <div class="blocks-grid">
-        <button class="block-btn" onclick="addText()">
-          <span class="block-icon">T</span>
-          Texto
-        </button>
-        <button class="block-btn" onclick="addHeading()">
-          <span class="block-icon" style="font-weight:700">H</span>
-          Título
-        </button>
-        <button class="block-btn" onclick="addImage()">
-          <span class="block-icon">🖼</span>
-          Imagen
-        </button>
-        <button class="block-btn" onclick="addRect()">
-          <span class="block-icon">▬</span>
-          Rectángulo
-        </button>
-        <button class="block-btn" onclick="addLine()">
-          <span class="block-icon">─</span>
-          Línea
-        </button>
-        <button class="block-btn" onclick="addTable()">
-          <span class="block-icon">⊞</span>
-          Tabla
-        </button>
-        <button class="block-btn" onclick="addSignature()">
-          <span class="block-icon">✍</span>
-          Firma
-        </button>
-        <button class="block-btn" onclick="addQR()">
-          <span class="block-icon">⊡</span>
-          QR/Código
-        </button>
-      </div>
+  <div class="panel">
+    <div class="panel-tabs">
+      <div class="ptab active" onclick="switchTab('elements',this)">Elementos</div>
+      <div class="ptab" onclick="switchTab('styles',this)">Estilos</div>
+      <div class="ptab" onclick="switchTab('vars',this)">Variables</div>
     </div>
 
-    <div class="panel-section">
-      <div class="panel-title">Variables Monday</div>
-      <div class="vars-list" id="varsList">
-        <div class="vars-empty">Conecta un tablero para ver las variables disponibles</div>
-      </div>
-      <button class="btn btn-ghost" style="width:100%;margin-top:8px;font-size:11px" onclick="loadVariables()">+ Cargar variables</button>
-    </div>
-
-    <div class="panel-section">
-      <div class="panel-title">Variables especiales</div>
-      <div class="vars-list">
-        <div class="var-chip" onclick="insertVar('{{fecha_hoy}}')">{{fecha_hoy}} <span>hoy</span></div>
-        <div class="var-chip" onclick="insertVar('{{folio}}')">{{folio}} <span>folio</span></div>
-        <div class="var-chip" onclick="insertVar('{{cuenta}}')">{{cuenta}} <span>empresa</span></div>
-        <div class="var-chip" onclick="insertVar('{{subtotal_fmt}}')">{{subtotal_fmt}} <span>subtotal</span></div>
-        <div class="var-chip" onclick="insertVar('{{iva_fmt}}')">{{iva_fmt}} <span>IVA</span></div>
-        <div class="var-chip" onclick="insertVar('{{total_fmt}}')">{{total_fmt}} <span>total</span></div>
-        <div class="var-chip" onclick="insertVar('{{total_letras}}')">{{total_letras}} <span>letras</span></div>
-      </div>
-    </div>
-
-    <div class="panel-section">
-      <div class="panel-title">Páginas</div>
-      <div class="pages-list" id="pagesList">
-        <div class="page-thumb active">
-          <div class="page-num">1</div>
-          Página 1
+    <!-- ELEMENTS TAB -->
+    <div class="panel-body" id="tab-elements">
+      <div class="panel-section">
+        <div class="panel-title">Texto</div>
+        <div class="blocks-grid">
+          <button class="block-btn" onclick="addText('body')"><span class="block-icon">T</span>Texto</button>
+          <button class="block-btn" onclick="addText('h1')"><span class="block-icon" style="font-weight:800;font-size:14px">H1</span>Título</button>
+          <button class="block-btn" onclick="addText('h2')"><span class="block-icon" style="font-weight:700;font-size:13px">H2</span>Subtítulo</button>
+          <button class="block-btn" onclick="addText('small')"><span class="block-icon" style="font-size:11px">Aa</span>Pequeño</button>
         </div>
       </div>
-      <button class="btn btn-ghost" style="width:100%;margin-top:8px;font-size:11px" onclick="addPage()">+ Agregar página</button>
+      <div class="panel-section">
+        <div class="panel-title">Formas</div>
+        <div class="blocks-grid">
+          <button class="block-btn" onclick="addRect()"><span class="block-icon">▬</span>Rectángulo</button>
+          <button class="block-btn" onclick="addCircle()"><span class="block-icon">●</span>Círculo</button>
+          <button class="block-btn" onclick="addLine()"><span class="block-icon">─</span>Línea</button>
+          <button class="block-btn" onclick="addDivider()"><span class="block-icon">═</span>Divisor</button>
+          <button class="block-btn" onclick="addTriangle()"><span class="block-icon">▲</span>Triángulo</button>
+          <button class="block-btn" onclick="addArrow()"><span class="block-icon">→</span>Flecha</button>
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-title">Contenido</div>
+        <div class="blocks-grid">
+          <button class="block-btn" onclick="addImage()"><span class="block-icon">🖼</span>Imagen</button>
+          <button class="block-btn" onclick="addTable()"><span class="block-icon">⊞</span>Tabla</button>
+          <button class="block-btn" onclick="addSignature()"><span class="block-icon">✍</span>Firma</button>
+          <button class="block-btn" onclick="addQRPlaceholder()"><span class="block-icon">⊡</span>QR Code</button>
+          <button class="block-btn" onclick="addPageNum()"><span class="block-icon">#</span>Folio</button>
+          <button class="block-btn" onclick="addDateBlock()"><span class="block-icon">📅</span>Fecha</button>
+        </div>
+      </div>
     </div>
 
+    <!-- STYLES TAB -->
+    <div class="panel-body" id="tab-styles" style="display:none">
+      <div class="panel-section">
+        <div class="panel-title">Temas de color</div>
+        <div class="themes-grid" id="themesGrid"></div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-title">Paleta rápida</div>
+        <div class="palette-grid" id="paletteGrid"></div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-title">Fondo de página</div>
+        <div class="prop-row">
+          <span class="prop-fl">Color</span>
+          <div class="color-btn"><input type="color" id="pageBgColor" value="#ffffff" oninput="setPageBg(this.value)"></div>
+          <button class="btn btn-ghost" style="font-size:10px;padding:3px 8px" onclick="setPageBg('#ffffff')">Reset</button>
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-title">Fuentes</div>
+        <div class="fonts-list" id="fontsList"></div>
+      </div>
+    </div>
+
+    <!-- VARIABLES TAB -->
+    <div class="panel-body" id="tab-vars" style="display:none">
+      <div class="panel-section">
+        <div class="panel-title">Variables del tablero</div>
+        <div class="vars-list" id="varsList">
+          <div style="font-size:11px;color:var(--text2);text-align:center;padding:10px 0">Cargando variables...</div>
+        </div>
+        <button class="btn btn-ghost" style="width:100%;margin-top:7px;font-size:10px" onclick="loadVariables()">⟳ Recargar</button>
+      </div>
+      <div class="panel-section">
+        <div class="panel-title">Variables especiales</div>
+        <div class="vars-list">
+          <div class="var-chip" onclick="insertVar('{{fecha_hoy}}')">{{fecha_hoy}} <span>hoy</span></div>
+          <div class="var-chip" onclick="insertVar('{{folio}}')">{{folio}} <span>folio</span></div>
+          <div class="var-chip" onclick="insertVar('{{subtotal_fmt}}')">{{subtotal_fmt}} <span>subtotal</span></div>
+          <div class="var-chip" onclick="insertVar('{{iva_fmt}}')">{{iva_fmt}} <span>IVA 16%</span></div>
+          <div class="var-chip" onclick="insertVar('{{total_fmt}}')">{{total_fmt}} <span>total</span></div>
+          <div class="var-chip" onclick="insertVar('{{total_letras}}')">{{total_letras}} <span>letras</span></div>
+          <div class="var-chip" onclick="insertVar('{{rfc}}')">{{rfc}} <span>RFC</span></div>
+          <div class="var-chip" onclick="insertVar('{{direccion}}')">{{direccion}} <span>dirección</span></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- CANVAS -->
   <div class="canvas-area">
     <div class="canvas-toolbar">
-      <button class="tool-btn" title="Seleccionar" onclick="setTool('select')" id="tool-select">↖</button>
-      <div class="tool-sep"></div>
-      <button class="tool-btn" title="Deshacer" onclick="undo()">↩</button>
-      <button class="tool-btn" title="Rehacer" onclick="redo()">↪</button>
-      <div class="tool-sep"></div>
-      <button class="tool-btn" title="Alinear izquierda" onclick="alignObjects('left')">⬜</button>
-      <button class="tool-btn" title="Centrar" onclick="alignObjects('center')">⬛</button>
-      <button class="tool-btn" title="Alinear derecha" onclick="alignObjects('right')">⬜</button>
-      <div class="tool-sep"></div>
-      <button class="tool-btn" title="Al frente" onclick="bringForward()">↑</button>
-      <button class="tool-btn" title="Atrás" onclick="sendBackward()">↓</button>
-      <div class="tool-sep"></div>
-      <button class="tool-btn" onclick="zoomOut()">−</button>
-      <span class="zoom-display" id="zoomDisplay">100%</span>
-      <button class="tool-btn" onclick="zoomIn()">+</button>
+      <button class="tool-btn" onclick="zoomOut()" title="Alejar">−</button>
+      <span class="zoom-info" id="zoomInfo">100%</span>
+      <button class="tool-btn" onclick="zoomIn()" title="Acercar">+</button>
       <button class="tool-btn" onclick="zoomFit()" title="Ajustar">⊡</button>
       <div class="tool-sep"></div>
-      <button class="tool-btn" onclick="toggleGrid()" id="gridBtn" title="Cuadrícula">⊞</button>
+      <button class="tool-btn" onclick="alignSel('left')" title="Alinear izq">⬛</button>
+      <button class="tool-btn" onclick="alignSel('center')" title="Centrar">⬛</button>
+      <button class="tool-btn" onclick="alignSel('right')" title="Alinear der">⬛</button>
+      <div class="tool-sep"></div>
+      <button class="tool-btn" onclick="canvas.bringForward(canvas.getActiveObject());canvas.renderAll()" title="Al frente">↑</button>
+      <button class="tool-btn" onclick="canvas.sendBackwards(canvas.getActiveObject());canvas.renderAll()" title="Atrás">↓</button>
+      <div class="tool-sep"></div>
+      <button class="tool-btn" id="gridBtn" onclick="toggleGrid()" title="Cuadrícula">⊞</button>
+      <button class="tool-btn" onclick="duplicateSelected()" title="Duplicar">⧉</button>
+      <div class="tool-sep"></div>
+      <span style="font-size:10px;color:var(--text2)">A4 — 794×1123px</span>
     </div>
-    <div class="canvas-scroll" id="canvasScroll">
-      <div class="canvas-wrapper" id="canvasWrapper">
+    <div class="canvas-scroll">
+      <div class="canvas-wrapper">
         <canvas id="mainCanvas"></canvas>
       </div>
     </div>
   </div>
 
   <!-- RIGHT PANEL -->
-  <div class="panel-right" id="rightPanel">
+  <div class="panel panel-right" id="rightPanel">
     <div class="props-empty">
       <div class="props-empty-icon">↖</div>
-      Selecciona un elemento para editar sus propiedades
+      Selecciona un elemento para ver sus propiedades
     </div>
   </div>
 
 </div>
 
-<!-- TOAST -->
 <div class="toast" id="toast"></div>
-
-<!-- IMAGE UPLOAD INPUT -->
 <input type="file" id="imageInput" accept="image/*" style="display:none" onchange="handleImageUpload(event)">
 
 <script>
-// ============================================================
-// INIT
-// ============================================================
 const API = window.location.origin;
 const params = new URLSearchParams(window.location.search);
 const accountId = params.get('account_id') || '';
 const boardId = params.get('boardId') || '';
+const PAGE_W = 794, PAGE_H = 1123;
 
-// Canvas dimensions (A4 at 96dpi ≈ 794x1123)
-const PAGE_W = 794;
-const PAGE_H = 1123;
+let canvas, zoom = 1, gridEnabled = false, gridLines = [];
+let history = [], historyIdx = -1;
 
-let canvas;
-let zoom = 1;
-let gridEnabled = false;
-let gridLines = [];
-let history = [];
-let historyIndex = -1;
-let selectedTemplate = null;
+// ─── THEMES ───────────────────────────────────────────────
+const THEMES = [
+  { name: 'Azul', primary: '#2D5BE3', secondary: '#EEF2FD', text: '#1a1a2e' },
+  { name: 'Verde', primary: '#059669', secondary: '#ECFDF5', text: '#064e3b' },
+  { name: 'Rojo', primary: '#DC2626', secondary: '#FEF2F2', text: '#7f1d1d' },
+  { name: 'Morado', primary: '#7C3AED', secondary: '#F5F3FF', text: '#4c1d95' },
+  { name: 'Naranja', primary: '#EA580C', secondary: '#FFF7ED', text: '#7c2d12' },
+  { name: 'Rosa', primary: '#DB2777', secondary: '#FDF2F8', text: '#831843' },
+  { name: 'Gris', primary: '#374151', secondary: '#F9FAFB', text: '#111827' },
+  { name: 'Negro', primary: '#111827', secondary: '#F3F4F6', text: '#030712' },
+];
 
-function initCanvas() {
+const PALETTE = ['#000000','#374151','#6B7280','#D1D5DB','#FFFFFF',
+  '#DC2626','#EA580C','#D97706','#65A30D','#059669',
+  '#0891B2','#2563EB','#7C3AED','#DB2777','#E11D48',
+  '#FCA5A5','#FED7AA','#FDE68A','#BBF7D0','#BAE6FD',
+  '#BFDBFE','#DDD6FE','#FBCFE8','#F9A8D4'];
+
+const FONTS = ['Arial','Georgia','Times New Roman','Courier New',
+  'Helvetica','Verdana','Trebuchet MS','Palatino','Garamond','Book Antiqua'];
+
+let activeTheme = THEMES[0];
+let activeFontFamily = 'Arial';
+
+// ─── INIT ─────────────────────────────────────────────────
+function init() {
   canvas = new fabric.Canvas('mainCanvas', {
-    width: PAGE_W,
-    height: PAGE_H,
-    backgroundColor: '#ffffff',
-    selection: true,
-    preserveObjectStacking: true,
+    width: PAGE_W, height: PAGE_H, backgroundColor: '#ffffff',
+    selection: true, preserveObjectStacking: true
   });
 
-  // Grid
-  drawGrid();
+  canvas.on('selection:created', onSel);
+  canvas.on('selection:updated', onSel);
+  canvas.on('selection:cleared', () => {
+    document.getElementById('rightPanel').innerHTML = '<div class="props-empty"><div class="props-empty-icon">↖</div>Selecciona un elemento para ver sus propiedades</div>';
+  });
+  canvas.on('object:modified', saveHist);
+  canvas.on('object:added', saveHist);
 
-  // Events
-  canvas.on('selection:created', onSelectionChange);
-  canvas.on('selection:updated', onSelectionChange);
-  canvas.on('selection:cleared', onSelectionCleared);
-  canvas.on('object:modified', saveHistory);
-  canvas.on('object:added', saveHistory);
-  canvas.on('object:removed', saveHistory);
+  buildThemes();
+  buildPalette();
+  buildFonts();
+  saveHist();
+  zoomFit();
+  if (boardId) loadVariables();
 
-  // Save initial state
-  saveHistory();
-
-  // Load saved template if exists
-  const saved = localStorage.getItem('docugen_template_' + (params.get('tpl') || 'default'));
+  // Load saved
+  const saved = localStorage.getItem('docugen_tpl_' + (params.get('tpl') || 'default'));
   if (saved) {
-    canvas.loadFromJSON(JSON.parse(saved), canvas.renderAll.bind(canvas));
-    document.getElementById('templateName').value = JSON.parse(saved).name || 'Mi Plantilla';
+    try {
+      const j = JSON.parse(saved);
+      canvas.loadFromJSON(j, canvas.renderAll.bind(canvas));
+      document.getElementById('templateName').value = j.name || 'Mi Plantilla';
+    } catch(e) {}
   }
 }
 
-// ============================================================
-// GRID
-// ============================================================
+function buildThemes() {
+  const g = document.getElementById('themesGrid');
+  THEMES.forEach(t => {
+    const d = document.createElement('div');
+    d.className = 'theme-swatch';
+    d.style.background = 'linear-gradient(135deg,' + t.primary + ' 50%,' + t.secondary + ' 50%)';
+    d.title = t.name;
+    d.onclick = () => applyTheme(t, d);
+    g.appendChild(d);
+  });
+}
+
+function applyTheme(t, el) {
+  activeTheme = t;
+  document.querySelectorAll('.theme-swatch').forEach(s => s.classList.remove('active'));
+  el.classList.add('active');
+  showToast('Tema aplicado: ' + t.name, 'success');
+}
+
+function buildPalette() {
+  const g = document.getElementById('paletteGrid');
+  PALETTE.forEach(c => {
+    const d = document.createElement('div');
+    d.className = 'pal-color';
+    d.style.background = c;
+    d.title = c;
+    d.onclick = () => applyColorToSelected(c);
+    g.appendChild(d);
+  });
+}
+
+function applyColorToSelected(c) {
+  const obj = canvas.getActiveObject();
+  if (!obj) return;
+  if (obj.type === 'i-text' || obj.type === 'text') obj.set('fill', c);
+  else obj.set('fill', c);
+  canvas.renderAll();
+  onSel();
+}
+
+function buildFonts() {
+  const g = document.getElementById('fontsList');
+  FONTS.forEach(f => {
+    const d = document.createElement('div');
+    d.className = 'font-item' + (f === activeFontFamily ? ' active' : '');
+    d.style.fontFamily = f;
+    d.textContent = f;
+    d.onclick = () => {
+      activeFontFamily = f;
+      document.querySelectorAll('.font-item').forEach(x => x.classList.remove('active'));
+      d.classList.add('active');
+      const obj = canvas.getActiveObject();
+      if (obj && (obj.type === 'i-text' || obj.type === 'text')) {
+        obj.set('fontFamily', f);
+        canvas.renderAll();
+      }
+    };
+    g.appendChild(d);
+  });
+}
+
+// ─── TABS ─────────────────────────────────────────────────
+function switchTab(id, el) {
+  ['elements','styles','vars'].forEach(t => {
+    document.getElementById('tab-' + t).style.display = t === id ? '' : 'none';
+  });
+  document.querySelectorAll('.ptab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// ─── GRID ─────────────────────────────────────────────────
 function drawGrid() {
-  // Remove old grid
   gridLines.forEach(l => canvas.remove(l));
   gridLines = [];
   if (!gridEnabled) { canvas.renderAll(); return; }
-
-  const step = 20;
-  for (let x = step; x < PAGE_W; x += step) {
-    const line = new fabric.Line([x, 0, x, PAGE_H], {
-      stroke: '#e0e0e8', strokeWidth: 0.5, selectable: false,
-      evented: false, excludeFromExport: true, isGrid: true
-    });
-    gridLines.push(line);
-    canvas.add(line);
-    canvas.sendToBack(line);
+  for (let x = 20; x < PAGE_W; x += 20) {
+    const l = new fabric.Line([x,0,x,PAGE_H], { stroke:'#e8e8f0', strokeWidth:0.4, selectable:false, evented:false, isGrid:true });
+    gridLines.push(l); canvas.add(l); canvas.sendToBack(l);
   }
-  for (let y = step; y < PAGE_H; y += step) {
-    const line = new fabric.Line([0, y, PAGE_W, y], {
-      stroke: '#e0e0e8', strokeWidth: 0.5, selectable: false,
-      evented: false, excludeFromExport: true, isGrid: true
-    });
-    gridLines.push(line);
-    canvas.add(line);
-    canvas.sendToBack(line);
+  for (let y = 20; y < PAGE_H; y += 20) {
+    const l = new fabric.Line([0,y,PAGE_W,y], { stroke:'#e8e8f0', strokeWidth:0.4, selectable:false, evented:false, isGrid:true });
+    gridLines.push(l); canvas.add(l); canvas.sendToBack(l);
   }
   canvas.renderAll();
 }
-
 function toggleGrid() {
   gridEnabled = !gridEnabled;
   document.getElementById('gridBtn').classList.toggle('active', gridEnabled);
   drawGrid();
 }
+function setPageBg(c) { canvas.setBackgroundColor(c, canvas.renderAll.bind(canvas)); }
 
-// ============================================================
-// ZOOM
-// ============================================================
+// ─── ZOOM ─────────────────────────────────────────────────
 function setZoom(z) {
-  zoom = Math.max(0.3, Math.min(3, z));
+  zoom = Math.max(0.25, Math.min(3, z));
   canvas.setZoom(zoom);
   canvas.setWidth(PAGE_W * zoom);
   canvas.setHeight(PAGE_H * zoom);
-  document.getElementById('zoomDisplay').textContent = Math.round(zoom * 100) + '%';
+  document.getElementById('zoomInfo').textContent = Math.round(zoom * 100) + '%';
 }
-
 function zoomIn() { setZoom(zoom + 0.1); }
 function zoomOut() { setZoom(zoom - 0.1); }
 function zoomFit() {
-  const scroll = document.getElementById('canvasScroll');
-  const zw = (scroll.clientWidth - 64) / PAGE_W;
-  const zh = (scroll.clientHeight - 64) / PAGE_H;
-  setZoom(Math.min(zw, zh));
+  const sc = document.querySelector('.canvas-scroll');
+  setZoom(Math.min((sc.clientWidth - 56) / PAGE_W, (sc.clientHeight - 56) / PAGE_H));
 }
 
-// ============================================================
-// HISTORY
-// ============================================================
-function saveHistory() {
-  const state = JSON.stringify(canvas.toJSON(['isGrid', 'varName']));
-  history = history.slice(0, historyIndex + 1);
-  history.push(state);
-  historyIndex++;
-  if (history.length > 50) { history.shift(); historyIndex--; }
+// ─── HISTORY ──────────────────────────────────────────────
+function saveHist() {
+  const s = JSON.stringify(canvas.toJSON(['isGrid','tableType','tableCols','tableLoop','tableHeaderColor']));
+  history = history.slice(0, historyIdx + 1);
+  history.push(s);
+  historyIdx++;
+  if (history.length > 60) { history.shift(); historyIdx--; }
 }
-
 function undo() {
-  if (historyIndex <= 0) return;
-  historyIndex--;
-  canvas.loadFromJSON(JSON.parse(history[historyIndex]), canvas.renderAll.bind(canvas));
+  if (historyIdx <= 0) return;
+  historyIdx--;
+  canvas.loadFromJSON(JSON.parse(history[historyIdx]), canvas.renderAll.bind(canvas));
 }
-
 function redo() {
-  if (historyIndex >= history.length - 1) return;
-  historyIndex++;
-  canvas.loadFromJSON(JSON.parse(history[historyIndex]), canvas.renderAll.bind(canvas));
+  if (historyIdx >= history.length - 1) return;
+  historyIdx++;
+  canvas.loadFromJSON(JSON.parse(history[historyIdx]), canvas.renderAll.bind(canvas));
 }
 
-// ============================================================
-// ADD ELEMENTS
-// ============================================================
-function addText() {
-  const text = new fabric.IText('Texto aquí', {
-    left: 100, top: 100,
-    fontFamily: 'Arial',
-    fontSize: 14,
-    fill: '#1a1a1a',
-    varName: null
+// ─── ADD ELEMENTS ─────────────────────────────────────────
+function addText(type) {
+  const configs = {
+    h1:    { text: 'Título principal', fontSize: 32, fontWeight: 'bold', fill: activeTheme.text },
+    h2:    { text: 'Subtítulo', fontSize: 20, fontWeight: '600', fill: activeTheme.text },
+    body:  { text: 'Escribe aquí tu texto o usa {{variable}}', fontSize: 13, fontWeight: 'normal', fill: '#333333' },
+    small: { text: 'Texto pequeño', fontSize: 10, fontWeight: 'normal', fill: '#666666' },
+  };
+  const c = configs[type] || configs.body;
+  const t = new fabric.IText(c.text, {
+    left: 60, top: 80, fontFamily: activeFontFamily,
+    fontSize: c.fontSize, fontWeight: c.fontWeight, fill: c.fill
   });
-  canvas.add(text);
-  canvas.setActiveObject(text);
-  text.enterEditing();
-}
-
-function addHeading() {
-  const text = new fabric.IText('Título del documento', {
-    left: 60, top: 60,
-    fontFamily: 'Arial',
-    fontSize: 28,
-    fontWeight: 'bold',
-    fill: '#1a1a1a',
-  });
-  canvas.add(text);
-  canvas.setActiveObject(text);
+  canvas.add(t); canvas.setActiveObject(t);
+  if (type === 'body') t.enterEditing();
 }
 
 function addRect() {
-  const rect = new fabric.Rect({
-    left: 100, top: 100,
-    width: 200, height: 100,
-    fill: '#EEF2FD',
-    stroke: '#2D5BE3',
-    strokeWidth: 1,
-    rx: 4, ry: 4,
+  const r = new fabric.Rect({
+    left: 80, top: 120, width: 300, height: 80,
+    fill: activeTheme.secondary, stroke: activeTheme.primary, strokeWidth: 1.5, rx: 4, ry: 4
   });
-  canvas.add(rect);
-  canvas.setActiveObject(rect);
+  canvas.add(r); canvas.setActiveObject(r);
+}
+
+function addCircle() {
+  const c = new fabric.Circle({
+    left: 120, top: 120, radius: 50,
+    fill: activeTheme.secondary, stroke: activeTheme.primary, strokeWidth: 1.5
+  });
+  canvas.add(c); canvas.setActiveObject(c);
 }
 
 function addLine() {
-  const line = new fabric.Line([60, 200, PAGE_W - 60, 200], {
-    stroke: '#2D5BE3',
-    strokeWidth: 2,
-    selectable: true,
+  const l = new fabric.Line([60, 200, PAGE_W - 60, 200], {
+    stroke: activeTheme.primary, strokeWidth: 1.5
   });
-  canvas.add(line);
-  canvas.setActiveObject(line);
+  canvas.add(l); canvas.setActiveObject(l);
 }
 
-function addImage() {
-  document.getElementById('imageInput').click();
+function addDivider() {
+  const g = new fabric.Group([
+    new fabric.Line([0, 4, 674, 4], { stroke: activeTheme.primary, strokeWidth: 3 }),
+    new fabric.Line([0, 10, 674, 10], { stroke: activeTheme.secondary === '#F9FAFB' ? '#cccccc' : activeTheme.secondary, strokeWidth: 1 }),
+  ], { left: 60, top: 160, selectable: true });
+  canvas.add(g); canvas.setActiveObject(g);
 }
+
+function addTriangle() {
+  const t = new fabric.Triangle({
+    left: 120, top: 120, width: 80, height: 70,
+    fill: activeTheme.primary
+  });
+  canvas.add(t); canvas.setActiveObject(t);
+}
+
+function addArrow() {
+  const a = new fabric.Text('→', {
+    left: 120, top: 140, fontSize: 28, fill: activeTheme.primary, fontFamily: 'Arial'
+  });
+  canvas.add(a); canvas.setActiveObject(a);
+}
+
+function addImage() { document.getElementById('imageInput').click(); }
 
 function handleImageUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = function(ev) {
-    fabric.Image.fromURL(ev.target.result, function(img) {
-      img.scaleToWidth(Math.min(200, PAGE_W / 3));
+  reader.onload = ev => {
+    fabric.Image.fromURL(ev.target.result, img => {
+      img.scaleToWidth(Math.min(220, PAGE_W / 3));
       img.set({ left: 60, top: 60 });
-      canvas.add(img);
-      canvas.setActiveObject(img);
+      canvas.add(img); canvas.setActiveObject(img);
     });
   };
   reader.readAsDataURL(file);
   e.target.value = '';
 }
 
-function addTable() {
-  showTableEditor();
-}
+function addTable() { showTableModal(); }
 
-function showTableEditor() {
+function showTableModal() {
+  const v = ['{{nombre}}','{{cantidad}}','${{precio_fmt}}','${{subtotal_linea_fmt}}'];
+  const h = ['Producto','Cantidad','Precio Unit.','Subtotal'];
   const modal = document.createElement('div');
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999';
-  const v1 = '{{nombre}}'; const v2 = '{{cantidad}}'; const v3 = '${{precio_fmt}}'; const v4 = '${{subtotal_linea_fmt}}';
-  modal.innerHTML = '<div style="background:#18181c;border:1px solid #2e2e38;border-radius:12px;padding:24px;width:500px;max-height:80vh;overflow-y:auto">'
-    + '<div style="font-size:16px;font-weight:600;margin-bottom:16px;color:#e8e8f0">Configurar tabla</div>'
-    + '<div id="colsList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">'
-    + makeColRow('Producto', v1) + makeColRow('Cantidad', v2) + makeColRow('Precio Unit.', v3) + makeColRow('Subtotal', v4)
-    + '</div>'
-    + '<button onclick="addColRow()" style="width:100%;padding:7px;background:transparent;border:1px dashed #2e2e38;border-radius:6px;color:#8888a0;cursor:pointer;font-size:12px;margin-bottom:16px">+ Agregar columna</button>'
-    + '<div style="margin-bottom:12px"><div style="font-size:11px;color:#8888a0;margin-bottom:6px">Color encabezado</div>'
-    + '<input type="color" id="tableHeaderColor" value="#2D5BE3" style="width:40px;height:28px;border:none;border-radius:4px;cursor:pointer"></div>'
-    + '<div style="margin-bottom:16px"><div style="font-size:11px;color:#8888a0;margin-bottom:6px">Nombre del loop</div>'
-    + '<input id="loopName" value="subelementos" style="background:#222228;border:1px solid #2e2e38;color:#e8e8f0;padding:6px 10px;border-radius:6px;font-size:12px;outline:none;width:100%;font-family:monospace"></div>'
-    + '<div style="display:flex;gap:8px;justify-content:flex-end">'
-    + '<button onclick="this.closest(\'.modal-overlay2\').remove()" style="padding:7px 16px;background:transparent;border:1px solid #2e2e38;border-radius:6px;color:#8888a0;cursor:pointer;font-size:12px">Cancelar</button>'
-    + '<button onclick="insertTable(this)" style="padding:7px 16px;background:#5b6af5;border:none;border-radius:6px;color:white;cursor:pointer;font-size:12px;font-weight:600">Insertar tabla</button>'
-    + '</div></div>';
-  modal.className = 'modal-overlay2';
+  modal.className = 'modal-overlay';
+  let colsHtml = h.map((hdr, i) => makeColRowHtml(hdr, v[i])).join('');
+  modal.innerHTML = '<div class="modal">' +
+    '<div class="modal-title">⊞ Configurar tabla</div>' +
+    '<div style="font-size:11px;color:var(--text2);margin-bottom:14px">Define las columnas. Las variables se reemplazan con datos de monday.</div>' +
+    '<div id="tblCols" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">' + colsHtml + '</div>' +
+    '<button onclick="addTblCol()" style="width:100%;padding:6px;background:transparent;border:1px dashed var(--border);border-radius:5px;color:var(--text2);cursor:pointer;font-size:11px;margin-bottom:14px">+ Agregar columna</button>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">' +
+      '<div><div style="font-size:10px;color:var(--text2);margin-bottom:5px">Color encabezado</div>' +
+      '<input type="color" id="tblHdrColor" value="' + activeTheme.primary + '" style="width:100%;height:28px;border:none;border-radius:4px;cursor:pointer"></div>' +
+      '<div><div style="font-size:10px;color:var(--text2);margin-bottom:5px">Nombre del loop</div>' +
+      '<input id="tblLoop" value="subelementos" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:5px;font-size:11px;outline:none;width:100%;font-family:monospace"></div>' +
+    '</div>' +
+    '<div style="display:flex;gap:7px;justify-content:flex-end">' +
+      '<button onclick="this.closest(\'.modal-overlay\').remove()" style="padding:6px 14px;background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text2);cursor:pointer;font-size:11px">Cancelar</button>' +
+      '<button onclick="insertTable(this)" style="padding:6px 14px;background:var(--accent);border:none;border-radius:5px;color:white;cursor:pointer;font-size:11px;font-weight:600">Insertar tabla</button>' +
+    '</div></div>';
   document.body.appendChild(modal);
 }
 
-function makeColRow(header, variable) {
-  return '<div class="col-row" style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center">'
-    + '<input placeholder="Encabezado" value="' + header + '" style="background:#222228;border:1px solid #2e2e38;color:#e8e8f0;padding:6px 10px;border-radius:6px;font-size:12px;outline:none">'
-    + '<input placeholder="Variable" value="' + variable + '" style="background:#222228;border:1px solid #2e2e38;color:#5b6af5;padding:6px 10px;border-radius:6px;font-size:12px;outline:none;font-family:monospace">'
-    + '<button onclick="this.closest(\'.col-row\').remove()" style="background:rgba(248,113,113,0.1);border:1px solid #f87171;color:#f87171;border-radius:5px;padding:4px 8px;cursor:pointer;font-size:11px">x</button>'
-    + '</div>';
+function makeColRowHtml(h, v) {
+  return '<div class="tbl-col-row" style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;align-items:center">' +
+    '<input value="' + h + '" placeholder="Encabezado" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:5px 7px;border-radius:5px;font-size:11px;outline:none">' +
+    '<input value="' + v + '" placeholder="{{variable}}" style="background:var(--surface2);border:1px solid var(--border);color:var(--accent);padding:5px 7px;border-radius:5px;font-size:10px;outline:none;font-family:monospace">' +
+    '<button onclick="this.closest(\'.tbl-col-row\').remove()" style="background:rgba(248,113,113,0.1);border:1px solid #f87171;color:#f87171;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:10px">×</button>' +
+    '</div>';
 }
 
-function addColRow() {
+function addTblCol() {
   const row = document.createElement('div');
-  row.className = 'col-row';
-  row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center';
-  row.innerHTML = '<input placeholder="Encabezado" style="background:#222228;border:1px solid #2e2e38;color:#e8e8f0;padding:6px 10px;border-radius:6px;font-size:12px;outline:none">'
-    + '<input placeholder="Variable" style="background:#222228;border:1px solid #2e2e38;color:#5b6af5;padding:6px 10px;border-radius:6px;font-size:12px;outline:none;font-family:monospace">'
-    + '<button onclick="this.closest(\'.col-row\').remove()" style="background:rgba(248,113,113,0.1);border:1px solid #f87171;color:#f87171;border-radius:5px;padding:4px 8px;cursor:pointer;font-size:11px">x</button>';
-  document.getElementById('colsList').appendChild(row);
+  row.className = 'tbl-col-row';
+  row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto;gap:6px;align-items:center';
+  row.innerHTML = '<input placeholder="Encabezado" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:5px 7px;border-radius:5px;font-size:11px;outline:none">' +
+    '<input placeholder="{{variable}}" style="background:var(--surface2);border:1px solid var(--border);color:var(--accent);padding:5px 7px;border-radius:5px;font-size:10px;outline:none;font-family:monospace">' +
+    '<button onclick="this.closest(\'.tbl-col-row\').remove()" style="background:rgba(248,113,113,0.1);border:1px solid #f87171;color:#f87171;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:10px">×</button>';
+  document.getElementById('tblCols').appendChild(row);
 }
 
 function insertTable(btn) {
-  const modal = btn.closest('.modal-overlay2');
-  const cols = [...modal.querySelectorAll('.col-row')].map(row => {
-    const inputs = row.querySelectorAll('input');
-    return { header: inputs[0].value, variable: inputs[1].value };
+  const modal = btn.closest('.modal-overlay');
+  const cols = [...modal.querySelectorAll('.tbl-col-row')].map(r => {
+    const inp = r.querySelectorAll('input');
+    return { header: inp[0].value, variable: inp[1].value };
   }).filter(c => c.header && c.variable);
-  const headerColor = modal.querySelector('#tableHeaderColor').value;
-  const loopName = modal.querySelector('#loopName').value || 'subelementos';
+  const hdrColor = modal.querySelector('#tblHdrColor').value;
+  const loopName = modal.querySelector('#tblLoop').value || 'subelementos';
   if (!cols.length) { showToast('Agrega al menos una columna', 'error'); return; }
   modal.remove();
-  const colW = Math.floor(674 / cols.length);
-  const objects = [];
-  objects.push(new fabric.Rect({ left: 0, top: 0, width: 674, height: 28, fill: headerColor }));
-  cols.forEach(function(col, i) {
-    objects.push(new fabric.Text(col.header, { left: i * colW + 8, top: 6, fontSize: 11, fontWeight: 'bold', fill: 'white' }));
-  });
-  objects.push(new fabric.Rect({ left: 0, top: 28, width: 674, height: 28, fill: '#f8f9ff', stroke: '#e0e4ff', strokeWidth: 0.5 }));
-  cols.forEach(function(col, i) {
-    var prefix = i === 0 ? ('{{#' + loopName + '}}') : '';
-    var suffix = i === cols.length - 1 ? ('{{/' + loopName + '}}') : '';
-    objects.push(new fabric.Text(prefix + col.variable + suffix, { left: i * colW + 8, top: 34, fontSize: 10, fill: '#1a1a1a' }));
-  });
-  objects.push(new fabric.Rect({ left: 0, top: 0, width: 674, height: 56, fill: 'transparent', stroke: headerColor, strokeWidth: 1 }));
-  var tbl = new fabric.Group(objects, {
-    left: 60, top: 200, selectable: true,
-    tableType: 'products', tableCols: cols, tableLoop: loopName, tableHeaderColor: headerColor
-  });
-  canvas.add(tbl);
-  canvas.setActiveObject(tbl);
-  showToast('Tabla insertada con ' + cols.length + ' columnas', 'success');
-}
 
+  const cw = Math.floor(674 / cols.length);
+  const objs = [];
+  objs.push(new fabric.Rect({ left:0, top:0, width:674, height:30, fill:hdrColor }));
+  cols.forEach((col, i) => objs.push(new fabric.Text(col.header, { left:i*cw+8, top:8, fontSize:11, fontWeight:'bold', fill:'white', fontFamily: activeFontFamily })));
+  objs.push(new fabric.Rect({ left:0, top:30, width:674, height:28, fill:'#f8f9ff', stroke:'#e0e4ff', strokeWidth:0.5 }));
+  cols.forEach((col, i) => {
+    const pre = i === 0 ? ('{{#' + loopName + '}}') : '';
+    const suf = i === cols.length-1 ? ('{{/' + loopName + '}}') : '';
+    objs.push(new fabric.Text(pre + col.variable + suf, { left:i*cw+8, top:38, fontSize:10, fill:'#1a1a1a', fontFamily: activeFontFamily }));
+  });
+  objs.push(new fabric.Rect({ left:0, top:0, width:674, height:58, fill:'transparent', stroke:hdrColor, strokeWidth:1 }));
+
+  const tbl = new fabric.Group(objs, {
+    left:60, top:200, selectable:true,
+    tableType:'products', tableCols:cols, tableLoop:loopName, tableHeaderColor:hdrColor
+  });
+  canvas.add(tbl); canvas.setActiveObject(tbl);
+  showToast('Tabla con ' + cols.length + ' columnas insertada', 'success');
+}
 
 function addSignature() {
-  const sigBox = new fabric.Group([
-    new fabric.Rect({ left: 0, top: 0, width: 200, height: 80, fill: 'transparent', stroke: '#cccccc', strokeWidth: 1, strokeDashArray: [4, 4] }),
-    new fabric.Text('Firma', { left: 80, top: 30, fontSize: 12, fill: '#999999' }),
-    new fabric.Line([0, 80, 200, 80], { stroke: '#333333', strokeWidth: 1.5, top: 90 }),
-    new fabric.Text('{{firmante}}', { left: 50, top: 96, fontSize: 11, fill: '#555555' }),
-  ], { left: 100, top: 900, selectable: true });
-  canvas.add(sigBox);
-  canvas.setActiveObject(sigBox);
+  const objs = [
+    new fabric.Rect({ left:0, top:0, width:220, height:70, fill:'transparent', stroke:'#cccccc', strokeWidth:1, strokeDashArray:[4,4] }),
+    new fabric.Text('Firma', { left:88, top:26, fontSize:12, fill:'#aaaaaa' }),
+    new fabric.Line([10, 80, 210, 80], { stroke:'#555', strokeWidth:1.5 }),
+    new fabric.Text('{{firmante}}', { left:55, top:87, fontSize:11, fill:'#555' }),
+  ];
+  const g = new fabric.Group(objs, { left:100, top:880 });
+  canvas.add(g); canvas.setActiveObject(g);
 }
 
-function addQR() {
-  const qrBox = new fabric.Group([
-    new fabric.Rect({ left: 0, top: 0, width: 80, height: 80, fill: '#f5f5f5', stroke: '#cccccc', strokeWidth: 1 }),
-    new fabric.Text('QR', { left: 28, top: 32, fontSize: 16, fill: '#999999' }),
-  ], { left: 650, top: 60, selectable: true });
-  canvas.add(qrBox);
-  canvas.setActiveObject(qrBox);
-  showToast('QR se generará automáticamente al exportar', 'success');
+function addQRPlaceholder() {
+  const objs = [
+    new fabric.Rect({ left:0, top:0, width:80, height:80, fill:'#f5f5f5', stroke:'#ccc', strokeWidth:1 }),
+    new fabric.Text('QR', { left:28, top:30, fontSize:16, fill:'#999' }),
+  ];
+  const g = new fabric.Group(objs, { left:660, top:60 });
+  canvas.add(g); canvas.setActiveObject(g);
+  showToast('QR se genera automáticamente al exportar', 'success');
 }
 
-// ============================================================
-// INSERT VARIABLE INTO SELECTED TEXT
-// ============================================================
-function insertVar(varStr) {
+function addPageNum() {
+  const t = new fabric.IText('{{folio}}', { left:720, top:1080, fontSize:11, fill:'#999', fontFamily: activeFontFamily });
+  canvas.add(t); canvas.setActiveObject(t);
+}
+
+function addDateBlock() {
+  const t = new fabric.IText('{{fecha_hoy}}', { left:60, top:1080, fontSize:11, fill:'#999', fontFamily: activeFontFamily });
+  canvas.add(t); canvas.setActiveObject(t);
+}
+
+// ─── VARIABLES ────────────────────────────────────────────
+function insertVar(v) {
   const obj = canvas.getActiveObject();
   if (obj && obj.type === 'i-text') {
-    const cursor = obj.selectionStart || obj.text.length;
-    const newText = obj.text.slice(0, cursor) + varStr + obj.text.slice(obj.selectionEnd || cursor);
-    obj.set('text', newText);
+    const cur = obj.selectionStart || obj.text.length;
+    obj.set('text', obj.text.slice(0,cur) + v + obj.text.slice(obj.selectionEnd || cur));
     canvas.renderAll();
   } else {
-    // Add new text with variable
-    const text = new fabric.IText(varStr, {
-      left: 100, top: 150,
-      fontFamily: 'Arial',
-      fontSize: 13,
-      fill: '#1a1a1a',
-    });
-    canvas.add(text);
-    canvas.setActiveObject(text);
+    const t = new fabric.IText(v, { left:100, top:160, fontSize:13, fill:'#333', fontFamily: activeFontFamily });
+    canvas.add(t); canvas.setActiveObject(t);
   }
-  showToast('Variable insertada: ' + varStr, 'success');
+  showToast('Variable: ' + v, 'success');
 }
 
-// ============================================================
-// SELECTION HANDLERS
-// ============================================================
-function onSelectionChange() {
-  const obj = canvas.getActiveObject();
-  renderPropsPanel(obj);
-}
-
-function onSelectionCleared() {
-  document.getElementById('rightPanel').innerHTML = `
-    <div class="props-empty">
-      <div class="props-empty-icon">↖</div>
-      Selecciona un elemento para editar sus propiedades
-    </div>`;
-}
-
-function renderPropsPanel(obj) {
-  if (!obj) { onSelectionCleared(); return; }
-
-  const isText = obj.type === 'i-text' || obj.type === 'text';
-  const isRect = obj.type === 'rect';
-  const isLine = obj.type === 'line';
-  const isImage = obj.type === 'image';
-
-  let html = '';
-
-  // Position & Size
-  html += `<div class="prop-group">
-    <div class="prop-label">Posición y tamaño</div>
-    <div class="prop-row">
-      <span class="prop-field-label">X</span>
-      <input class="prop-input" type="number" id="prop-x" value="${Math.round(obj.left)}" onchange="setProp('left', +this.value)">
-      <span class="prop-field-label">Y</span>
-      <input class="prop-input" type="number" id="prop-y" value="${Math.round(obj.top)}" onchange="setProp('top', +this.value)">
-    </div>
-    <div class="prop-row">
-      <span class="prop-field-label">W</span>
-      <input class="prop-input" type="number" id="prop-w" value="${Math.round(obj.width * (obj.scaleX || 1))}" onchange="setPropScale('width', +this.value)">
-      <span class="prop-field-label">H</span>
-      <input class="prop-input" type="number" id="prop-h" value="${Math.round(obj.height * (obj.scaleY || 1))}" onchange="setPropScale('height', +this.value)">
-    </div>
-  </div>`;
-
-  // Text properties
-  if (isText) {
-    html += `<div class="prop-group">
-      <div class="prop-label">Texto</div>
-      <textarea class="prop-textarea" id="prop-text" onchange="setProp('text', this.value)">${obj.text}</textarea>
-      <div class="prop-row" style="margin-top:8px">
-        <span class="prop-field-label">Fuente</span>
-        <select class="prop-select" onchange="setProp('fontFamily', this.value)">
-          ${['Arial','Georgia','Times New Roman','Courier New','Helvetica','Verdana','Trebuchet MS'].map(f =>
-            `<option value="${f}" ${obj.fontFamily === f ? 'selected' : ''}>${f}</option>`
-          ).join('')}
-        </select>
-      </div>
-      <div class="prop-row">
-        <span class="prop-field-label">Tamaño</span>
-        <input class="prop-input" type="number" value="${obj.fontSize || 14}" onchange="setProp('fontSize', +this.value)" style="max-width:60px">
-        <div class="bold-italic-btns">
-          <button class="bi-btn ${obj.fontWeight === 'bold' ? 'active' : ''}" onclick="toggleBold()"><b>B</b></button>
-          <button class="bi-btn ${obj.fontStyle === 'italic' ? 'active' : ''}" onclick="toggleItalic()"><i>I</i></button>
-          <button class="bi-btn ${obj.underline ? 'active' : ''}" onclick="toggleUnderline()"><u>U</u></button>
-        </div>
-      </div>
-      <div class="prop-row">
-        <span class="prop-field-label">Alinear</span>
-        <div class="align-btns">
-          <button class="align-btn ${obj.textAlign === 'left' ? 'active' : ''}" onclick="setProp('textAlign','left')">⬛</button>
-          <button class="align-btn ${obj.textAlign === 'center' ? 'active' : ''}" onclick="setProp('textAlign','center')">⬛</button>
-          <button class="align-btn ${obj.textAlign === 'right' ? 'active' : ''}" onclick="setProp('textAlign','right')">⬛</button>
-        </div>
-      </div>
-      <div class="prop-row">
-        <span class="prop-field-label">Color</span>
-        <div class="prop-color"><input type="color" value="${obj.fill || '#000000'}" oninput="setProp('fill', this.value)"></div>
-      </div>
-    </div>`;
-  }
-
-  // Fill & stroke
-  if (isRect) {
-    html += `<div class="prop-group">
-      <div class="prop-label">Estilo</div>
-      <div class="prop-row">
-        <span class="prop-field-label">Relleno</span>
-        <div class="prop-color"><input type="color" value="${obj.fill || '#ffffff'}" oninput="setProp('fill', this.value)"></div>
-      </div>
-      <div class="prop-row">
-        <span class="prop-field-label">Borde</span>
-        <div class="prop-color"><input type="color" value="${obj.stroke || '#000000'}" oninput="setProp('stroke', this.value)"></div>
-        <input class="prop-input" type="number" value="${obj.strokeWidth || 0}" onchange="setProp('strokeWidth', +this.value)" style="max-width:50px" placeholder="px">
-      </div>
-      <div class="prop-row">
-        <span class="prop-field-label">Radio</span>
-        <input class="prop-input" type="number" value="${obj.rx || 0}" onchange="setProp('rx', +this.value); setProp('ry', +this.value)" style="max-width:60px">
-      </div>
-      <div class="prop-row">
-        <span class="prop-field-label">Opacidad</span>
-        <input class="prop-input" type="range" min="0" max="1" step="0.05" value="${obj.opacity || 1}" oninput="setProp('opacity', +this.value)">
-      </div>
-    </div>`;
-  }
-
-  if (isLine) {
-    html += `<div class="prop-group">
-      <div class="prop-label">Línea</div>
-      <div class="prop-row">
-        <span class="prop-field-label">Color</span>
-        <div class="prop-color"><input type="color" value="${obj.stroke || '#000000'}" oninput="setProp('stroke', this.value)"></div>
-      </div>
-      <div class="prop-row">
-        <span class="prop-field-label">Grosor</span>
-        <input class="prop-input" type="number" value="${obj.strokeWidth || 1}" onchange="setProp('strokeWidth', +this.value)" style="max-width:60px">
-      </div>
-    </div>`;
-  }
-
-  // Delete
-  html += `<div class="prop-group">
-    <button class="delete-btn" onclick="deleteSelected()">🗑 Eliminar elemento</button>
-  </div>`;
-
-  document.getElementById('rightPanel').innerHTML = html;
-}
-
-function setProp(key, val) {
-  const obj = canvas.getActiveObject();
-  if (!obj) return;
-  obj.set(key, val);
-  canvas.renderAll();
-}
-
-function setPropScale(key, val) {
-  const obj = canvas.getActiveObject();
-  if (!obj) return;
-  if (key === 'width') obj.set('scaleX', val / obj.width);
-  else obj.set('scaleY', val / obj.height);
-  canvas.renderAll();
-}
-
-function toggleBold() {
-  const obj = canvas.getActiveObject();
-  if (!obj) return;
-  obj.set('fontWeight', obj.fontWeight === 'bold' ? 'normal' : 'bold');
-  canvas.renderAll();
-  onSelectionChange();
-}
-
-function toggleItalic() {
-  const obj = canvas.getActiveObject();
-  if (!obj) return;
-  obj.set('fontStyle', obj.fontStyle === 'italic' ? 'normal' : 'italic');
-  canvas.renderAll();
-  onSelectionChange();
-}
-
-function toggleUnderline() {
-  const obj = canvas.getActiveObject();
-  if (!obj) return;
-  obj.set('underline', !obj.underline);
-  canvas.renderAll();
-  onSelectionChange();
-}
-
-function deleteSelected() {
-  const obj = canvas.getActiveObject();
-  if (!obj) return;
-  canvas.remove(obj);
-  canvas.renderAll();
-  onSelectionCleared();
-}
-
-// ============================================================
-// ALIGN
-// ============================================================
-function alignObjects(dir) {
-  const objs = canvas.getActiveObjects();
-  if (!objs.length) return;
-  objs.forEach(obj => {
-    if (dir === 'left') obj.set('left', 60);
-    else if (dir === 'center') obj.set('left', (PAGE_W - obj.width * obj.scaleX) / 2);
-    else if (dir === 'right') obj.set('left', PAGE_W - 60 - obj.width * obj.scaleX);
-    obj.setCoords();
-  });
-  canvas.renderAll();
-}
-
-function bringForward() {
-  const obj = canvas.getActiveObject();
-  if (obj) { canvas.bringForward(obj); canvas.renderAll(); }
-}
-
-function sendBackward() {
-  const obj = canvas.getActiveObject();
-  if (obj) { canvas.sendBackwards(obj); canvas.renderAll(); }
-}
-
-// ============================================================
-// VARIABLES FROM MONDAY
-// ============================================================
 async function loadVariables() {
-  if (!accountId || !boardId) {
-    showToast('Necesitas account_id y boardId en la URL', 'error');
-    return;
-  }
+  if (!accountId || !boardId) { showToast('Necesitas account_id y boardId en la URL', 'error'); return; }
   try {
-    const res = await fetch(API + '/board-items', {
+    const res = await fetch(API + '/board-columns', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
       body: JSON.stringify({ account_id: accountId, board_id: boardId })
     });
     const data = await res.json();
-    if (!data.items?.length) return;
-
-    const item = data.items[0];
-    const vars = [{ name: 'nombre', label: item.name }];
-    item.column_values?.forEach(col => {
-      if (col.column?.title) vars.push({ name: col.column.title.toLowerCase().replace(/\s+/g,'_'), label: col.column.title });
-    });
-
+    const vars = (data.columns || []).map(c => ({ name: c.id, label: c.title }));
+    vars.unshift({ name: 'nombre', label: 'Nombre del item' });
     const list = document.getElementById('varsList');
+    if (!vars.length) { list.innerHTML = '<div style="font-size:11px;color:var(--text2);text-align:center;padding:10px">Sin variables</div>'; return; }
     list.innerHTML = vars.map(v =>
-      `<div class="var-chip" onclick="insertVar('{{${v.name}}}')">{{${v.name}}} <span>${v.label}</span></div>`
+      '<div class="var-chip" onclick="insertVar(\'{{' + v.name + '}}\')">{{' + v.name + '}} <span>' + v.label + '</span></div>'
     ).join('');
-    showToast(`${vars.length} variables cargadas`, 'success');
+    showToast(vars.length + ' variables cargadas', 'success');
   } catch(e) {
     showToast('Error cargando variables', 'error');
   }
 }
 
-// ============================================================
-// SAVE TEMPLATE
-// ============================================================
+// ─── SELECTION ────────────────────────────────────────────
+function onSel() {
+  const obj = canvas.getActiveObject();
+  if (!obj) return;
+  renderProps(obj);
+}
+
+function renderProps(obj) {
+  const isText = obj.type === 'i-text' || obj.type === 'text';
+  const isRect = obj.type === 'rect';
+  const isCircle = obj.type === 'circle';
+  const isLine = obj.type === 'line';
+  let html = '';
+
+  html += '<div class="prop-group"><div class="prop-label">Posición</div>' +
+    '<div class="prop-row"><span class="prop-fl">X</span><input class="prop-input" type="number" value="' + Math.round(obj.left) + '" onchange="setProp(\'left\',+this.value)">' +
+    '<span class="prop-fl" style="text-align:center">Y</span><input class="prop-input" type="number" value="' + Math.round(obj.top) + '" onchange="setProp(\'top\',+this.value)"></div>' +
+    '<div class="prop-row"><span class="prop-fl">W</span><input class="prop-input" type="number" value="' + Math.round(obj.getScaledWidth()) + '" onchange="setScaled(\'w\',+this.value)">' +
+    '<span class="prop-fl" style="text-align:center">H</span><input class="prop-input" type="number" value="' + Math.round(obj.getScaledHeight()) + '" onchange="setScaled(\'h\',+this.value)"></div></div>';
+
+  if (isText) {
+    html += '<div class="prop-group"><div class="prop-label">Texto</div>' +
+      '<textarea class="prop-textarea" onchange="setProp(\'text\',this.value)">' + obj.text + '</textarea>' +
+      '<div class="prop-row" style="margin-top:7px"><span class="prop-fl">Fuente</span>' +
+      '<select class="prop-select" onchange="setProp(\'fontFamily\',this.value)">' +
+      FONTS.map(f => '<option value="' + f + '" ' + (obj.fontFamily===f?'selected':'') + ' style="font-family:' + f + '">' + f + '</option>').join('') +
+      '</select></div>' +
+      '<div class="prop-row"><span class="prop-fl">Tamaño</span><input class="prop-input" type="number" value="' + (obj.fontSize||14) + '" onchange="setProp(\'fontSize\',+this.value)" style="max-width:55px">' +
+      '<div class="style-btns">' +
+        '<button class="style-btn ' + (obj.fontWeight==='bold'?'on':'') + '" onclick="toggle(\'bold\')"><b>B</b></button>' +
+        '<button class="style-btn ' + (obj.fontStyle==='italic'?'on':'') + '" onclick="toggle(\'italic\')"><i>I</i></button>' +
+        '<button class="style-btn ' + (obj.underline?'on':'') + '" onclick="toggle(\'underline\')"><u>U</u></button>' +
+      '</div></div>' +
+      '<div class="prop-row"><span class="prop-fl">Alinear</span>' +
+        '<button class="style-btn ' + (obj.textAlign==='left'?'on':'') + '" onclick="setProp(\'textAlign\',\'left\')">≡</button>' +
+        '<button class="style-btn ' + (obj.textAlign==='center'?'on':'') + '" onclick="setProp(\'textAlign\',\'center\')">≡</button>' +
+        '<button class="style-btn ' + (obj.textAlign==='right'?'on':'') + '" onclick="setProp(\'textAlign\',\'right\')">≡</button>' +
+      '</div>' +
+      '<div class="prop-row"><span class="prop-fl">Color</span><div class="color-btn" style="background:' + (obj.fill||'#000') + '"><input type="color" value="' + (obj.fill||'#000000') + '" oninput="setProp(\'fill\',this.value)"></div></div>' +
+    '</div>';
+  }
+
+  if (isRect || isCircle) {
+    html += '<div class="prop-group"><div class="prop-label">Estilo</div>' +
+      '<div class="prop-row"><span class="prop-fl">Relleno</span><div class="color-btn" style="background:' + (obj.fill||'#fff') + '"><input type="color" value="' + (obj.fill||'#ffffff') + '" oninput="setProp(\'fill\',this.value)"></div></div>' +
+      '<div class="prop-row"><span class="prop-fl">Borde</span><div class="color-btn" style="background:' + (obj.stroke||'#000') + '"><input type="color" value="' + (obj.stroke||'#000000') + '" oninput="setProp(\'stroke\',this.value)"></div>' +
+      '<input class="prop-input" type="number" value="' + (obj.strokeWidth||0) + '" onchange="setProp(\'strokeWidth\',+this.value)" style="max-width:45px" placeholder="px"></div>' +
+      (isRect ? '<div class="prop-row"><span class="prop-fl">Radio</span><input class="prop-input" type="number" value="' + (obj.rx||0) + '" onchange="setProp(\'rx\',+this.value);setProp(\'ry\',+this.value)" style="max-width:55px"></div>' : '') +
+      '<div class="prop-row"><span class="prop-fl">Opac.</span><input class="prop-input" type="range" min="0" max="1" step="0.05" value="' + (obj.opacity||1) + '" oninput="setProp(\'opacity\',+this.value)"></div>' +
+    '</div>';
+  }
+
+  if (isLine) {
+    html += '<div class="prop-group"><div class="prop-label">Línea</div>' +
+      '<div class="prop-row"><span class="prop-fl">Color</span><div class="color-btn" style="background:' + (obj.stroke||'#000') + '"><input type="color" value="' + (obj.stroke||'#000000') + '" oninput="setProp(\'stroke\',this.value)"></div></div>' +
+      '<div class="prop-row"><span class="prop-fl">Grosor</span><input class="prop-input" type="number" value="' + (obj.strokeWidth||1) + '" onchange="setProp(\'strokeWidth\',+this.value)" style="max-width:55px"></div>' +
+    '</div>';
+  }
+
+  html += '<div class="prop-group"><button class="del-btn" onclick="delSel()">🗑 Eliminar elemento</button></div>';
+  document.getElementById('rightPanel').innerHTML = html;
+}
+
+function setProp(k, v) { const o = canvas.getActiveObject(); if(!o) return; o.set(k,v); canvas.renderAll(); }
+function setScaled(dim, val) {
+  const o = canvas.getActiveObject(); if(!o) return;
+  if (dim==='w') o.set('scaleX', val/o.width);
+  else o.set('scaleY', val/o.height);
+  canvas.renderAll();
+}
+function toggle(prop) {
+  const o = canvas.getActiveObject(); if(!o) return;
+  if (prop==='bold') o.set('fontWeight', o.fontWeight==='bold'?'normal':'bold');
+  else if (prop==='italic') o.set('fontStyle', o.fontStyle==='italic'?'normal':'italic');
+  else if (prop==='underline') o.set('underline', !o.underline);
+  canvas.renderAll(); onSel();
+}
+function delSel() { const o=canvas.getActiveObject(); if(o){canvas.remove(o);canvas.renderAll();} }
+function duplicateSelected() {
+  const o = canvas.getActiveObject(); if(!o) return;
+  o.clone(cl => { cl.set({left:o.left+20,top:o.top+20}); canvas.add(cl); canvas.setActiveObject(cl); });
+}
+
+// ─── ALIGN ────────────────────────────────────────────────
+function alignSel(dir) {
+  const objs = canvas.getActiveObjects(); if(!objs.length) return;
+  objs.forEach(o => {
+    if (dir==='left') o.set('left', 60);
+    else if (dir==='center') o.set('left', (PAGE_W - o.getScaledWidth()) / 2);
+    else o.set('left', PAGE_W - 60 - o.getScaledWidth());
+    o.setCoords();
+  });
+  canvas.renderAll();
+}
+
+// ─── SAVE ─────────────────────────────────────────────────
 async function saveTemplate() {
   const name = document.getElementById('templateName').value || 'Mi Plantilla';
-  const json = canvas.toJSON(['isGrid', 'varName', 'tableType', 'tableCols', 'tableLoop', 'tableHeaderColor']);
+  const json = canvas.toJSON(['isGrid','tableType','tableCols','tableLoop','tableHeaderColor']);
   json.name = name;
-
-  // Save locally
-  localStorage.setItem('docugen_template_' + name, JSON.stringify(json));
-
+  localStorage.setItem('docugen_tpl_' + name, JSON.stringify(json));
   if (!accountId) { showToast('Guardado local', 'success'); return; }
-
   try {
-    showToast('Guardando plantilla...', '');
+    showToast('Guardando...', '');
     const res = await fetch(API + '/editor/save-template', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
       body: JSON.stringify({ canvasJson: json, templateName: name })
     });
     const data = await res.json();
-    if (data.success) {
-      showToast('✓ Plantilla guardada: ' + data.filename, 'success');
-    } else {
-      showToast('Error: ' + data.error, 'error');
-    }
-  } catch(e) {
-    showToast('Error: ' + e.message, 'error');
-  }
+    if (data.success) showToast('✓ Guardado: ' + data.filename, 'success');
+    else showToast('Error: ' + data.error, 'error');
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
 }
 
-// ============================================================
-// EXPORT TO DOCX (via server)
-// ============================================================
-async function canvasToDocx() {
-  // Export canvas as PNG for image elements
-  const dataUrl = canvas.toDataURL({ format: 'png', multiplier: 2 });
-  const blob = dataURLtoBlob(dataUrl);
-  return blob;
-}
-
-async function exportAndGenerate() {
-  showToast('Preparando documento...', 'success');
-  // For now, save as template image + trigger generation
-  await saveTemplate();
-}
-
-function dataURLtoBlob(dataURL) {
-  const arr = dataURL.split(',');
-  const mime = arr[0].match(/:(.*?);/)[1];
-  const bstr = atob(arr[1]);
-  let n = bstr.length;
-  const u8arr = new Uint8Array(n);
-  while (n--) u8arr[n] = bstr.charCodeAt(n);
-  return new Blob([u8arr], { type: mime });
-}
-
-// ============================================================
-// PREVIEW
-// ============================================================
+// ─── PREVIEW ──────────────────────────────────────────────
 function previewTemplate() {
-  const dataUrl = canvas.toDataURL({ format: 'png', multiplier: 1.5 });
-  const win = window.open('');
-  win.document.write(`<html><body style="margin:0;background:#1a1a1a;display:flex;justify-content:center;padding:32px">
-    <img src="${dataUrl}" style="max-width:100%;box-shadow:0 8px 40px rgba(0,0,0,0.5)">
-  </body></html>`);
+  const url = canvas.toDataURL({ format:'png', multiplier:1.5 });
+  const w = window.open('');
+  w.document.write('<html><body style="margin:0;background:#1a1a1a;display:flex;justify-content:center;padding:32px"><img src="' + url + '" style="max-width:100%;box-shadow:0 8px 40px rgba(0,0,0,0.5)"></body></html>');
 }
 
-// ============================================================
-// PAGES
-// ============================================================
-function addPage() {
-  showToast('Multi-página próximamente', 'success');
-}
-
-// ============================================================
-// TOAST
-// ============================================================
-function showToast(msg, type = '') {
+// ─── TOAST ────────────────────────────────────────────────
+function showToast(msg, type='') {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.className = 'toast ' + type + ' show';
-  setTimeout(() => t.className = 'toast ' + type, 2500);
+  setTimeout(() => t.className = 'toast ' + type, 2800);
 }
 
-// ============================================================
-// KEYBOARD SHORTCUTS
-// ============================================================
+// ─── KEYBOARD ─────────────────────────────────────────────
 document.addEventListener('keydown', e => {
-  if (e.key === 'Delete' || e.key === 'Backspace') {
-    if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
-      deleteSelected();
-    }
-  }
-  if (e.metaKey || e.ctrlKey) {
-    if (e.key === 'z') { e.preventDefault(); undo(); }
-    if (e.key === 'y') { e.preventDefault(); redo(); }
-    if (e.key === 's') { e.preventDefault(); saveTemplate(); }
-  }
+  if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+  if (e.key === 'Delete' || e.key === 'Backspace') delSel();
+  if ((e.metaKey||e.ctrlKey) && e.key==='z') { e.preventDefault(); undo(); }
+  if ((e.metaKey||e.ctrlKey) && e.key==='y') { e.preventDefault(); redo(); }
+  if ((e.metaKey||e.ctrlKey) && e.key==='s') { e.preventDefault(); saveTemplate(); }
+  if ((e.metaKey||e.ctrlKey) && e.key==='d') { e.preventDefault(); duplicateSelected(); }
 });
 
-// ============================================================
-// START
-// ============================================================
-window.addEventListener('load', () => {
-  initCanvas();
-  zoomFit();
-  if (boardId) loadVariables();
-});
+window.addEventListener('load', init);
 </script>
 </body>
 </html>
