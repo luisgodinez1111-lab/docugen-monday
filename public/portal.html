@@ -86,7 +86,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);m
 .sig-tabs{display:flex;gap:4px;margin-bottom:14px}
 .sig-tab{flex:1;padding:8px 4px;text-align:center;border:1px solid var(--border);border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;background:var(--cream);color:var(--muted);transition:all 0.15s}
 .sig-tab.active{background:var(--ink);color:var(--paper);border-color:var(--ink)}
-.canvas-wrap{border:2px dashed var(--border);border-radius:8px;background:var(--cream);margin-bottom:10px;position:relative;overflow:hidden}
+.canvas-wrap{border:2px dashed var(--border);border-radius:8px;background:var(--cream);margin-bottom:10px;position:relative;overflow:hidden;min-height:114px;cursor:crosshair}
 canvas{display:block;touch-action:none;cursor:crosshair;width:100%}
 .typed-preview{min-height:70px;display:flex;align-items:center;justify-content:center;border:2px dashed var(--border);border-radius:8px;margin-bottom:10px;font-family:'DM Serif Display',serif;font-style:italic;font-size:26px;color:var(--ink);background:var(--cream);padding:12px}
 .upload-area{min-height:80px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--border);border-radius:8px;margin-bottom:10px;cursor:pointer;background:var(--cream);gap:4px;transition:border 0.2s}
@@ -277,11 +277,17 @@ const ctx = canvas.getContext('2d');
 let drawing = false, hasSig = false;
 
 function resizeCanvas() {
-  const w = canvas.parentElement.clientWidth;
-  canvas.width = w; canvas.height = 100;
-  ctx.strokeStyle = '#0f0e17'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const wrap = canvas.parentElement;
+  const w = wrap ? Math.max(wrap.clientWidth, 280) : 280;
+  canvas.width = w;
+  canvas.height = 110;
+  ctx.strokeStyle = '#0f0e17';
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
 }
-resizeCanvas();
+// Esperar a que el DOM esté listo con tamaño real
+setTimeout(resizeCanvas, 100);
 window.addEventListener('resize', resizeCanvas);
 
 function getPos(e) {
