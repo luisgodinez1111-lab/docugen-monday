@@ -218,6 +218,11 @@ function calcularTotales(data, subitems, columnValues) {
     data.total = total.toFixed(2);
     data.total_fmt = total.toLocaleString('es-MX', { minimumFractionDigits: 2 });
     data.total_letras = numeroALetras(total);
+  data.tiene_iva = parseFloat(data.iva || 0) > 0;
+  data.tiene_subelementos = (data.subelementos || []).length > 0;
+  data.es_grande = total > 100000;
+  data.es_aprobado = (data.status || '').toLowerCase().includes('approv') || (data.status || '').toLowerCase().includes('aprobad');
+  data.es_pendiente = !data.es_aprobado;
   } else {
     // Calcular desde columnas numéricas del item principal
     const montoCol = columnValues.find(col => {
@@ -233,6 +238,11 @@ function calcularTotales(data, subitems, columnValues) {
       data.total_con_iva = total.toFixed(2);
       data.total_con_iva_fmt = total.toLocaleString('es-MX', { minimumFractionDigits: 2 });
       data.total_letras = numeroALetras(total);
+  data.tiene_iva = parseFloat(data.iva || 0) > 0;
+  data.tiene_subelementos = (data.subelementos || []).length > 0;
+  data.es_grande = total > 100000;
+  data.es_aprobado = (data.status || '').toLowerCase().includes('approv') || (data.status || '').toLowerCase().includes('aprobad');
+  data.es_pendiente = !data.es_aprobado;
     }
   }
 }
