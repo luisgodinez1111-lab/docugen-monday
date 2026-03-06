@@ -363,8 +363,8 @@ function applyTheme(t, el) {
   document.querySelectorAll('.theme-swatch').forEach(s => s.classList.remove('active'));
   el.classList.add('active');
 
-  // Aplicar tema al fondo del canvas
-  canvas.setBackgroundColor(t.background, canvas.renderAll.bind(canvas));
+  // Aplicar tema al fondo de la hoja
+  canvas.setBackgroundColor(t.secondary || '#ffffff', canvas.renderAll.bind(canvas));
 
   // Aplicar colores a objetos existentes
   canvas.getObjects().forEach(obj => {
