@@ -907,6 +907,10 @@ app.post('/signatures/request', requireAuth, async (req, res) => {
 });
 
 app.get('/sign/:token', async (req, res) => {
+  return res.sendFile(require('path').join(__dirname, 'public', 'portal.html'));
+});
+
+app.get('/sign/:token_portal_legacy', async (req, res) => {
   try {
     const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
     if (!r.rows.length) return res.status(404).send('Link no válido');
