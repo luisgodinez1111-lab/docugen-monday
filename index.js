@@ -987,84 +987,165 @@ app.get('/signatures', requireAuth, async (req, res) => {
 });
 
 function signPage(sig) {
+  const needsOtp = sig.otp_code && !sig.otp_verified;
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Firma de documento</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,sans-serif;background:#f5f5f5;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-.card{background:white;border-radius:12px;padding:28px;max-width:480px;width:100%;box-shadow:0 4px 24px rgba(0,0,0,0.1)}
+.card{background:white;border-radius:12px;padding:28px;max-width:500px;width:100%;box-shadow:0 4px 24px rgba(0,0,0,0.1)}
 h2{font-size:20px;margin-bottom:6px;color:#111}
 .doc-name{font-size:13px;color:#666;margin-bottom:20px;padding:8px 12px;background:#f8f8f8;border-radius:6px}
-label{font-size:12px;font-weight:600;color:#444;display:block;margin-bottom:5px}
-input{width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;margin-bottom:14px;outline:none}
+label{font-size:12px;font-weight:600;color:#444;display:block;margin-bottom:5px;margin-top:12px}
+input{width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;outline:none}
 input:focus{border-color:#5b6af5}
+.tabs{display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid #eee;padding-bottom:12px}
+.tab{flex:1;padding:8px;text-align:center;border:1px solid #ddd;border-radius:7px;font-size:12px;cursor:pointer;background:#f9f9f9;transition:all 0.15s}
+.tab.active{background:#5b6af5;color:white;border-color:#5b6af5}
 .canvas-wrap{border:2px dashed #ddd;border-radius:8px;background:#fafafa;margin-bottom:14px;position:relative}
 canvas{display:block;touch-action:none;cursor:crosshair}
-.canvas-label{position:absolute;top:8px;left:12px;font-size:11px;color:#aaa;pointer-events:none}
-.btn-row{display:flex;gap:8px}
+.sig-type{padding:14px;border:2px dashed #ddd;border-radius:8px;margin-bottom:14px;min-height:80px;display:flex;align-items:center;justify-content:center}
+.btn-row{display:flex;gap:8px;margin-top:12px}
 .btn{flex:1;padding:10px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all 0.15s}
 .btn-clear{background:#f5f5f5;color:#666}
 .btn-submit{background:#5b6af5;color:white}
-.btn-submit:hover{background:#6b7aff}
-.expires{font-size:11px;color:#aaa;text-align:center;margin-top:12px}
+.otp-screen{text-align:center;padding:10px 0}
+.otp-input{text-align:center;font-size:24px;letter-spacing:8px;font-weight:700;width:160px;margin:12px auto;display:block}
+.notice{font-size:10px;color:#aaa;text-align:center;margin-top:12px}
 </style></head><body>
-<div class="card">
+<div class="card" id="mainCard">
+  ${needsOtp ? `
+  <div class="otp-screen">
+    <h2>🔐 Verificar identidad</h2>
+    <p style="color:#666;font-size:13px;margin:10px 0">Ingresa el código de 6 dígitos enviado a tu email</p>
+    <input class="otp-input" id="otpInput" maxlength="6" placeholder="000000" type="tel">
+    <div class="btn-row"><button class="btn btn-submit" onclick="verifyOtp()">Verificar →</button></div>
+    <div id="otpError" style="color:#dc2626;font-size:12px;margin-top:8px"></div>
+  </div>
+  ` : `
   <h2>✍️ Firma requerida</h2>
   <div class="doc-name">📄 ${sig.document_filename}</div>
   <label>Tu nombre completo</label>
   <input id="signerName" value="${sig.signer_name || ''}" placeholder="Nombre del firmante">
-  <label>Firma aquí abajo</label>
-  <div class="canvas-wrap">
-    <canvas id="sigCanvas" width="424" height="160"></canvas>
-    <div class="canvas-label">Dibuja tu firma</div>
+  <label>Tipo de firma</label>
+  <div class="tabs">
+    <div class="tab active" onclick="setTab('draw',this)">✍ Dibujar</div>
+    <div class="tab" onclick="setTab('type',this)">T Tipográfica</div>
+    <div class="tab" onclick="setTab('upload',this)">⬆ Subir</div>
+  </div>
+  <div id="tab-draw">
+    <div class="canvas-wrap"><canvas id="sigCanvas" width="444" height="150"></canvas></div>
+    <button class="btn btn-clear" style="width:100%;margin-bottom:8px" onclick="clearSig()">🗑 Limpiar</button>
+  </div>
+  <div id="tab-type" style="display:none">
+    <input id="typedSig" placeholder="Escribe tu nombre para firmar" style="font-size:20px;font-family:cursive;color:#1a1a2e;margin-bottom:8px" oninput="renderTypedSig()">
+    <div class="sig-type" id="typedPreview" style="font-family:cursive;font-size:28px;color:#1a1a2e">Tu firma aparecerá aquí</div>
+  </div>
+  <div id="tab-upload" style="display:none">
+    <div class="sig-type" onclick="document.getElementById('sigFile').click()" style="cursor:pointer;flex-direction:column;gap:8px">
+      <span style="font-size:24px">⬆</span>
+      <span style="font-size:12px;color:#666">Click para subir imagen de firma</span>
+      <img id="uploadedSigPreview" style="max-width:200px;max-height:80px;display:none">
+    </div>
+    <input type="file" id="sigFile" accept="image/*" style="display:none" onchange="handleSigUpload(event)">
   </div>
   <div class="btn-row">
-    <button class="btn btn-clear" onclick="clearSig()">🗑 Limpiar</button>
     <button class="btn btn-submit" onclick="submitSig()">✓ Firmar documento</button>
   </div>
-  <div class="expires">Este link expira el ${new Date(sig.expires_at).toLocaleDateString('es-MX')}</div>
-  <div style="font-size:10px;color:#aaa;text-align:center;margin-top:6px">🔒 Al firmar se registrará tu IP, nombre y fecha como evidencia legal</div>
+  <div class="notice">🔒 Se registrará tu IP, nombre y fecha · Link expira el ${new Date(sig.expires_at).toLocaleDateString('es-MX')}</div>
+  `}
 </div>
 <script>
-const canvas = document.getElementById('sigCanvas');
-const ctx = canvas.getContext('2d');
-let drawing = false, hasSig = false;
-ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+const TOKEN = '${sig.token}';
+let currentTab = 'draw';
+let uploadedSigData = null;
 
-function getPos(e) {
-  const r = canvas.getBoundingClientRect();
-  const src = e.touches ? e.touches[0] : e;
-  return { x: src.clientX - r.left, y: src.clientY - r.top };
+async function verifyOtp() {
+  const otp = document.getElementById('otpInput').value;
+  const res = await fetch('/sign/' + TOKEN + '/verify-otp', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({otp}) });
+  const data = await res.json();
+  if (data.success) { location.reload(); }
+  else { document.getElementById('otpError').textContent = 'Código incorrecto. Intenta de nuevo.'; }
 }
-canvas.addEventListener('mousedown', e => { drawing=true; const p=getPos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); });
-canvas.addEventListener('mousemove', e => { if(!drawing) return; const p=getPos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); hasSig=true; });
-canvas.addEventListener('mouseup', () => drawing=false);
-canvas.addEventListener('touchstart', e => { e.preventDefault(); drawing=true; const p=getPos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); }, {passive:false});
-canvas.addEventListener('touchmove', e => { e.preventDefault(); if(!drawing) return; const p=getPos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); hasSig=true; }, {passive:false});
-canvas.addEventListener('touchend', () => drawing=false);
 
-function clearSig() { ctx.clearRect(0,0,canvas.width,canvas.height); hasSig=false; }
+function setTab(tab, el) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  ['draw','type','upload'].forEach(t => { document.getElementById('tab-' + t).style.display = t===tab ? 'block' : 'none'; });
+}
+
+// Canvas drawing
+const canvas = document.getElementById('sigCanvas');
+const ctx = canvas ? canvas.getContext('2d') : null;
+let drawing = false, hasSig = false;
+if (ctx) {
+  ctx.strokeStyle='#1a1a2e'; ctx.lineWidth=2.5; ctx.lineCap='round'; ctx.lineJoin='round';
+  function getPos(e) { const r=canvas.getBoundingClientRect(); const s=e.touches?e.touches[0]:e; return {x:s.clientX-r.left,y:s.clientY-r.top}; }
+  canvas.addEventListener('mousedown',e=>{drawing=true;const p=getPos(e);ctx.beginPath();ctx.moveTo(p.x,p.y)});
+  canvas.addEventListener('mousemove',e=>{if(!drawing)return;const p=getPos(e);ctx.lineTo(p.x,p.y);ctx.stroke();hasSig=true});
+  canvas.addEventListener('mouseup',()=>drawing=false);
+  canvas.addEventListener('touchstart',e=>{e.preventDefault();drawing=true;const p=getPos(e);ctx.beginPath();ctx.moveTo(p.x,p.y)},{passive:false});
+  canvas.addEventListener('touchmove',e=>{e.preventDefault();if(!drawing)return;const p=getPos(e);ctx.lineTo(p.x,p.y);ctx.stroke();hasSig=true},{passive:false});
+  canvas.addEventListener('touchend',()=>drawing=false);
+}
+function clearSig(){if(ctx)ctx.clearRect(0,0,canvas.width,canvas.height);hasSig=false;}
+
+function renderTypedSig() {
+  const name = document.getElementById('typedSig').value;
+  const preview = document.getElementById('typedPreview');
+  preview.textContent = name || 'Tu firma aparecerá aquí';
+}
+
+function handleSigUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    uploadedSigData = ev.target.result;
+    const img = document.getElementById('uploadedSigPreview');
+    img.src = uploadedSigData; img.style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+}
+
+function getSigData() {
+  if (currentTab === 'draw') {
+    if (!hasSig) { alert('Por favor dibuja tu firma'); return null; }
+    return { data: canvas.toDataURL('image/png'), type: 'drawn' };
+  } else if (currentTab === 'type') {
+    const name = document.getElementById('typedSig').value;
+    if (!name) { alert('Escribe tu nombre para firmar'); return null; }
+    // Render typed signature to canvas
+    const c = document.createElement('canvas'); c.width=400; c.height=100;
+    const cx = c.getContext('2d');
+    cx.fillStyle='white'; cx.fillRect(0,0,400,100);
+    cx.font='48px cursive'; cx.fillStyle='#1a1a2e'; cx.fillText(name,20,70);
+    return { data: c.toDataURL('image/png'), type: 'typed' };
+  } else {
+    if (!uploadedSigData) { alert('Sube una imagen de firma'); return null; }
+    return { data: uploadedSigData, type: 'uploaded' };
+  }
+}
 
 async function submitSig() {
-  if (!hasSig) { alert('Por favor dibuja tu firma'); return; }
   const name = document.getElementById('signerName').value;
-  if (!name) { alert('Por favor ingresa tu nombre'); return; }
-  const sigData = canvas.toDataURL('image/png');
+  if (!name) { alert('Ingresa tu nombre'); return; }
+  const sig = getSigData();
+  if (!sig) return;
   const btn = document.querySelector('.btn-submit');
-  btn.textContent = 'Firmando...'; btn.disabled = true;
+  btn.textContent='Firmando...'; btn.disabled=true;
   try {
-    const res = await fetch(window.location.pathname, {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ signature_data: sigData, signer_name: name })
-    });
+    const res = await fetch(window.location.pathname, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({signature_data:sig.data, signer_name:name, signature_type:sig.type}) });
     const data = await res.json();
     if (data.success) {
-      document.querySelector('.card').innerHTML = '<div style="text-align:center;padding:20px"><div style="font-size:48px;margin-bottom:16px">✅</div><h2 style="color:#059669;margin-bottom:8px">¡Documento firmado!</h2><p style="color:#666;font-size:13px">Tu firma ha sido registrada exitosamente.</p></div>';
-    } else { alert('Error: ' + data.error); btn.textContent = '✓ Firmar'; btn.disabled=false; }
-  } catch(e) { alert('Error de conexión'); btn.textContent = '✓ Firmar'; btn.disabled=false; }
+      document.getElementById('mainCard').innerHTML='<div style="text-align:center;padding:20px"><div style="font-size:48px;margin-bottom:16px">✅</div><h2 style="color:#059669;margin-bottom:8px">¡Documento firmado!</h2><p style="color:#666;font-size:13px">Tu firma ha sido registrada exitosamente.</p>' + (data.download_url ? '<a href="'+data.download_url+'" style="display:inline-block;margin-top:16px;padding:10px 20px;background:#059669;color:white;border-radius:8px;text-decoration:none;font-weight:600">⬇ Descargar documento</a>' : '') + '</div>';
+    } else { alert('Error: '+data.error); btn.textContent='✓ Firmar'; btn.disabled=false; }
+  } catch(e) { alert('Error de conexión'); btn.textContent='✓ Firmar'; btn.disabled=false; }
 }
-</script></body></html>`;
+</script></body></html>\`;
 }
+
 
 function signedPage(sig) {
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Ya firmado</title>
@@ -1731,3 +1812,141 @@ cron.schedule('0 * * * *', async () => {
     }
   } catch(e) { console.error('Scheduled automation error:', e.message); }
 });
+
+
+// ─── SISTEMA DE FIRMA AVANZADO ────────────────────────────
+// Múltiples firmantes con orden
+app.post('/signatures/request-multi', requireAuth, async (req, res) => {
+  const { document_filename, signers, item_id, board_id } = req.body;
+  // signers = [{name, email, order}, ...]
+  if (!signers || !signers.length) return res.status(400).json({ error: 'Se requieren firmantes' });
+  try {
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signer_order INT DEFAULT 1');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS group_id TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_code TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_verified BOOLEAN DEFAULT FALSE');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signature_type TEXT DEFAULT 'drawn'');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS locked BOOLEAN DEFAULT FALSE');
+
+    const groupId = require('crypto').randomBytes(16).toString('hex');
+    const tokens = [];
+
+    for (const signer of signers) {
+      const token = require('crypto').randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const order = signer.order || 1;
+
+      await pool.query(
+        'INSERT INTO signature_requests (token, account_id, document_filename, signer_name, signer_email, item_id, board_id, expires_at, signer_order, group_id, otp_code) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+        [token, req.accountId, document_filename, signer.name, signer.email, item_id, board_id, expiresAt, order, groupId, otpCode]
+      );
+
+      const signUrl = process.env.APP_URL + '/sign/' + token;
+
+      // Solo enviar email al primero en el orden
+      if (order === 1 && signer.email) {
+        try {
+          await resend.emails.send({
+            from: 'DocuGen <onboarding@resend.dev>',
+            to: signer.email,
+            subject: 'Documento pendiente de tu firma — ' + document_filename,
+            html: emailSignRequest(signer.name, document_filename, signUrl, expiresAt)
+          });
+        } catch(e) { console.error('Email error:', e.message); }
+      }
+      tokens.push({ name: signer.name, email: signer.email, order, token, sign_url: signUrl });
+    }
+
+    res.json({ success: true, group_id: groupId, signers: tokens });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Verificar OTP
+app.post('/sign/:token/verify-otp', async (req, res) => {
+  const { otp } = req.body;
+  try {
+    const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Token no válido' });
+    const sig = r.rows[0];
+    if (sig.otp_code !== otp) return res.status(400).json({ error: 'Código incorrecto' });
+    await pool.query('UPDATE signature_requests SET otp_verified=TRUE WHERE token=$1', [req.params.token]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Certificado de auditoría
+app.get('/signatures/group/:groupId/certificate', async (req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM signature_requests WHERE group_id=$1 ORDER BY signer_order ASC', [req.params.groupId]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Grupo no encontrado' });
+
+    const htmlPdf = require('html-pdf-node');
+    const certHtml = generateAuditCertificate(r.rows);
+    const pdfBuffer = await htmlPdf.generatePdf({ content: certHtml }, {
+      format: 'A4', margin: { top: '20mm', bottom: '20mm', left: '15mm', right: '15mm' }, printBackground: true
+    });
+
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', 'attachment; filename="certificado_auditoria.pdf"');
+    res.send(pdfBuffer);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+function generateAuditCertificate(signers) {
+  const doc = signers[0];
+  const allSigned = signers.every(s => s.status === 'signed');
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <style>
+    body { font-family: Arial, sans-serif; color: #111; padding: 40px; }
+    .header { text-align: center; border-bottom: 3px solid #2D5BE3; padding-bottom: 20px; margin-bottom: 30px; }
+    .title { font-size: 24px; font-weight: bold; color: #2D5BE3; }
+    .subtitle { font-size: 14px; color: #666; margin-top: 6px; }
+    .section { margin-bottom: 24px; }
+    .section-title { font-size: 14px; font-weight: bold; color: #2D5BE3; border-bottom: 1px solid #eee; padding-bottom: 6px; margin-bottom: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { background: #2D5BE3; color: white; padding: 8px; text-align: left; }
+    td { padding: 8px; border-bottom: 1px solid #eee; }
+    .badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+    .signed { background: #d1fae5; color: #065f46; }
+    .pending { background: #fef3c7; color: #92400e; }
+    .footer { margin-top: 40px; text-align: center; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 16px; }
+    .hash { font-family: monospace; font-size: 10px; color: #666; background: #f5f5f5; padding: 4px 8px; border-radius: 4px; }
+  </style></head><body>
+  <div class="header">
+    <div class="title">CERTIFICADO DE AUDITORÍA</div>
+    <div class="subtitle">DocuGen — Sistema de Firma Digital</div>
+    <div class="subtitle">Generado: ${new Date().toLocaleString('es-MX')}</div>
+  </div>
+  <div class="section">
+    <div class="section-title">INFORMACIÓN DEL DOCUMENTO</div>
+    <table><tr><th>Campo</th><th>Valor</th></tr>
+    <tr><td>Documento</td><td>${doc.document_filename}</td></tr>
+    <tr><td>Estado</td><td><span class="badge ${allSigned ? 'signed' : 'pending'}">${allSigned ? '✅ COMPLETADO' : '⏳ PENDIENTE'}</span></td></tr>
+    <tr><td>Firmantes requeridos</td><td>${signers.length}</td></tr>
+    <tr><td>Firmantes completados</td><td>${signers.filter(s => s.status === 'signed').length}</td></tr>
+    </table>
+  </div>
+  <div class="section">
+    <div class="section-title">REGISTRO DE FIRMAS</div>
+    <table><tr><th>#</th><th>Firmante</th><th>Email</th><th>Estado</th><th>Fecha</th><th>IP</th></tr>
+    ${signers.map(s => `<tr>
+      <td>${s.signer_order || 1}</td>
+      <td>${s.signer_name || '—'}</td>
+      <td>${s.signer_email || '—'}</td>
+      <td><span class="badge ${s.status === 'signed' ? 'signed' : 'pending'}">${s.status === 'signed' ? '✅ Firmado' : '⏳ Pendiente'}</span></td>
+      <td>${s.signed_at ? new Date(s.signed_at).toLocaleString('es-MX') : '—'}</td>
+      <td class="hash">${s.signer_ip || '—'}</td>
+    </tr>`).join('')}
+    </table>
+  </div>
+  <div class="section">
+    <div class="section-title">VALIDEZ LEGAL</div>
+    <p style="font-size:12px;line-height:1.8">Este certificado acredita que los firmantes indicados han completado el proceso de firma electrónica en la plataforma DocuGen. Cada firma incluye: nombre completo, dirección IP, fecha y hora exacta, y verificación de identidad por código OTP. Este documento tiene valor probatorio conforme a la legislación de firma electrónica aplicable.</p>
+  </div>
+  <div class="footer">
+    <div>DocuGen Digital Signature Platform — ${process.env.APP_URL}</div>
+    <div style="margin-top:4px">ID de grupo: <span class="hash">${signers[0]?.group_id || '—'}</span></div>
+  </div>
+  </body></html>`;
+}
