@@ -164,6 +164,7 @@
       <div style="display:flex;gap:10px">
         <button class="btn btn-primary" id="generate-btn" onclick="generateDocument('docx')" disabled style="flex:1">⬇ Generar Word</button>
         <button class="btn btn-primary" id="generate-pdf-btn" onclick="generateDocument('pdf')" disabled style="flex:1;background:#E53E3E">⬇ Generar PDF</button>
+        <button class="btn btn-primary" id="generate-xlsx-btn" onclick="generateXlsx()" disabled style="flex:1;background:#1D6F42">⬇ Exportar Excel</button>
       </div>
       <div id="generate-status"></div>
     </div>
@@ -341,6 +342,26 @@
     } catch(e) {}
   }
 
+  async function generateXlsx() {
+    if (!selectedTemplate || !selectedItem) return;
+    const btn = document.getElementById('generate-xlsx-btn');
+    btn.textContent = 'Generando...'; btn.disabled = true;
+    try {
+      const res = await fetch(API + '/export-xlsx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
+        body: JSON.stringify({ board_id: boardId, item_id: selectedItem.id })
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = selectedItem.name + '.xlsx'; a.click();
+      URL.revokeObjectURL(url);
+    } catch(e) { alert('Error: ' + e.message); }
+    finally { btn.textContent = '⬇ Exportar Excel'; btn.disabled = false; }
+  }
+
   function openEditor() {
     const url = '/editor?account_id=' + accountId + (boardId ? '&boardId=' + boardId : '');
     window.open(url, '_blank');
@@ -480,6 +501,7 @@
   function checkReady() {
     document.getElementById('generate-btn').disabled = !(selectedTemplate && selectedItem);
     document.getElementById('generate-pdf-btn').disabled = !(selectedTemplate && selectedItem);
+    document.getElementById('generate-xlsx-btn').disabled = !(selectedTemplate && selectedItem);
   }
 
   async function handleFileUpload(e) {
