@@ -240,33 +240,6 @@
       document.getElementById('logo-status').innerHTML = '<div class="status error">✗ Error al subir logo</div>';
     }
   }
-  function editTemplate(filename) {
-    const url = '/editor?account_id=' + accountId + (boardId ? '&boardId=' + boardId : '') + '&tpl=' + encodeURIComponent(filename);
-    window.open(url, '_blank');
-  }
-
-  async function duplicateTemplate(filename) {
-    const newName = prompt('Nombre para la copia:', filename.replace('.docx','') + '_copia');
-    if (!newName) return;
-    const res = await fetch(API + '/templates/' + encodeURIComponent(filename) + '/duplicate', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
-      body: JSON.stringify({ newName })
-    });
-    const data = await res.json();
-    if (data.success) { await loadTemplates(); }
-    else alert('Error: ' + data.error);
-  }
-
-  async function deleteTemplate(filename) {
-    if (!confirm('Eliminar plantilla ' + filename + '?')) return;
-    const res = await fetch(API + '/templates/' + encodeURIComponent(filename), {
-      method: 'DELETE', headers: { 'x-account-id': accountId }
-    });
-    const data = await res.json();
-    if (data.success) { await loadTemplates(); }
-    else alert('Error: ' + data.error);
-  }
-
   function openEditor() {
     const url = '/editor?account_id=' + accountId + (boardId ? '&boardId=' + boardId : '');
     window.open(url, '_blank');
@@ -303,24 +276,10 @@
       const data = await res.json();
       const list = document.getElementById('template-list');
       if (!data.templates.length) { list.innerHTML = '<div class="empty">No hay plantillas. Sube una.</div>'; return; }
-      list.innerHTML = data.templates.map(t => {
-        const name = t.filename || t;
-        const hasEditor = t.has_editor;
-        const updated = t.updated_at ? new Date(t.updated_at).toLocaleDateString('es-MX') : '';
-        const id = name.replace(/[.\s]/g,'-');
-        return '<div class="template-item" onclick="selectTemplate(\'' + name + '\')" id="tpl-' + id + '" style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
-          '<div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">' +
-          '<span>' + (hasEditor ? '✏️' : '📄') + '</span>' +
-          '<div style="min-width:0"><div style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + name + '</div>' +
-          (updated ? '<div style="font-size:10px;color:var(--text2)">' + updated + '</div>' : '') +
-          '</div></div>' +
-          '<div style="display:flex;gap:4px;flex-shrink:0">' +
-          (hasEditor ? '<button onclick="event.stopPropagation();editTemplate(\'' + name + '\')" style="padding:2px 7px;font-size:10px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text2);cursor:pointer">✏</button>' : '') +
-          '<button onclick="event.stopPropagation();duplicateTemplate(\'' + name + '\')" style="padding:2px 7px;font-size:10px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text2);cursor:pointer">⧉</button>' +
-          '<button onclick="event.stopPropagation();deleteTemplate(\'' + name + '\')" style="padding:2px 7px;font-size:10px;background:transparent;border:1px solid #f87171;border-radius:4px;color:#f87171;cursor:pointer">🗑</button>' +
-          '</div></div>';
+      list.innerHTML = data.templates.map(t =>
+        '<div class="template-item" onclick="selectTemplate(\'' + t + '\')" id="tpl-' + t.replace(/[\.\s]/g,'-') + '"><span>📄</span><span>' + t + '</span></div>'
       ).join('');
-      }).join('');
+    } catch(e) { document.getElementById('template-list').innerHTML = '<div class="empty">Error al cargar</div>'; }
   }
 
   async function loadBoardItems(bid) {
