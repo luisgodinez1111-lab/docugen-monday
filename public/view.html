@@ -140,7 +140,23 @@
       </div>
     </div>
 
+    
     <div class="card">
+      <div class="card-label">Firma digital</div>
+      <div class="section-title">Solicitar firma</div>
+      <div class="section-desc">Envía el documento generado para firma digital.</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+        <input id="signerName" placeholder="Nombre del firmante" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;outline:none">
+        <input id="signerEmail" placeholder="Email (opcional)" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;outline:none">
+        <button onclick="requestSignature()" style="width:100%;padding:9px;background:#7C3AED;color:white;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">✍️ Solicitar firma</button>
+      </div>
+      <div id="signatureResult" style="margin-top:10px"></div>
+      <div style="margin-top:14px">
+        <div class="section-title" style="margin-bottom:8px">Firmas pendientes</div>
+        <div id="signaturesList"><div class="empty">Cargando...</div></div>
+      </div>
+    </div>
+<div class="card">
       <div class="card-label">Paso 3 — Generar</div>
       <div class="section-title">Genera el documento</div>
       <div class="section-desc">Los datos del item seleccionado se insertarán en la plantilla.</div>
@@ -262,6 +278,54 @@
     else alert('Error: ' + data.error);
   }
 
+  async function requestSignature() {
+    const signerName = document.getElementById('signerName').value;
+    if (!signerName) { alert('Ingresa el nombre del firmante'); return; }
+    if (!selectedTemplate) { alert('Selecciona una plantilla primero'); return; }
+    const signerEmail = document.getElementById('signerEmail').value;
+    try {
+      const res = await fetch(API + '/signatures/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
+        body: JSON.stringify({
+          document_filename: selectedTemplate,
+          signer_name: signerName,
+          signer_email: signerEmail,
+          item_id: selectedItem,
+          board_id: boardId
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        document.getElementById('signatureResult').innerHTML =
+          '<div class="status success" style="word-break:break-all">✓ Link generado: <a href="' + data.sign_url + '" target="_blank" style="color:var(--accent)">' + data.sign_url + '</a></div>';
+        await loadSignatures();
+      } else {
+        document.getElementById('signatureResult').innerHTML = '<div class="status error">✗ ' + data.error + '</div>';
+      }
+    } catch(e) { document.getElementById('signatureResult').innerHTML = '<div class="status error">Error: ' + e.message + '</div>'; }
+  }
+
+  async function loadSignatures() {
+    try {
+      const res = await fetch(API + '/signatures', { headers: { 'x-account-id': accountId } });
+      const data = await res.json();
+      const list = document.getElementById('signaturesList');
+      if (!data.signatures || !data.signatures.length) { list.innerHTML = '<div class="empty">Sin solicitudes</div>'; return; }
+      list.innerHTML = data.signatures.slice(0,5).map(s => {
+        const statusColor = s.status === 'signed' ? 'var(--success)' : '#f59e0b';
+        const statusIcon = s.status === 'signed' ? '✅' : '⏳';
+        return '<div style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:5px;font-size:12px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<span>' + s.signer_name + '</span>' +
+          '<span style="color:' + statusColor + '">' + statusIcon + ' ' + s.status + '</span>' +
+          '</div>' +
+          '<div style="color:var(--text-muted);font-size:10px;margin-top:2px">' + s.document_filename + '</div>' +
+          '</div>';
+      }).join('');
+    } catch(e) {}
+  }
+
   function openEditor() {
     const url = '/editor?account_id=' + accountId + (boardId ? '&boardId=' + boardId : '');
     window.open(url, '_blank');
@@ -286,6 +350,7 @@
 
     await loadLogo();
     await loadTemplates();
+    await loadSignatures();
     if (boardId) await loadBoardItems(boardId);
     await loadHistorial();
   }
@@ -414,6 +479,7 @@
       document.getElementById('upload-filename').textContent = '✓ ' + file.name;
       document.getElementById('upload-status').innerHTML = '<div class="status success">✓ Plantilla subida</div>';
       await loadTemplates();
+    await loadSignatures();
       selectTemplate(file.name);
     } catch(e) {
       document.getElementById('upload-status').innerHTML = '<div class="status error">✗ Error al subir</div>';
