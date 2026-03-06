@@ -254,23 +254,21 @@ header { height: var(--header-h); background: var(--surface); border-bottom: 1px
       <div class="tool-sep"></div>
       <button class="tool-btn" onclick="canvas.bringForward(canvas.getActiveObject());canvas.renderAll()" title="Al frente">↑</button>
       <button class="tool-btn" onclick="canvas.sendBackwards(canvas.getActiveObject());canvas.renderAll()" title="Atrás">↓</button>
-      <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
-      <button class="tool-btn" onclick="showPreview()" style="background:rgba(91,106,245,0.15);color:var(--accent);padding:3px 10px;font-size:11px">👁 Vista previa</button>
       <div class="tool-sep"></div>
       <button class="tool-btn" id="gridBtn" onclick="toggleGrid()" title="Cuadrícula">⊞</button>
       <button class="tool-btn" onclick="duplicateSelected()" title="Duplicar">⧉</button>
       <div class="tool-sep"></div>
       <span style="font-size:10px;color:var(--text2)">A4 — 794×1123px</span>
     </div>
-    <div style="display:flex;align-items:center;gap:4px;padding:6px 12px;background:var(--surface);border-bottom:1px solid var(--border)">
-      <span style="font-size:11px;color:var(--text2);margin-right:8px">Sección:</span>
-      <button class="tool-btn active-section" id="sec-header" onclick="switchSection('header')" style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer">⬆ Encabezado</button>
-      <button class="tool-btn active-section" id="sec-body" onclick="switchSection('body')" style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid var(--accent);background:rgba(91,106,245,0.15);color:var(--accent);cursor:pointer">📄 Cuerpo</button>
-      <button class="tool-btn active-section" id="sec-footer" onclick="switchSection('footer')" style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer">⬇ Pie de página</button>
-      <div style="flex:1"></div>
-      <span style="font-size:10px;color:var(--text2)" id="section-hint">Editando: Cuerpo del documento</span>
-    </div>
     <div class="canvas-scroll">
+      <div style="display:flex;align-items:center;gap:6px;padding:8px 16px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10">
+        <span style="font-size:11px;color:var(--text2);margin-right:4px">Sección:</span>
+        <button id="sec-header" onclick="switchSection('header')" style="font-size:11px;padding:4px 12px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer">⬆ Encabezado</button>
+        <button id="sec-body" onclick="switchSection('body')" style="font-size:11px;padding:4px 12px;border-radius:5px;border:1px solid var(--accent);background:rgba(91,106,245,0.15);color:var(--accent);cursor:pointer">📄 Cuerpo</button>
+        <button id="sec-footer" onclick="switchSection('footer')" style="font-size:11px;padding:4px 12px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer">⬇ Pie de página</button>
+        <div style="flex:1"></div>
+        <span style="font-size:10px;color:var(--text2)" id="section-hint">Editando: Cuerpo del documento</span>
+      </div>
       <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:28px">
         <!-- HEADER CANVAS -->
         <div id="header-section" style="display:none;flex-direction:column;align-items:center">
