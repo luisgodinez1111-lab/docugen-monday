@@ -608,6 +608,7 @@ app.post('/migrate', async (req, res) => {
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/view', (req, res) => { res.sendFile(path.join(__dirname, 'public', 'view.html')); });
 app.get('/editor', (req, res) => { res.sendFile(path.join(__dirname, 'public', 'editor.html')); });
+app.get('/dashboard', (req, res) => { res.sendFile(path.join(__dirname, 'public', 'dashboard.html')); });
 
 app.listen(PORT, async () => {
   console.log('DocuGen servidor corriendo en puerto ' + PORT);
