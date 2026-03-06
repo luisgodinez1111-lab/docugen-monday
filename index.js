@@ -1053,32 +1053,47 @@ app.get('/signatures/:token/download', async (req, res) => {
     const sigImgBase64 = sig.signature_data.replace(/^data:image\/png;base64,/, '');
     const sigImgBuffer = Buffer.from(sigImgBase64, 'base64');
 
-    // Agregar firma al docx usando docx library
-    const { Document, Packer, Paragraph, ImageRun, TextRun, AlignmentType } = require('docx');
-    const PizZip = require('pizzip');
-    const Docxtemplater = require('docxtemplater');
+    // Insertar firma en el docx via PizZip + XML
+    const PizZip2 = require('pizzip');
+    const zip2 = new PizZip2(docBuffer);
+    let documentXml = zip2.file('word/document.xml').asText();
 
-    // Insertar imagen de firma en el docx existente via pizzip
-    const zip = new PizZip(docBuffer);
+    // Agregar imagen de firma como relación
+    const relsXml = zip2.file('word/_rels/document.xml.rels').asText();
+    const sigRelId = 'rIdSig1';
+    const newRel = '<Relationship Id="' + sigRelId + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/signature.png"/>';
+    const updatedRels = relsXml.replace('</Relationships>', newRel + '</Relationships>');
+    zip2.file('word/_rels/document.xml.rels', updatedRels);
+    zip2.file('word/media/signature.png', sigImgBuffer);
 
-    // Agregar al final del documento una página de firma
-    const signatureSection = `
-      <w:p><w:r><w:br w:type="page"/></w:r></w:p>
-      <w:p><w:pPr><w:jc w:val="center"/></w:pPr>
-        <w:r><w:rPr><w:b/><w:sz w:val="28"/></w:rPr><w:t>FIRMA DIGITAL</w:t></w:r>
-      </w:p>
-      <w:p><w:r><w:t>Firmante: ${sig.signer_name}</w:t></w:r></w:p>
-      <w:p><w:r><w:t>Fecha: ${new Date(sig.signed_at).toLocaleString('es-MX')}</w:t></w:r></w:p>
-      <w:p><w:r><w:t>IP: ${sig.signer_ip || 'N/A'}</w:t></w:r></w:p>
-    `;
+    // Construir XML de la sección de firma
+    const sigXml = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>' +
+      '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="28"/><w:color w:val="1a1a2e"/></w:rPr><w:t>FIRMA DIGITAL</w:t></w:r></w:p>' +
+      '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r>' +
+      '<w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">' +
+      '<wp:extent cx="2743200" cy="914400"/>' +
+      '<wp:docPr id="99" name="Firma"/>' +
+      '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' +
+      '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
+      '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
+      '<pic:nvPicPr><pic:cNvPr id="99" name="Firma"/><pic:cNvPicPr/></pic:nvPicPr>' +
+      '<pic:blipFill><a:blip r:embed="' + sigRelId + '" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>' +
+      '<a:stretch><a:fillRect/></a:stretch></pic:blipFill>' +
+      '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="2743200" cy="914400"/></a:xfrm>' +
+      '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>' +
+      '</pic:pic></a:graphicData></a:graphic>' +
+      '</wp:inline></w:drawing></w:r></w:p>' +
+      '<w:p><w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:t>Firmante: ' + (sig.signer_name||'') + '</w:t></w:r></w:p>' +
+      '<w:p><w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:t>Fecha: ' + new Date(sig.signed_at).toLocaleString('es-MX') + '</w:t></w:r></w:p>' +
+      '<w:p><w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:t>IP: ' + (sig.signer_ip||'N/A') + '</w:t></w:r></w:p>';
 
-    // Guardar el docx modificado como PDF via LibreOffice
+    documentXml = documentXml.replace('</w:body>', sigXml + '</w:body>');
+    zip2.file('word/document.xml', documentXml);
+    const modifiedDocx = zip2.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+
     const tmpDir = require('os').tmpdir();
     const tmpDocx = path.join(tmpDir, 'signed_' + req.params.token.slice(0,8) + '.docx');
-    const tmpSigImg = path.join(tmpDir, 'sig_' + req.params.token.slice(0,8) + '.png');
-
-    require('fs').writeFileSync(tmpDocx, docBuffer);
-    require('fs').writeFileSync(tmpSigImg, sigImgBuffer);
+    require('fs').writeFileSync(tmpDocx, modifiedDocx);
 
     // Convertir a PDF con LibreOffice
     const { execSync } = require('child_process');
