@@ -874,32 +874,81 @@ function handleImageUpload(e) {
 }
 
 function addTable() {
-  // Add a simple table representation as text with instructions
-  const group = new fabric.Group([], { left: 60, top: 200, selectable: true });
+  showTableEditor();
+}
 
-  // Header row
-  const headerBg = new fabric.Rect({ left: 0, top: 0, width: 674, height: 28, fill: '#2D5BE3' });
-  const h1 = new fabric.Text('Producto', { left: 8, top: 6, fontSize: 12, fontWeight: 'bold', fill: 'white' });
-  const h2 = new fabric.Text('Cantidad', { left: 250, top: 6, fontSize: 12, fontWeight: 'bold', fill: 'white' });
-  const h3 = new fabric.Text('Precio', { left: 390, top: 6, fontSize: 12, fontWeight: 'bold', fill: 'white' });
-  const h4 = new fabric.Text('Subtotal', { left: 530, top: 6, fontSize: 12, fontWeight: 'bold', fill: 'white' });
+function showTableEditor() {
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999';
+  const v1 = '{{nombre}}'; const v2 = '{{cantidad}}'; const v3 = '${{precio_fmt}}'; const v4 = '${{subtotal_linea_fmt}}';
+  modal.innerHTML = '<div style="background:#18181c;border:1px solid #2e2e38;border-radius:12px;padding:24px;width:500px;max-height:80vh;overflow-y:auto">'
+    + '<div style="font-size:16px;font-weight:600;margin-bottom:16px;color:#e8e8f0">Configurar tabla</div>'
+    + '<div id="colsList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">'
+    + makeColRow('Producto', v1) + makeColRow('Cantidad', v2) + makeColRow('Precio Unit.', v3) + makeColRow('Subtotal', v4)
+    + '</div>'
+    + '<button onclick="addColRow()" style="width:100%;padding:7px;background:transparent;border:1px dashed #2e2e38;border-radius:6px;color:#8888a0;cursor:pointer;font-size:12px;margin-bottom:16px">+ Agregar columna</button>'
+    + '<div style="margin-bottom:12px"><div style="font-size:11px;color:#8888a0;margin-bottom:6px">Color encabezado</div>'
+    + '<input type="color" id="tableHeaderColor" value="#2D5BE3" style="width:40px;height:28px;border:none;border-radius:4px;cursor:pointer"></div>'
+    + '<div style="margin-bottom:16px"><div style="font-size:11px;color:#8888a0;margin-bottom:6px">Nombre del loop</div>'
+    + '<input id="loopName" value="subelementos" style="background:#222228;border:1px solid #2e2e38;color:#e8e8f0;padding:6px 10px;border-radius:6px;font-size:12px;outline:none;width:100%;font-family:monospace"></div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+    + '<button onclick="this.closest(\'.modal-overlay2\').remove()" style="padding:7px 16px;background:transparent;border:1px solid #2e2e38;border-radius:6px;color:#8888a0;cursor:pointer;font-size:12px">Cancelar</button>'
+    + '<button onclick="insertTable(this)" style="padding:7px 16px;background:#5b6af5;border:none;border-radius:6px;color:white;cursor:pointer;font-size:12px;font-weight:600">Insertar tabla</button>'
+    + '</div></div>';
+  modal.className = 'modal-overlay2';
+  document.body.appendChild(modal);
+}
 
-  // Data row (template)
-  const rowBg = new fabric.Rect({ left: 0, top: 28, width: 674, height: 28, fill: '#f8f9ff', stroke: '#dde3ff', strokeWidth: 0.5 });
-  const d1 = new fabric.Text('{{#subelementos}}{{nombre}}', { left: 8, top: 34, fontSize: 11, fill: '#1a1a1a' });
-  const d2 = new fabric.Text('{{cantidad}}', { left: 250, top: 34, fontSize: 11, fill: '#1a1a1a' });
-  const d3 = new fabric.Text('${{precio_fmt}}', { left: 390, top: 34, fontSize: 11, fill: '#1a1a1a' });
-  const d4 = new fabric.Text('${{subtotal_linea_fmt}}{{/subelementos}}', { left: 530, top: 34, fontSize: 11, fill: '#1a1a1a' });
+function makeColRow(header, variable) {
+  return '<div class="col-row" style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center">'
+    + '<input placeholder="Encabezado" value="' + header + '" style="background:#222228;border:1px solid #2e2e38;color:#e8e8f0;padding:6px 10px;border-radius:6px;font-size:12px;outline:none">'
+    + '<input placeholder="Variable" value="' + variable + '" style="background:#222228;border:1px solid #2e2e38;color:#5b6af5;padding:6px 10px;border-radius:6px;font-size:12px;outline:none;font-family:monospace">'
+    + '<button onclick="this.closest(\'.col-row\').remove()" style="background:rgba(248,113,113,0.1);border:1px solid #f87171;color:#f87171;border-radius:5px;padding:4px 8px;cursor:pointer;font-size:11px">x</button>'
+    + '</div>';
+}
 
-  const border = new fabric.Rect({ left: 0, top: 0, width: 674, height: 56, fill: 'transparent', stroke: '#2D5BE3', strokeWidth: 1 });
+function addColRow() {
+  const row = document.createElement('div');
+  row.className = 'col-row';
+  row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center';
+  row.innerHTML = '<input placeholder="Encabezado" style="background:#222228;border:1px solid #2e2e38;color:#e8e8f0;padding:6px 10px;border-radius:6px;font-size:12px;outline:none">'
+    + '<input placeholder="Variable" style="background:#222228;border:1px solid #2e2e38;color:#5b6af5;padding:6px 10px;border-radius:6px;font-size:12px;outline:none;font-family:monospace">'
+    + '<button onclick="this.closest(\'.col-row\').remove()" style="background:rgba(248,113,113,0.1);border:1px solid #f87171;color:#f87171;border-radius:5px;padding:4px 8px;cursor:pointer;font-size:11px">x</button>';
+  document.getElementById('colsList').appendChild(row);
+}
 
-  const tbl = new fabric.Group([headerBg, h1, h2, h3, h4, rowBg, d1, d2, d3, d4, border], {
-    left: 60, top: 200, selectable: true
+function insertTable(btn) {
+  const modal = btn.closest('.modal-overlay2');
+  const cols = [...modal.querySelectorAll('.col-row')].map(row => {
+    const inputs = row.querySelectorAll('input');
+    return { header: inputs[0].value, variable: inputs[1].value };
+  }).filter(c => c.header && c.variable);
+  const headerColor = modal.querySelector('#tableHeaderColor').value;
+  const loopName = modal.querySelector('#loopName').value || 'subelementos';
+  if (!cols.length) { showToast('Agrega al menos una columna', 'error'); return; }
+  modal.remove();
+  const colW = Math.floor(674 / cols.length);
+  const objects = [];
+  objects.push(new fabric.Rect({ left: 0, top: 0, width: 674, height: 28, fill: headerColor }));
+  cols.forEach(function(col, i) {
+    objects.push(new fabric.Text(col.header, { left: i * colW + 8, top: 6, fontSize: 11, fontWeight: 'bold', fill: 'white' }));
+  });
+  objects.push(new fabric.Rect({ left: 0, top: 28, width: 674, height: 28, fill: '#f8f9ff', stroke: '#e0e4ff', strokeWidth: 0.5 }));
+  cols.forEach(function(col, i) {
+    var prefix = i === 0 ? ('{{#' + loopName + '}}') : '';
+    var suffix = i === cols.length - 1 ? ('{{/' + loopName + '}}') : '';
+    objects.push(new fabric.Text(prefix + col.variable + suffix, { left: i * colW + 8, top: 34, fontSize: 10, fill: '#1a1a1a' }));
+  });
+  objects.push(new fabric.Rect({ left: 0, top: 0, width: 674, height: 56, fill: 'transparent', stroke: headerColor, strokeWidth: 1 }));
+  var tbl = new fabric.Group(objects, {
+    left: 60, top: 200, selectable: true,
+    tableType: 'products', tableCols: cols, tableLoop: loopName, tableHeaderColor: headerColor
   });
   canvas.add(tbl);
   canvas.setActiveObject(tbl);
-  showToast('Tabla de productos agregada. Edita el texto para personalizar.', 'success');
+  showToast('Tabla insertada con ' + cols.length + ' columnas', 'success');
 }
+
 
 function addSignature() {
   const sigBox = new fabric.Group([
