@@ -938,10 +938,17 @@ app.get('/sign/:token/download', async (req, res) => {
     const filename = sig.document_filename;
 
     // 1. Buscar signed_pdf si ya fue firmado
-    if (sig.status === 'signed' && sig.signed_pdf) {
-      res.set('Content-Disposition', 'attachment; filename="firmado_' + filename.replace('.docx','.pdf') + '"');
-      res.set('Content-Type', 'application/pdf');
-      return res.send(sig.signed_pdf);
+    console.log('Download - status:', sig.status, 'has signed_pdf:', !!sig.signed_pdf, 'filename:', filename);
+    if (sig.status === 'signed') {
+      // Verificar en DB si tiene signed_pdf
+      const sigR = await pool.query('SELECT signed_pdf FROM signature_requests WHERE token=$1', [req.params.token]);
+      const spdf = sigR.rows[0]?.signed_pdf;
+      console.log('signed_pdf bytes:', spdf ? spdf.length : 0);
+      if (spdf && spdf.length > 0) {
+        res.set('Content-Disposition', 'attachment; filename="firmado_' + filename.replace('.docx','.pdf') + '"');
+        res.set('Content-Type', 'application/pdf');
+        return res.send(spdf);
+      }
     }
 
     // 2. Buscar doc_data en documents por filename exacto o template_name
@@ -1093,7 +1100,7 @@ app.post('/sign/:token', async (req, res) => {
           [Buffer.from(signedPdfBytes), req.params.token]
         );
       }
-    } catch(embedErr) { console.error('Embed signature error:', embedErr.message); }
+    } catch(embedErr) { console.error('Embed signature error FULL:', embedErr.message, embedErr.stack); }
 
     // Notificar al firmante y buscar email del solicitante
     const downloadUrl = (process.env.APP_URL || 'https://docugen-monday-production.up.railway.app') + '/sign/' + req.params.token + '/download';
