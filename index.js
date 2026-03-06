@@ -624,6 +624,7 @@ app.post('/editor/save-template', requireAuth, async (req, res) => {
             UnderlineType } = require('docx');
 
     const objects = canvasJson.objects || [];
+    const expandHex = c => { if(!c||typeof c!=='string') return '000000'; const h = c.replace('#',''); return h.length === 3 ? h.split('').map(x=>x+x).join('') : h.padEnd(6,'0'); };
     const PAGE_W_PT = 9360; // ~6.5 inches in twips (1/20 pt)
     const PAGE_H = 1123;
     const PAGE_W_PX = 794;
@@ -652,7 +653,7 @@ app.post('/editor/save-template', requireAuth, async (req, res) => {
             bold: obj.fontWeight === 'bold',
             italics: obj.fontStyle === 'italic',
             underline: obj.underline ? { type: UnderlineType.SINGLE } : undefined,
-            color: (obj.fill || '#000000').replace('#', ''),
+            color: expandHex(obj.fill || '#000000'),
             font: obj.fontFamily || 'Arial',
           })]
         }));
@@ -710,7 +711,8 @@ app.post('/editor/save-template', requireAuth, async (req, res) => {
         if (obj.tableType === 'products' && obj.tableCols) {
           // Real table with loop
           const cols = obj.tableCols;
-          const headerColor = (obj.tableHeaderColor || '#2D5BE3').replace('#','');
+          const expandHex = c => { const h = c.replace('#',''); return h.length === 3 ? h.split('').map(x=>x+x).join('') : h; };
+        const headerColor = expandHex(obj.tableHeaderColor || '#2D5BE3');
           const loopName = obj.tableLoop || 'subelementos';
           const colWidthPct = Math.floor(100 / cols.length);
 
