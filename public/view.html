@@ -157,6 +157,20 @@
         <div id="signaturesList"><div class="empty">Cargando...</div></div>
       </div>
     </div>
+    <div class="card">
+      <div class="card-label">Automatizaciones</div>
+      <div class="section-title">Triggers automáticos</div>
+      <div class="section-desc">Genera documentos cuando cambia un valor en monday.</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+        <input id="triggerColumnId" placeholder="ID de columna (ej: status)" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;outline:none">
+        <input id="triggerValue" placeholder="Valor que activa (ej: Aprobado)" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;outline:none">
+        <button onclick="saveTrigger()" style="width:100%;padding:9px;background:var(--accent);color:white;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">⚡ Guardar trigger</button>
+      </div>
+      <div style="margin-top:14px">
+        <div class="section-title" style="margin-bottom:8px">Triggers activos</div>
+        <div id="triggersList"><div class="empty">Cargando...</div></div>
+      </div>
+    </div>
 <div class="card">
       <div class="card-label">Paso 3 — Generar</div>
       <div class="section-title">Genera el documento</div>
