@@ -274,10 +274,10 @@
     try {
       const res = await fetch(API + '/templates?account_id=' + accountId);
       const data = await res.json();
-      const list = document.getElementById('template-list');
-      list.innerHTML = tpls.map(t =>
+      const tpls = data.templates.map(t => typeof t === 'string' ? t : t.filename);
       if (!tpls.length) { list.innerHTML = '<div class="empty">No hay plantillas. Sube una.</div>'; return; }
-        '<div class="template-item" onclick="selectTemplate(\'' + t + '\')" id="tpl-' + t.replace(/[\.\s]/g,'-') + '"><span>📄</span><span>' + t + '</span></div>'
+      list.innerHTML = tpls.map(t =>
+        '<div class="template-item" onclick="selectTemplate(\'' + t + '\')" id="tpl-' + t.replace(/[.\s]/g,'-') + '"><span>📄</span><span>' + t + '</span></div>'
       ).join('');
     } catch(e) { document.getElementById('template-list').innerHTML = '<div class="empty">Error al cargar</div>'; }
   }
