@@ -29,6 +29,8 @@ async function initDB() {
     await pool.query(`CREATE TABLE IF NOT EXISTS tokens (account_id TEXT PRIMARY KEY, access_token TEXT NOT NULL, user_id TEXT, created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW());`);
     await pool.query(`ALTER TABLE tokens ADD COLUMN IF NOT EXISTS user_id TEXT`);
     await pool.query(`CREATE TABLE IF NOT EXISTS templates (id SERIAL PRIMARY KEY, account_id TEXT NOT NULL, filename TEXT NOT NULL, data BYTEA NOT NULL, created_at TIMESTAMP DEFAULT NOW(), UNIQUE(account_id, filename));`);
+    await pool.query(`ALTER TABLE templates ADD COLUMN IF NOT EXISTS canvas_json TEXT`);
+    await pool.query(`ALTER TABLE templates ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
     await pool.query(`CREATE TABLE IF NOT EXISTS documents (id SERIAL PRIMARY KEY, account_id TEXT NOT NULL, board_id TEXT, item_id TEXT, item_name TEXT, template_name TEXT, filename TEXT NOT NULL, created_at TIMESTAMP DEFAULT NOW());`);
     await pool.query(`CREATE TABLE IF NOT EXISTS pdf_jobs (
         job_id TEXT PRIMARY KEY,
@@ -333,8 +335,8 @@ app.post('/templates/upload', upload.single('template'), async (req, res) => {
 app.get('/templates', async (req, res) => {
   const accountId = req.query.account_id || 'default';
   try {
-    const result = await pool.query('SELECT filename, created_at FROM templates WHERE account_id = $1 ORDER BY created_at DESC', [accountId]);
-    res.json({ templates: result.rows.map(r => r.filename) });
+    const result = await pool.query('SELECT filename, created_at, updated_at, (canvas_json IS NOT NULL) as has_editor FROM templates WHERE account_id = $1 ORDER BY COALESCE(updated_at, created_at) DESC', [accountId]);
+    res.json({ templates: result.rows });
   } catch (err) {
     res.status(500).json({ error: 'Error al listar plantillas' });
   }
@@ -791,8 +793,8 @@ app.post('/editor/save-template', requireAuth, async (req, res) => {
     // Save to DB as template
     const filename = templateName.replace(/[^a-zA-Z0-9\-_]/g, '_') + '.docx';
     await pool.query(
-      'INSERT INTO templates (account_id, filename, data) VALUES ($1,$2,$3) ON CONFLICT (account_id, filename) DO UPDATE SET data=$3',
-      [req.accountId, filename, buffer]
+      'INSERT INTO templates (account_id, filename, data, canvas_json, updated_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT (account_id, filename) DO UPDATE SET data=$3, canvas_json=$4, updated_at=NOW()',
+      [req.accountId, filename, buffer, JSON.stringify(canvasJson)]
     );
 
     res.json({ success: true, filename });
@@ -800,4 +802,44 @@ app.post('/editor/save-template', requireAuth, async (req, res) => {
     console.error('Editor save error:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─── TEMPLATE MANAGEMENT ──────────────────────────────────
+app.get('/templates/:filename/canvas', requireAuth, async (req, res) => {
+  try {
+    const r = await pool.query('SELECT canvas_json FROM templates WHERE account_id=$1 AND filename=$2', [req.accountId, req.params.filename]);
+    if (!r.rows.length) return res.status(404).json({ error: 'No encontrada' });
+    res.json({ canvas_json: r.rows[0].canvas_json ? JSON.parse(r.rows[0].canvas_json) : null });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/templates/:filename', requireAuth, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM templates WHERE account_id=$1 AND filename=$2', [req.accountId, req.params.filename]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/templates/:filename/duplicate', requireAuth, async (req, res) => {
+  try {
+    const { newName } = req.body;
+    const r = await pool.query('SELECT data, canvas_json FROM templates WHERE account_id=$1 AND filename=$2', [req.accountId, req.params.filename]);
+    if (!r.rows.length) return res.status(404).json({ error: 'No encontrada' });
+    const newFilename = (newName || req.params.filename.replace('.docx','') + '_copia') + '.docx';
+    await pool.query(
+      'INSERT INTO templates (account_id, filename, data, canvas_json) VALUES ($1,$2,$3,$4) ON CONFLICT (account_id, filename) DO UPDATE SET data=$3, canvas_json=$4',
+      [req.accountId, newFilename, r.rows[0].data, r.rows[0].canvas_json]
+    );
+    res.json({ success: true, filename: newFilename });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/templates/:filename/rename', requireAuth, async (req, res) => {
+  try {
+    const { newName } = req.body;
+    if (!newName) return res.status(400).json({ error: 'Nuevo nombre requerido' });
+    const newFilename = newName.endsWith('.docx') ? newName : newName + '.docx';
+    await pool.query('UPDATE templates SET filename=$1, updated_at=NOW() WHERE account_id=$2 AND filename=$3', [newFilename, req.accountId, req.params.filename]);
+    res.json({ success: true, filename: newFilename });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
