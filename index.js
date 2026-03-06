@@ -707,6 +707,7 @@ app.post('/editor/save-template', requireAuth, async (req, res) => {
         }
 
       } else if (obj.type === 'group') {
+        console.log('GROUP OBJ keys:', Object.keys(obj), 'tableType:', obj.tableType);
         if (obj.tableType === 'products' && obj.tableCols) {
           // Real table with loop
           const cols = obj.tableCols;
