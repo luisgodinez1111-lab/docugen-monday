@@ -291,7 +291,7 @@
           document_filename: selectedTemplate,
           signer_name: signerName,
           signer_email: signerEmail,
-          item_id: selectedItem,
+          item_id: selectedItem ? selectedItem.id : null,
           board_id: boardId
         })
       });
