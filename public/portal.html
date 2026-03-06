@@ -176,10 +176,11 @@ canvas{display:block;touch-action:none;cursor:crosshair;width:100%}
           <span>Vista previa del documento</span>
           <a id="dl-link" href="#" class="chip signed" style="text-decoration:none">⬇ Descargar</a>
         </div>
-        <div class="preview-body" id="preview-body">
-          <div class="preview-loading">
+        <div class="preview-body" id="preview-body" style="padding:0;min-height:500px">
+          <div class="preview-loading" id="preview-loading" style="min-height:500px">
             <span>⏳</span> Cargando documento...
           </div>
+          <iframe id="preview-iframe" src="" style="width:100%;height:600px;border:none;display:none"></iframe>
         </div>
       </div>
 
@@ -432,26 +433,24 @@ function loadPortal(name, data) {
 }
 
 function renderPreview(data) {
-  const body = document.getElementById('preview-body');
-  const filename = data.document_filename || '';
-  const ext = filename.split('.').pop().toLowerCase();
+  const loading = document.getElementById('preview-loading');
+  const iframe = document.getElementById('preview-iframe');
+  const previewUrl = '/sign/' + TOKEN + '/download';
 
-  if (ext === 'pdf') {
-    body.innerHTML = '<iframe src="/outputs/' + filename + '" style="width:100%;height:500px;border:none"></iframe>';
-  } else {
-    // Mostrar metadata del documento
-    body.innerHTML = `
-      <h2>📄 ${filename}</h2>
-      <p style="color:#888;font-size:12px;margin-bottom:20px">Documento generado por DocuGen</p>
-      ${data.signer_name ? '<div class="field-row"><span class="field-label">Destinatario</span><span class="field-val">' + data.signer_name + '</span></div>' : ''}
-      ${data.signer_email ? '<div class="field-row"><span class="field-label">Email</span><span class="field-val">' + data.signer_email + '</span></div>' : ''}
-      <div class="field-row"><span class="field-label">Estado</span><span class="field-val"><span class="chip ${data.status === 'signed' ? 'signed' : 'pending'}">${data.status === 'signed' ? '✅ Firmado' : '⏳ Pendiente'}</span></span></div>
-      <div class="field-row"><span class="field-label">Expira</span><span class="field-val">${data.expires_at ? new Date(data.expires_at).toLocaleDateString('es-MX') : '—'}</span></div>
-      <div style="margin-top:20px;padding:16px;background:#f8f8f5;border-radius:8px;border-left:3px solid var(--gold)">
-        <p style="font-size:12px;color:#666;line-height:1.7">Para ver el contenido completo del documento descárgalo usando el botón de abajo. Al firmar confirmas que has revisado y aceptas el contenido del documento.</p>
-      </div>
-    `;
-  }
+  loading.style.display = 'flex';
+  iframe.style.display = 'none';
+
+  // Cargar PDF en iframe
+  iframe.src = previewUrl;
+  iframe.onload = () => {
+    loading.style.display = 'none';
+    iframe.style.display = 'block';
+  };
+  // Fallback si tarda más de 5s
+  setTimeout(() => {
+    loading.style.display = 'none';
+    iframe.style.display = 'block';
+  }, 5000);
 }
 
 // ── SIGN ──
