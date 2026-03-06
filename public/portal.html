@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DocuGen · Portal de Documentos</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #0f0e17;
+  --paper: #fffcf5;
+  --cream: #f5f0e8;
+  --gold: #c9a84c;
+  --gold-light: #e8d5a3;
+  --sage: #4a6741;
+  --rust: #c0392b;
+  --muted: #7a7468;
+  --border: #e0d9cc;
+  --shadow: 0 2px 24px rgba(15,14,23,0.08);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);min-height:100vh}
+
+/* ── HEADER ── */
+.header{border-bottom:1px solid var(--border);padding:18px 32px;display:flex;align-items:center;justify-content:space-between;background:var(--paper)}
+.logo{font-family:'DM Serif Display',serif;font-size:22px;letter-spacing:-0.5px;color:var(--ink)}
+.logo span{color:var(--gold)}
+.secure-badge{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);background:var(--cream);padding:5px 12px;border-radius:20px;border:1px solid var(--border)}
+
+/* ── SCREENS ── */
+.screen{display:none;min-height:calc(100vh - 65px);padding:40px 20px}
+.screen.active{display:flex;align-items:center;justify-content:center}
+
+/* ── AUTH SCREEN ── */
+.auth-card{background:white;border:1px solid var(--border);border-radius:16px;padding:40px;max-width:420px;width:100%;box-shadow:var(--shadow)}
+.auth-card h1{font-family:'DM Serif Display',serif;font-size:28px;line-height:1.2;margin-bottom:8px}
+.auth-card p{color:var(--muted);font-size:14px;margin-bottom:28px;line-height:1.6}
+.doc-pill{display:inline-flex;align-items:center;gap:8px;background:var(--cream);border:1px solid var(--border);border-radius:8px;padding:8px 14px;font-size:12px;color:var(--muted);margin-bottom:24px}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px}
+.field input{width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);outline:none;transition:border 0.2s}
+.field input:focus{border-color:var(--gold)}
+.btn-primary{width:100%;padding:13px;background:var(--ink);color:var(--paper);border:none;border-radius:8px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;transition:opacity 0.2s;margin-top:4px}
+.btn-primary:hover{opacity:0.85}
+.btn-primary:disabled{opacity:0.5;cursor:not-allowed}
+.error-msg{color:var(--rust);font-size:12px;margin-top:8px;text-align:center}
+
+/* ── PORTAL MAIN ── */
+.portal-wrap{max-width:960px;width:100%;margin:0 auto}
+.portal-header{margin-bottom:32px}
+.portal-header h1{font-family:'DM Serif Display',serif;font-size:32px;margin-bottom:6px}
+.portal-header p{color:var(--muted);font-size:14px}
+.portal-grid{display:grid;grid-template-columns:1fr 340px;gap:24px;align-items:start}
+@media(max-width:768px){.portal-grid{grid-template-columns:1fr}}
+
+/* ── DOC PREVIEW ── */
+.doc-preview{background:white;border:1px solid var(--border);border-radius:16px;overflow:hidden;box-shadow:var(--shadow)}
+.preview-toolbar{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--cream)}
+.preview-toolbar span{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px}
+.preview-body{padding:32px;min-height:400px;font-size:13px;line-height:1.8;color:#333}
+.preview-body h2{font-family:'DM Serif Display',serif;font-size:20px;margin-bottom:12px;color:var(--ink)}
+.preview-body p{margin-bottom:10px}
+.preview-body .field-row{display:flex;gap:12px;margin-bottom:8px;padding:8px 12px;background:var(--cream);border-radius:6px}
+.preview-body .field-label{font-weight:600;font-size:12px;color:var(--muted);min-width:120px}
+.preview-body .field-val{font-size:13px;color:var(--ink)}
+.preview-loading{display:flex;align-items:center;justify-content:center;min-height:300px;color:var(--muted);font-size:14px;gap:10px}
+
+/* ── SIDEBAR ── */
+.sidebar{display:flex;flex-direction:column;gap:16px}
+.side-card{background:white;border:1px solid var(--border);border-radius:16px;padding:22px;box-shadow:var(--shadow)}
+.side-card h3{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin-bottom:14px}
+
+/* ── STATUS TIMELINE ── */
+.timeline{display:flex;flex-direction:column;gap:0}
+.tl-item{display:flex;gap:12px;position:relative}
+.tl-item:not(:last-child)::after{content:'';position:absolute;left:11px;top:26px;width:2px;height:calc(100% + 4px);background:var(--border)}
+.tl-dot{width:24px;height:24px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;position:relative;z-index:1}
+.tl-dot.done{background:var(--sage);color:white}
+.tl-dot.active{background:var(--gold);color:white;box-shadow:0 0 0 4px var(--gold-light)}
+.tl-dot.pending{background:var(--cream);border:2px solid var(--border);color:var(--muted)}
+.tl-content{padding-bottom:16px}
+.tl-label{font-size:13px;font-weight:600;color:var(--ink)}
+.tl-sub{font-size:11px;color:var(--muted);margin-top:2px}
+
+/* ── SIGNATURE AREA ── */
+.sig-tabs{display:flex;gap:4px;margin-bottom:14px}
+.sig-tab{flex:1;padding:8px 4px;text-align:center;border:1px solid var(--border);border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;background:var(--cream);color:var(--muted);transition:all 0.15s}
+.sig-tab.active{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.canvas-wrap{border:2px dashed var(--border);border-radius:8px;background:var(--cream);margin-bottom:10px;position:relative;overflow:hidden}
+canvas{display:block;touch-action:none;cursor:crosshair;width:100%}
+.typed-preview{min-height:70px;display:flex;align-items:center;justify-content:center;border:2px dashed var(--border);border-radius:8px;margin-bottom:10px;font-family:'DM Serif Display',serif;font-style:italic;font-size:26px;color:var(--ink);background:var(--cream);padding:12px}
+.upload-area{min-height:80px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--border);border-radius:8px;margin-bottom:10px;cursor:pointer;background:var(--cream);gap:4px;transition:border 0.2s}
+.upload-area:hover{border-color:var(--gold)}
+.upload-area span{font-size:11px;color:var(--muted)}
+.field-sm input{width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);outline:none;margin-bottom:10px}
+.field-sm input:focus{border-color:var(--gold)}
+.btn-sign{width:100%;padding:12px;background:var(--sage);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;transition:opacity 0.2s}
+.btn-sign:hover{opacity:0.88}
+.btn-sign:disabled{opacity:0.5;cursor:not-allowed}
+.btn-clear{width:100%;padding:8px;background:transparent;border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--muted);cursor:pointer;margin-bottom:8px;font-family:'DM Sans',sans-serif}
+
+/* ── DOWNLOAD ── */
+.btn-download{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:11px;background:var(--cream);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;color:var(--ink);text-decoration:none;transition:all 0.2s}
+.btn-download:hover{background:var(--gold-light);border-color:var(--gold)}
+
+/* ── SIGNED STATE ── */
+.signed-banner{background:linear-gradient(135deg,#1a3d1a,#2d6b2d);color:white;border-radius:12px;padding:20px;text-align:center;margin-bottom:16px}
+.signed-banner h3{font-family:'DM Serif Display',serif;font-size:18px;margin-bottom:4px}
+.signed-banner p{font-size:12px;opacity:0.8}
+
+/* ── OTP ── */
+.otp-wrap{text-align:center;padding:10px 0}
+.otp-wrap p{font-size:13px;color:var(--muted);margin-bottom:16px}
+.otp-input{text-align:center;font-size:28px;font-weight:700;letter-spacing:10px;width:180px;padding:12px;border:2px solid var(--border);border-radius:8px;background:var(--paper);color:var(--ink);outline:none;font-family:'DM Sans',sans-serif}
+.otp-input:focus{border-color:var(--gold)}
+
+.notice{font-size:10px;color:var(--muted);text-align:center;margin-top:10px;line-height:1.5}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:600}
+.chip.signed{background:#d1fae5;color:#065f46}
+.chip.pending{background:#fef3c7;color:#92400e}
+.chip.expired{background:#fee2e2;color:#991b1b}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="logo">Docu<span>Gen</span></div>
+  <div class="secure-badge">🔒 Acceso seguro · Enlace privado</div>
+</header>
+
+<!-- AUTH SCREEN -->
+<div class="screen active" id="screen-auth">
+  <div class="auth-card">
+    <div class="doc-pill">📄 <span id="auth-docname">Documento</span></div>
+    <h1>Accede al documento</h1>
+    <p>Ingresa tu nombre completo y el correo al que se envió este enlace para continuar.</p>
+    <div class="field">
+      <label>Nombre completo</label>
+      <input type="text" id="auth-name" placeholder="Tu nombre completo">
+    </div>
+    <div class="field">
+      <label>Correo electrónico</label>
+      <input type="email" id="auth-email" placeholder="tu@correo.com">
+    </div>
+    <button class="btn-primary" onclick="authAccess()">Acceder al documento →</button>
+    <div class="error-msg" id="auth-error"></div>
+    <div class="notice" style="margin-top:16px">🔒 Tu acceso quedará registrado · Enlace de uso único</div>
+  </div>
+</div>
+
+<!-- OTP SCREEN -->
+<div class="screen" id="screen-otp">
+  <div class="auth-card">
+    <h1>Verifica tu identidad</h1>
+    <p>Ingresa el código de 6 dígitos que se envió a tu correo.</p>
+    <div class="otp-wrap">
+      <input class="otp-input" id="otp-input" maxlength="6" placeholder="000000" type="tel">
+      <button class="btn-primary" onclick="verifyOtp()" style="margin-top:16px">Verificar →</button>
+      <div class="error-msg" id="otp-error"></div>
+    </div>
+  </div>
+</div>
+
+<!-- PORTAL MAIN SCREEN -->
+<div class="screen" id="screen-portal" style="align-items:flex-start;padding-top:40px">
+  <div class="portal-wrap">
+    <div class="portal-header">
+      <h1 id="portal-title">Documento</h1>
+      <p id="portal-subtitle">Revisa el documento y firma cuando estés listo</p>
+    </div>
+    <div class="portal-grid">
+
+      <!-- Preview -->
+      <div class="doc-preview">
+        <div class="preview-toolbar">
+          <span>Vista previa del documento</span>
+          <a id="dl-link" href="#" class="chip signed" style="text-decoration:none">⬇ Descargar</a>
+        </div>
+        <div class="preview-body" id="preview-body">
+          <div class="preview-loading">
+            <span>⏳</span> Cargando documento...
+          </div>
+        </div>
+      </div>
+
+      <!-- Sidebar -->
+      <div class="sidebar">
+
+        <!-- Estado -->
+        <div class="side-card">
+          <h3>Estado</h3>
+          <div class="timeline" id="timeline">
+            <div class="tl-item">
+              <div class="tl-dot done">✓</div>
+              <div class="tl-content">
+                <div class="tl-label">Documento generado</div>
+                <div class="tl-sub" id="tl-created">—</div>
+              </div>
+            </div>
+            <div class="tl-item">
+              <div class="tl-dot done">✓</div>
+              <div class="tl-content">
+                <div class="tl-label">Enviado a firmante</div>
+                <div class="tl-sub" id="tl-sent">—</div>
+              </div>
+            </div>
+            <div class="tl-item">
+              <div class="tl-dot active" id="tl-sig-dot">✍</div>
+              <div class="tl-content">
+                <div class="tl-label" id="tl-sig-label">Pendiente de firma</div>
+                <div class="tl-sub" id="tl-signed">En espera</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Firma -->
+        <div class="side-card" id="sig-card">
+          <h3>Tu firma</h3>
+          <div class="field-sm">
+            <input type="text" id="signer-name" placeholder="Tu nombre completo">
+          </div>
+          <div class="sig-tabs">
+            <div class="sig-tab active" onclick="setTab('draw',this)">✍ Dibujar</div>
+            <div class="sig-tab" onclick="setTab('type',this)">T Tipográfica</div>
+            <div class="sig-tab" onclick="setTab('upload',this)">⬆ Subir</div>
+          </div>
+
+          <div id="tab-draw">
+            <div class="canvas-wrap">
+              <canvas id="sigCanvas" height="100"></canvas>
+            </div>
+            <button class="btn-clear" onclick="clearSig()">🗑 Limpiar</button>
+          </div>
+
+          <div id="tab-type" style="display:none">
+            <input type="text" id="typed-sig" placeholder="Escribe tu firma" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-family:'DM Serif Display',serif;font-style:italic;font-size:16px;color:var(--ink);background:var(--paper);outline:none;margin-bottom:8px" oninput="renderTyped()">
+            <div class="typed-preview" id="typed-preview">Tu firma</div>
+          </div>
+
+          <div id="tab-upload" style="display:none">
+            <div class="upload-area" onclick="document.getElementById('sig-file').click()">
+              <span style="font-size:24px">⬆</span>
+              <span>Click para subir imagen de firma</span>
+              <img id="upload-preview" style="max-width:200px;max-height:60px;display:none;margin-top:8px">
+            </div>
+            <input type="file" id="sig-file" accept="image/*" style="display:none" onchange="handleUpload(event)">
+          </div>
+
+          <button class="btn-sign" onclick="submitSignature()">✓ Firmar documento</button>
+          <div class="notice">🔒 Se registrará IP, nombre y fecha</div>
+        </div>
+
+        <!-- Descarga -->
+        <div class="side-card">
+          <h3>Descargar</h3>
+          <a id="download-btn" href="#" class="btn-download">📄 Descargar documento</a>
+          <div id="cert-btn-wrap" style="margin-top:8px;display:none">
+            <a id="cert-btn" href="#" class="btn-download" style="margin-top:0">🏅 Certificado de auditoría</a>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const TOKEN = window.location.pathname.split('/sign/')[1];
+let sigData = { type: 'drawn', data: null };
+let currentTab = 'draw';
+let docInfo = null;
+
+// ── CANVAS ──
+const canvas = document.getElementById('sigCanvas');
+const ctx = canvas.getContext('2d');
+let drawing = false, hasSig = false;
+
+function resizeCanvas() {
+  const w = canvas.parentElement.clientWidth;
+  canvas.width = w; canvas.height = 100;
+  ctx.strokeStyle = '#0f0e17'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+function getPos(e) {
+  const r = canvas.getBoundingClientRect();
+  const scale = canvas.width / r.width;
+  const s = e.touches ? e.touches[0] : e;
+  return { x: (s.clientX - r.left) * scale, y: (s.clientY - r.top) * scale };
+}
+canvas.addEventListener('mousedown', e => { drawing = true; const p = getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); });
+canvas.addEventListener('mousemove', e => { if (!drawing) return; const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); hasSig = true; });
+canvas.addEventListener('mouseup', () => drawing = false);
+canvas.addEventListener('mouseleave', () => drawing = false);
+canvas.addEventListener('touchstart', e => { e.preventDefault(); drawing = true; const p = getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }, { passive: false });
+canvas.addEventListener('touchmove', e => { e.preventDefault(); if (!drawing) return; const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); hasSig = true; }, { passive: false });
+canvas.addEventListener('touchend', () => drawing = false);
+function clearSig() { ctx.clearRect(0, 0, canvas.width, canvas.height); hasSig = false; }
+
+// ── TABS ──
+function setTab(tab, el) {
+  currentTab = tab;
+  document.querySelectorAll('.sig-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  ['draw', 'type', 'upload'].forEach(t => {
+    document.getElementById('tab-' + t).style.display = t === tab ? 'block' : 'none';
+  });
+}
+
+function renderTyped() {
+  const val = document.getElementById('typed-sig').value;
+  document.getElementById('typed-preview').textContent = val || 'Tu firma';
+}
+
+function handleUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    sigData = { type: 'uploaded', data: ev.target.result };
+    const img = document.getElementById('upload-preview');
+    img.src = ev.target.result; img.style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+}
+
+function getSigData() {
+  if (currentTab === 'draw') {
+    if (!hasSig) { alert('Por favor dibuja tu firma'); return null; }
+    return { type: 'drawn', data: canvas.toDataURL('image/png') };
+  } else if (currentTab === 'type') {
+    const val = document.getElementById('typed-sig').value;
+    if (!val) { alert('Escribe tu firma'); return null; }
+    const c = document.createElement('canvas'); c.width = 320; c.height = 80;
+    const cx = c.getContext('2d');
+    cx.fillStyle = 'white'; cx.fillRect(0, 0, 320, 80);
+    cx.font = 'italic 42px DM Serif Display, Georgia, serif';
+    cx.fillStyle = '#0f0e17'; cx.fillText(val, 16, 58);
+    return { type: 'typed', data: c.toDataURL('image/png') };
+  } else {
+    if (!sigData.data) { alert('Sube una imagen de firma'); return null; }
+    return sigData;
+  }
+}
+
+// ── AUTH ──
+async function authAccess() {
+  const name = document.getElementById('auth-name').value.trim();
+  const email = document.getElementById('auth-email').value.trim();
+  if (!name) { document.getElementById('auth-error').textContent = 'Ingresa tu nombre'; return; }
+  document.getElementById('auth-error').textContent = '';
+
+  // Cargar info del doc para verificar
+  try {
+    const res = await fetch('/sign/' + TOKEN + '/info');
+    const data = await res.json();
+    if (!data.success) { document.getElementById('auth-error').textContent = data.error || 'Enlace no válido'; return; }
+    docInfo = data;
+
+    // Si tiene OTP, ir a pantalla OTP
+    if (data.needs_otp) {
+      showScreen('otp');
+    } else {
+      loadPortal(name, data);
+    }
+  } catch(e) {
+    document.getElementById('auth-error').textContent = 'Error de conexión';
+  }
+}
+
+async function verifyOtp() {
+  const otp = document.getElementById('otp-input').value;
+  const res = await fetch('/sign/' + TOKEN + '/verify-otp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ otp })
+  });
+  const data = await res.json();
+  if (data.success) {
+    loadPortal(document.getElementById('auth-name').value, docInfo);
+  } else {
+    document.getElementById('otp-error').textContent = 'Código incorrecto';
+  }
+}
+
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + name).classList.add('active');
+}
+
+function loadPortal(name, data) {
+  showScreen('portal');
+  document.getElementById('portal-title').textContent = data.document_filename || 'Documento';
+  document.getElementById('portal-subtitle').textContent = data.status === 'signed'
+    ? '✅ Este documento ya ha sido firmado'
+    : 'Revisa el contenido y firma cuando estés listo';
+
+  // Timeline
+  document.getElementById('tl-created').textContent = data.created_at ? new Date(data.created_at).toLocaleString('es-MX') : '—';
+  document.getElementById('tl-sent').textContent = data.created_at ? new Date(data.created_at).toLocaleString('es-MX') : '—';
+
+  if (data.status === 'signed') {
+    document.getElementById('tl-sig-dot').className = 'tl-dot done';
+    document.getElementById('tl-sig-dot').textContent = '✓';
+    document.getElementById('tl-sig-label').textContent = 'Firmado';
+    document.getElementById('tl-signed').textContent = data.signed_at ? new Date(data.signed_at).toLocaleString('es-MX') : '—';
+    document.getElementById('sig-card').innerHTML = '<div class="signed-banner"><h3>✅ Documento firmado</h3><p>Firmado el ' + (data.signed_at ? new Date(data.signed_at).toLocaleDateString('es-MX') : '—') + '</p></div>';
+    if (data.group_id) {
+      document.getElementById('cert-btn-wrap').style.display = 'block';
+      document.getElementById('cert-btn').href = '/signatures/group/' + data.group_id + '/certificate';
+    }
+  }
+
+  // Prefill name
+  if (name) document.getElementById('signer-name').value = name;
+
+  // Download link
+  const dlBase = window.location.origin + '/outputs/' + data.document_filename;
+  document.getElementById('download-btn').href = '/sign/' + TOKEN + '/download';
+  document.getElementById('dl-link').href = '/sign/' + TOKEN + '/download';
+
+  // Preview
+  renderPreview(data);
+}
+
+function renderPreview(data) {
+  const body = document.getElementById('preview-body');
+  const filename = data.document_filename || '';
+  const ext = filename.split('.').pop().toLowerCase();
+
+  if (ext === 'pdf') {
+    body.innerHTML = '<iframe src="/outputs/' + filename + '" style="width:100%;height:500px;border:none"></iframe>';
+  } else {
+    // Mostrar metadata del documento
+    body.innerHTML = `
+      <h2>📄 ${filename}</h2>
+      <p style="color:#888;font-size:12px;margin-bottom:20px">Documento generado por DocuGen</p>
+      ${data.signer_name ? '<div class="field-row"><span class="field-label">Destinatario</span><span class="field-val">' + data.signer_name + '</span></div>' : ''}
+      ${data.signer_email ? '<div class="field-row"><span class="field-label">Email</span><span class="field-val">' + data.signer_email + '</span></div>' : ''}
+      <div class="field-row"><span class="field-label">Estado</span><span class="field-val"><span class="chip ${data.status === 'signed' ? 'signed' : 'pending'}">${data.status === 'signed' ? '✅ Firmado' : '⏳ Pendiente'}</span></span></div>
+      <div class="field-row"><span class="field-label">Expira</span><span class="field-val">${data.expires_at ? new Date(data.expires_at).toLocaleDateString('es-MX') : '—'}</span></div>
+      <div style="margin-top:20px;padding:16px;background:#f8f8f5;border-radius:8px;border-left:3px solid var(--gold)">
+        <p style="font-size:12px;color:#666;line-height:1.7">Para ver el contenido completo del documento descárgalo usando el botón de abajo. Al firmar confirmas que has revisado y aceptas el contenido del documento.</p>
+      </div>
+    `;
+  }
+}
+
+// ── SIGN ──
+async function submitSignature() {
+  const name = document.getElementById('signer-name').value.trim();
+  if (!name) { alert('Ingresa tu nombre'); return; }
+  const sig = getSigData();
+  if (!sig) return;
+  const btn = document.querySelector('.btn-sign');
+  btn.textContent = 'Firmando...'; btn.disabled = true;
+  try {
+    const res = await fetch('/sign/' + TOKEN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signature_data: sig.data, signer_name: name, signature_type: sig.type })
+    });
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById('sig-card').innerHTML = '<div class="signed-banner"><h3>✅ ¡Documento firmado!</h3><p>Tu firma fue registrada exitosamente</p></div>';
+      document.getElementById('tl-sig-dot').className = 'tl-dot done';
+      document.getElementById('tl-sig-dot').textContent = '✓';
+      document.getElementById('tl-sig-label').textContent = 'Firmado';
+      document.getElementById('tl-signed').textContent = new Date().toLocaleString('es-MX');
+      document.getElementById('portal-subtitle').textContent = '✅ Documento firmado exitosamente';
+      if (data.download_url) document.getElementById('download-btn').href = data.download_url;
+    } else {
+      alert('Error: ' + data.error);
+      btn.textContent = '✓ Firmar documento'; btn.disabled = false;
+    }
+  } catch(e) {
+    alert('Error de conexión');
+    btn.textContent = '✓ Firmar documento'; btn.disabled = false;
+  }
+}
+
+// Cargar info básica para auth screen
+async function initAuth() {
+  if (!TOKEN) return;
+  try {
+    const res = await fetch('/sign/' + TOKEN + '/info');
+    const data = await res.json();
+    if (data.document_filename) {
+      document.getElementById('auth-docname').textContent = data.document_filename;
+    }
+    if (data.expired) {
+      showScreen('auth');
+      document.getElementById('auth-error').textContent = '⏰ Este enlace ha expirado';
+      document.querySelector('.btn-primary').disabled = true;
+    }
+  } catch(e) {}
+}
+
+initAuth();
+</script>
+</body>
+</html>
