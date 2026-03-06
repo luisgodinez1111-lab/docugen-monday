@@ -1343,3 +1343,90 @@ app.get('/backups/latest', requireAuth, async (req, res) => {
     res.send(r.rows[0].data);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
+
+
+// ─── ERROR HANDLING & RETRY ──────────────────────────────
+async function withRetry(fn, retries = 3, delay = 1000) {
+  for (let i = 0; i < retries; i++) {
+    try { return await fn(); } catch(e) {
+      if (i === retries - 1) throw e;
+      await new Promise(r => setTimeout(r, delay * (i + 1)));
+    }
+  }
+}
+
+async function logError(accountId, type, message, stack) {
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS error_logs (
+      id SERIAL PRIMARY KEY, account_id TEXT, error_type TEXT,
+      message TEXT, stack TEXT, created_at TIMESTAMP DEFAULT NOW()
+    )`);
+    await pool.query('INSERT INTO error_logs (account_id, error_type, message, stack) VALUES ($1,$2,$3,$4)',
+      [accountId, type, message, stack]);
+  } catch(e) {}
+}
+
+// ─── EXPORTAR A XLSX ──────────────────────────────────────
+app.post('/export-xlsx', requireAuth, async (req, res) => {
+  const { board_id, item_id } = req.body;
+  try {
+    const ExcelJS = require('exceljs');
+    const query = 'query { items(ids: ' + item_id + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
+    const response = await axios.post('https://api.monday.com/v2', { query }, {
+      headers: { Authorization: req.accessToken, 'Content-Type': 'application/json' }
+    });
+    const item = response.data.data.items[0];
+    const data = { nombre: item.name };
+    item.column_values.forEach(col => { data[toVarName(col.column.title)] = extractColumnValue(col); });
+    calcularTotales(data, item.subitems, item.column_values);
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'DocuGen';
+    const sheet = workbook.addWorksheet('Cotizacion');
+
+    sheet.mergeCells('A1:E1');
+    sheet.getCell('A1').value = 'COTIZACION — ' + data.nombre;
+    sheet.getCell('A1').font = { bold: true, size: 14, color: { argb: 'FF2D5BE3' } };
+    sheet.getCell('A1').alignment = { horizontal: 'center' };
+    sheet.getRow(1).height = 30;
+    sheet.addRow([]);
+    sheet.addRow(['Cliente:', data.nombre, '', 'Fecha:', data.fecha_hoy || new Date().toLocaleDateString('es-MX')]);
+    sheet.addRow([]);
+
+    const headerRow = sheet.addRow(['#', 'Producto/Servicio', 'Cantidad', 'Precio Unit.', 'Subtotal']);
+    headerRow.eachCell(cell => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2D5BE3' } };
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.alignment = { horizontal: 'center' };
+    });
+
+    if (item.subitems && item.subitems.length) {
+      item.subitems.forEach((sub, i) => {
+        const s = { nombre: sub.name };
+        sub.column_values.forEach(col => { s[toVarName(col.column.title)] = extractColumnValue(col); });
+        const row = sheet.addRow([i+1, s.nombre, s.cantidad || 1, parseFloat(s.precio || 0), parseFloat(s.subtotal_linea || 0)]);
+        row.getCell(4).numFmt = '"$"#,##0.00';
+        row.getCell(5).numFmt = '"$"#,##0.00';
+        if (i % 2 === 0) row.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F4FF' } }; });
+      });
+    }
+
+    sheet.addRow([]);
+    [['Subtotal:', data.subtotal_fmt||''], ['IVA (16%):', data.iva_fmt||''], ['TOTAL:', data.total_fmt||'']].forEach(([k,v], i) => {
+      const row = sheet.addRow(['','','',k,v]);
+      row.getCell(4).font = { bold: true, color: i===2 ? { argb: 'FF2D5BE3' } : undefined };
+      row.getCell(5).font = { bold: true, color: i===2 ? { argb: 'FF2D5BE3' } : undefined };
+    });
+
+    sheet.columns = [{ width: 5 },{ width: 35 },{ width: 12 },{ width: 14 },{ width: 14 }];
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const name = (item.name||'cotizacion').replace(/[^a-zA-Z0-9]/g,'_') + '.xlsx';
+    res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.set('Content-Disposition', 'attachment; filename="' + name + '"');
+    res.send(buffer);
+  } catch(e) {
+    await logError(req.accountId, 'xlsx-export', e.message, e.stack);
+    res.status(500).json({ error: e.message });
+  }
+});
