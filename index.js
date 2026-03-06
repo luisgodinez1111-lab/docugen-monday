@@ -882,7 +882,7 @@ app.post('/signatures/request', requireAuth, async (req, res) => {
     if (signer_email) {
       try {
         await resend.emails.send({
-          from: 'DocuGen <noreply@' + (process.env.RESEND_DOMAIN || 'docugen.app') + '>',
+          from: 'DocuGen <onboarding@resend.dev>',
           to: signer_email,
           subject: 'Documento pendiente de tu firma — ' + document_filename,
           html: emailSignRequest(signer_name, document_filename, signUrl, expiresAt)
@@ -928,7 +928,7 @@ app.post('/sign/:token', async (req, res) => {
     if (sig.signer_email) {
       try {
         await resend.emails.send({
-          from: 'DocuGen <noreply@' + (process.env.RESEND_DOMAIN || 'docugen.app') + '>',
+          from: 'DocuGen <onboarding@resend.dev>',
           to: sig.signer_email,
           subject: '✅ Documento firmado — ' + sig.document_filename,
           html: emailSignConfirm(finalName, sig.document_filename, downloadUrl, signerIp)
