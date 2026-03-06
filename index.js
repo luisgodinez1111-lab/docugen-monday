@@ -999,7 +999,7 @@ app.post('/sign/:token', async (req, res) => {
     );
 
     // Notificar al firmante y buscar email del solicitante
-    const downloadUrl = process.env.APP_URL + '/signatures/' + req.params.token + '/download';
+    const downloadUrl = (process.env.APP_URL || 'https://docugen-monday-production.up.railway.app') + '/sign/' + req.params.token + '/download';
     const finalName = signer_name || sig.signer_name;
 
     // Email de confirmación al firmante si tiene email
