@@ -1197,15 +1197,24 @@ app.post('/sign/:token', async (req, res) => {
         if (docR2.rows.length) docData = docR2.rows[0].doc_data;
       }
 
-      // Debug: loguear qué encontramos
-      console.log('docData found:', !!docData, 'filename:', sig.document_filename, 'item_id:', sig.item_id, 'account_id:', sig.account_id);
+      // Buscar el documento generado más reciente para este item/account
+      // El document_filename en signature_requests es la PLANTILLA, no el doc generado
       if (!docData && sig.item_id) {
         const docR3 = await pool.query(
-          'SELECT doc_data, filename FROM documents WHERE item_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
-          [String(sig.item_id)]
+          'SELECT doc_data, filename FROM documents WHERE item_id=$1 AND doc_data IS NOT NULL AND filename NOT LIKE $2 ORDER BY created_at DESC LIMIT 1',
+          [String(sig.item_id), '%.pdf']
         );
         if (docR3.rows.length) { docData = docR3.rows[0].doc_data; console.log('Found by item_id:', docR3.rows[0].filename); }
       }
+      // Buscar el doc generado más reciente del account que NO sea la plantilla
+      if (!docData && sig.account_id) {
+        const docR4 = await pool.query(
+          'SELECT doc_data, filename FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL AND filename NOT LIKE $2 AND template_name=$3 ORDER BY created_at DESC LIMIT 1',
+          [sig.account_id, '%.pdf', sig.document_filename]
+        );
+        if (docR4.rows.length) { docData = docR4.rows[0].doc_data; console.log('Found by template_name:', docR4.rows[0].filename); }
+      }
+      console.log('docData found:', !!docData, 'filename:', sig.document_filename, 'item_id:', sig.item_id);
 
       if (docData) {
         const mammothResult = await mammoth.extractRawText({ buffer: docData });
