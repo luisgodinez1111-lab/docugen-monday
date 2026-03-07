@@ -280,7 +280,7 @@ function getSig(){
 // ── PDF VIEWER ──
 async function loadPDF() {
   try {
-    const url = '/sign/' + TOKEN + '/download';
+    const url = '/sign/' + TOKEN + '/preview-pdf';
     const loadingTask = pdfjsLib.getDocument(url);
     pdfDoc = await loadingTask.promise;
     totalPages = pdfDoc.numPages;

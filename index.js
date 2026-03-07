@@ -906,6 +906,67 @@ app.post('/signatures/request', requireAuth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// PDF on-demand para portal viewer
+app.get('/sign/:token/preview-pdf', async (req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
+    if (!r.rows.length) return res.status(404).send('No encontrado');
+    const sig = r.rows[0];
+    const filename = sig.document_filename;
+    const pdfFilename = filename.replace(/\.docx$/i, '.pdf');
+
+    // 1. Buscar PDF ya convertido en DB
+    const pdfR = await pool.query(
+      'SELECT doc_data FROM documents WHERE filename=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+      [pdfFilename]
+    );
+    if (pdfR.rows.length) {
+      res.set('Content-Type', 'application/pdf');
+      res.set('Content-Disposition', 'inline; filename="' + pdfFilename + '"');
+      return res.send(pdfR.rows[0].doc_data);
+    }
+
+    // 2. Buscar DOCX y convertir ahora
+    const docR = await pool.query(
+      'SELECT doc_data, filename FROM documents WHERE (filename=$1 OR template_name=$1) AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+      [filename]
+    );
+    if (!docR.rows.length && sig.account_id) {
+      const docR2 = await pool.query(
+        'SELECT doc_data, filename FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+        [sig.account_id]
+      );
+      if (docR2.rows.length) docR.rows.push(docR2.rows[0]);
+    }
+
+    if (!docR.rows.length) return res.status(404).send('Documento no encontrado');
+
+    // Escribir DOCX temporal y convertir
+    const tmpDocx = path.join(outputsDir, 'tmp_preview_' + Date.now() + '.docx');
+    const tmpPdf = tmpDocx.replace('.docx', '.pdf');
+    fs.writeFileSync(tmpDocx, docR.rows[0].doc_data);
+
+    exec('libreoffice --headless --convert-to pdf --outdir ' + outputsDir + ' ' + tmpDocx, async (err) => {
+      try { fs.unlinkSync(tmpDocx); } catch(e) {}
+      if (err || !fs.existsSync(tmpPdf)) {
+        return res.status(500).send('Error convirtiendo documento');
+      }
+      const pdfData = fs.readFileSync(tmpPdf);
+      try { fs.unlinkSync(tmpPdf); } catch(e) {}
+
+      // Guardar en DB para próxima vez
+      pool.query(
+        'INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [sig.account_id, sig.board_id, sig.item_id, sig.signer_name, filename, pdfFilename, pdfData]
+      ).catch(e => console.error('PDF cache save:', e.message));
+
+      res.set('Content-Type', 'application/pdf');
+      res.set('Content-Disposition', 'inline; filename="' + pdfFilename + '"');
+      res.send(pdfData);
+    });
+  } catch(e) { res.status(500).send('Error: ' + e.message); }
+});
+
 // INFO endpoint - debe ir ANTES del portal
 app.get('/sign/:token/info', async (req, res) => {
   try {
