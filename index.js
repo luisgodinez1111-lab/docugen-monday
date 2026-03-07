@@ -134,7 +134,7 @@ async function initDB() {
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_verified BOOLEAN DEFAULT FALSE');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS doc_hash TEXT');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signed_hash TEXT');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS audit_log JSONB DEFAULT '[]'');
+    await pool.query("ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS audit_log JSONB DEFAULT '[]'");
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS consent_text TEXT');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS identity_verified BOOLEAN DEFAULT FALSE');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_attempts INT DEFAULT 0');
@@ -988,14 +988,33 @@ app.post('/signatures/request', requireAuth, async (req, res) => {
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_verified BOOLEAN DEFAULT FALSE');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS doc_hash TEXT');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signed_hash TEXT');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS audit_log JSONB DEFAULT '[]'');
+    await pool.query("ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS audit_log JSONB DEFAULT '[]'");
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS consent_text TEXT');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS identity_verified BOOLEAN DEFAULT FALSE');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_attempts INT DEFAULT 0');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP');
+    // Hash del PDF para cadena de custodia legal
+    let docHashVal = null;
+    try {
+      if (item_id) {
+        const pdfForHash = await pool.query(
+          "SELECT doc_data FROM documents WHERE item_id=$1 AND filename LIKE '%.pdf' AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+          [String(item_id)]
+        );
+        if (pdfForHash.rows.length) docHashVal = generateDocHash(pdfForHash.rows[0].doc_data);
+      }
+    } catch(e) {}
+    const auditInit = JSON.stringify([{
+      event: 'created',
+      timestamp: new Date().toISOString(),
+      ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+      user_agent: req.headers['user-agent'] || '',
+      details: 'Solicitud de firma creada por cuenta ' + req.accountId
+    }]);
+    const consentText = 'Al firmar este documento, el firmante acepta que su firma electronica tiene plena validez legal conforme a la legislacion mexicana (Codigo de Comercio Art. 89-114, NOM-151-SCFI-2016). IP: ' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '') + '. Fecha: ' + new Date().toISOString();
     await pool.query(
-      'INSERT INTO signature_requests (token, account_id, document_filename, signer_name, signer_email, item_id, board_id, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
-      [token, req.accountId, document_filename, signer_name, signer_email, item_id, board_id, expiresAt]
+      'INSERT INTO signature_requests (token, account_id, document_filename, signer_name, signer_email, item_id, board_id, expires_at, doc_hash, audit_log, consent_text) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+      [token, req.accountId, document_filename, signer_name, signer_email, item_id, board_id, expiresAt, docHashVal, auditInit, consentText]
     );
     const signUrl = process.env.APP_URL + '/sign/' + token;
 
@@ -2427,7 +2446,7 @@ app.post('/signatures/request-multi', requireAuth, async (req, res) => {
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_verified BOOLEAN DEFAULT FALSE');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS doc_hash TEXT');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signed_hash TEXT');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS audit_log JSONB DEFAULT '[]'');
+    await pool.query("ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS audit_log JSONB DEFAULT '[]'");
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS consent_text TEXT');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS identity_verified BOOLEAN DEFAULT FALSE');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_attempts INT DEFAULT 0');
