@@ -1203,34 +1203,58 @@ app.post('/sign/:token', async (req, res) => {
         const sigDate = new Date().toLocaleString('es-MX');
         const sigIpVal = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
         const finalNameVal = signer_name || sig.signer_name || '';
-        const sigImgTag = signature_data ? '<img src="' + signature_data + '" style="max-width:250px;max-height:100px;display:block;margin-top:8px">' : '';
+        const sigImgTag = signature_data
+          ? '<img src="' + signature_data + '" style="max-width:280px;max-height:110px;display:block;margin-top:10px;border:1px solid #eee;padding:6px;background:white">'
+          : '<div style="width:280px;height:80px;border:1px dashed #ccc;margin-top:10px;background:#fafafa"></div>';
 
-        const fullHtml = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
-          'body{font-family:Georgia,serif;max-width:750px;margin:40px auto;padding:20px 40px;font-size:13px;line-height:1.8;color:#111}' +
-          'h1,h2,h3{font-family:Georgia,serif}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6px 10px}' +
-          '.sig-block{margin-top:60px;padding-top:20px;border-top:2px solid #333;page-break-inside:avoid}' +
-          '.sig-block h3{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#444;margin-bottom:12px}' +
-          '.sig-row{display:flex;gap:20px;margin-bottom:6px;font-size:12px}' +
-          '.sig-label{color:#666;min-width:120px;font-weight:bold}' +
-          '.sig-val{color:#111}' +
-          '.footer{margin-top:30px;padding-top:12px;border-top:1px solid #ccc;font-size:10px;color:#999;text-align:center}' +
-          '</style></head><body>' +
-          docHtml +
-          '<div class="sig-block">' +
-          '<h3>Firma Digital</h3>' +
-          '<div class="sig-row"><span class="sig-label">Firmante:</span><span class="sig-val">' + finalNameVal + '</span></div>' +
-          '<div class="sig-row"><span class="sig-label">Fecha y hora:</span><span class="sig-val">' + sigDate + '</span></div>' +
-          '<div class="sig-row"><span class="sig-label">Direccion IP:</span><span class="sig-val">' + sigIpVal + '</span></div>' +
-          '<div class="sig-row"><span class="sig-label">Documento:</span><span class="sig-val">' + sig.document_filename + '</span></div>' +
-          '<div class="sig-row"><span class="sig-label">Firma:</span></div>' +
-          sigImgTag +
-          '</div>' +
-          '<div class="footer">Documento firmado digitalmente via DocuGen · docugen-monday-production.up.railway.app</div>' +
-          '</body></html>';
+        const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+          @page{margin:20mm 20mm 20mm 20mm}
+          body{font-family:Georgia,serif;font-size:13px;line-height:1.8;color:#111}
+          h1,h2,h3{font-family:Georgia,serif;margin-bottom:8px}
+          table{border-collapse:collapse;width:100%;margin-bottom:12px}
+          td,th{border:1px solid #ccc;padding:6px 10px}
+          p{margin-bottom:8px}
+          .page-break{page-break-before:always}
+          .sig-page{padding-top:30px}
+          .sig-header{background:#0f1e3d;color:white;padding:16px 20px;border-radius:6px;margin-bottom:24px}
+          .sig-header h2{font-size:16px;margin:0;color:white}
+          .sig-header p{font-size:11px;margin:4px 0 0;opacity:0.7}
+          .sig-table{width:100%;border-collapse:collapse;margin-bottom:20px}
+          .sig-table td{padding:9px 12px;border-bottom:1px solid #eee;font-size:12px}
+          .sig-table td:first-child{font-weight:bold;color:#555;width:140px;background:#f9f9f9}
+          .sig-image-wrap{margin-top:10px}
+          .sig-image-label{font-size:11px;font-weight:bold;color:#555;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px}
+          .footer-strip{margin-top:30px;padding-top:12px;border-top:1px solid #ddd;font-size:10px;color:#aaa;text-align:center}
+          .valid-badge{display:inline-block;background:#d1fae5;color:#065f46;padding:4px 12px;border-radius:12px;font-size:11px;font-weight:bold;margin-top:6px}
+        </style></head><body>
+          ${docHtml}
+          <div class="page-break"></div>
+          <div class="sig-page">
+            <div class="sig-header">
+              <h2>Certificado de Firma Digital</h2>
+              <p>Este documento ha sido firmado electronicamente</p>
+            </div>
+            <span class="valid-badge">DOCUMENTO FIRMADO DIGITALMENTE</span>
+            <table class="sig-table" style="margin-top:16px">
+              <tr><td>Documento</td><td>${sig.document_filename}</td></tr>
+              <tr><td>Firmante</td><td>${finalNameVal}</td></tr>
+              <tr><td>Fecha y hora</td><td>${sigDate}</td></tr>
+              <tr><td>Direccion IP</td><td>${sigIpVal}</td></tr>
+              <tr><td>Metodo de firma</td><td>${req.body.signature_type || 'drawn'}</td></tr>
+            </table>
+            <div class="sig-image-wrap">
+              <div class="sig-image-label">Firma del firmante</div>
+              ${sigImgTag}
+            </div>
+            <div class="footer-strip">
+              Documento generado y firmado digitalmente via DocuGen &middot; docugen-monday-production.up.railway.app
+            </div>
+          </div>
+        </body></html>`;
 
         const pdfBuffer = await htmlPdfNode.generatePdf(
           { content: fullHtml },
-          { format: 'A4', margin: { top: '15mm', bottom: '15mm', left: '15mm', right: '15mm' }, printBackground: true }
+          { format: 'A4', margin: { top: '0', bottom: '0', left: '0', right: '0' }, printBackground: true }
         );
 
         await pool.query(
