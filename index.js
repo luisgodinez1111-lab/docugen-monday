@@ -884,6 +884,12 @@ app.post('/signatures/request', requireAuth, async (req, res) => {
     )`);
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signer_ip TEXT');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS user_agent TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signed_pdf BYTEA');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signature_type TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signer_order INT DEFAULT 1');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS group_id TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_code TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_verified BOOLEAN DEFAULT FALSE');
     await pool.query(
       'INSERT INTO signature_requests (token, account_id, document_filename, signer_name, signer_email, item_id, board_id, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
       [token, req.accountId, document_filename, signer_name, signer_email, item_id, board_id, expiresAt]
