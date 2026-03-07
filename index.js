@@ -1198,64 +1198,95 @@ app.post('/sign/:token', async (req, res) => {
       }
 
       if (docData) {
-        const mammothResult = await mammoth.convertToHtml({ buffer: docData });
-        const docHtml = mammothResult.value;
+        const mammothResult = await mammoth.extractRawText({ buffer: docData });
+        const docText = mammothResult.value;
         const sigDate = new Date().toLocaleString('es-MX');
         const sigIpVal = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
         const finalNameVal = signer_name || sig.signer_name || '';
-        const sigImgTag = signature_data
-          ? '<img src="' + signature_data + '" style="max-width:280px;max-height:110px;display:block;margin-top:10px;border:1px solid #eee;padding:6px;background:white">'
-          : '<div style="width:280px;height:80px;border:1px dashed #ccc;margin-top:10px;background:#fafafa"></div>';
 
-        const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-          @page{margin:20mm 20mm 20mm 20mm}
-          body{font-family:Georgia,serif;font-size:13px;line-height:1.8;color:#111}
-          h1,h2,h3{font-family:Georgia,serif;margin-bottom:8px}
-          table{border-collapse:collapse;width:100%;margin-bottom:12px}
-          td,th{border:1px solid #ccc;padding:6px 10px}
-          p{margin-bottom:8px}
-          .page-break{page-break-before:always}
-          .sig-page{padding-top:30px}
-          .sig-header{background:#0f1e3d;color:white;padding:16px 20px;border-radius:6px;margin-bottom:24px}
-          .sig-header h2{font-size:16px;margin:0;color:white}
-          .sig-header p{font-size:11px;margin:4px 0 0;opacity:0.7}
-          .sig-table{width:100%;border-collapse:collapse;margin-bottom:20px}
-          .sig-table td{padding:9px 12px;border-bottom:1px solid #eee;font-size:12px}
-          .sig-table td:first-child{font-weight:bold;color:#555;width:140px;background:#f9f9f9}
-          .sig-image-wrap{margin-top:10px}
-          .sig-image-label{font-size:11px;font-weight:bold;color:#555;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px}
-          .footer-strip{margin-top:30px;padding-top:12px;border-top:1px solid #ddd;font-size:10px;color:#aaa;text-align:center}
-          .valid-badge{display:inline-block;background:#d1fae5;color:#065f46;padding:4px 12px;border-radius:12px;font-size:11px;font-weight:bold;margin-top:6px}
-        </style></head><body>
-          ${docHtml}
-          <div class="page-break"></div>
-          <div class="sig-page">
-            <div class="sig-header">
-              <h2>Certificado de Firma Digital</h2>
-              <p>Este documento ha sido firmado electronicamente</p>
-            </div>
-            <span class="valid-badge">DOCUMENTO FIRMADO DIGITALMENTE</span>
-            <table class="sig-table" style="margin-top:16px">
-              <tr><td>Documento</td><td>${sig.document_filename}</td></tr>
-              <tr><td>Firmante</td><td>${finalNameVal}</td></tr>
-              <tr><td>Fecha y hora</td><td>${sigDate}</td></tr>
-              <tr><td>Direccion IP</td><td>${sigIpVal}</td></tr>
-              <tr><td>Metodo de firma</td><td>${req.body.signature_type || 'drawn'}</td></tr>
-            </table>
-            <div class="sig-image-wrap">
-              <div class="sig-image-label">Firma del firmante</div>
-              ${sigImgTag}
-            </div>
-            <div class="footer-strip">
-              Documento generado y firmado digitalmente via DocuGen &middot; docugen-monday-production.up.railway.app
-            </div>
-          </div>
-        </body></html>`;
+        // Generar PDF con pdfkit
+        const PDFKit = require('pdfkit');
+        const pdfBuffer = await new Promise((resolve, reject) => {
+          const doc = new PDFKit({ margin: 50, size: 'A4' });
+          const chunks = [];
+          doc.on('data', c => chunks.push(c));
+          doc.on('end', () => resolve(Buffer.concat(chunks)));
+          doc.on('error', reject);
 
-        const pdfBuffer = await htmlPdfNode.generatePdf(
-          { content: fullHtml },
-          { format: 'A4', margin: { top: '0', bottom: '0', left: '0', right: '0' }, printBackground: true }
-        );
+          // ── CONTENIDO DEL DOCUMENTO ──
+          doc.fontSize(18).font('Helvetica-Bold').text(sig.document_filename.replace(/\.[^.]+$/, ''), { align: 'center' });
+          doc.moveDown(0.5);
+          doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#cccccc');
+          doc.moveDown(0.5);
+
+          // Texto del documento
+          doc.fontSize(11).font('Helvetica');
+          const lines = docText.split('\n').filter(l => l.trim());
+          for (const line of lines) {
+            if (doc.y > 700) { doc.addPage(); }
+            const trimmed = line.trim();
+            if (trimmed.length === 0) { doc.moveDown(0.3); continue; }
+            // Detectar títulos (líneas cortas en mayúsculas)
+            if (trimmed.length < 60 && trimmed === trimmed.toUpperCase() && trimmed.length > 3) {
+              doc.moveDown(0.3).fontSize(12).font('Helvetica-Bold').text(trimmed).font('Helvetica').fontSize(11);
+            } else {
+              doc.text(trimmed, { align: 'justify' });
+            }
+          }
+
+          // ── PÁGINA DE FIRMA ──
+          doc.addPage();
+          // Header azul
+          doc.rect(50, 50, 495, 60).fill('#0f1e3d');
+          doc.fillColor('white').fontSize(16).font('Helvetica-Bold').text('CERTIFICADO DE FIRMA DIGITAL', 70, 65);
+          doc.fontSize(10).font('Helvetica').text('Documento firmado electronicamente via DocuGen', 70, 88);
+          doc.fillColor('#111111');
+          doc.moveDown(3);
+
+          // Tabla de datos
+          const tableY = doc.y;
+          const rows = [
+            ['Documento', sig.document_filename],
+            ['Firmante', finalNameVal],
+            ['Fecha y hora', sigDate],
+            ['Direccion IP', sigIpVal],
+            ['Metodo', req.body.signature_type || 'drawn'],
+          ];
+          let rowY = tableY;
+          for (const [label, val] of rows) {
+            doc.rect(50, rowY, 150, 26).fill('#f5f5f5').stroke('#e0e0e0');
+            doc.rect(200, rowY, 345, 26).fill('white').stroke('#e0e0e0');
+            doc.fillColor('#555').fontSize(10).font('Helvetica-Bold').text(label, 58, rowY + 8);
+            doc.fillColor('#111').font('Helvetica').text(String(val), 208, rowY + 8, { width: 330 });
+            rowY += 26;
+          }
+          doc.moveDown(1);
+          doc.y = rowY + 16;
+
+          // Firma imagen
+          doc.fontSize(10).font('Helvetica-Bold').fillColor('#555').text('FIRMA DEL FIRMANTE:', 50);
+          doc.moveDown(0.5);
+          if (signature_data && signature_data.startsWith('data:image')) {
+            try {
+              const b64 = signature_data.replace(/^data:image\/\w+;base64,/, '');
+              const imgBuf = Buffer.from(b64, 'base64');
+              doc.image(imgBuf, 50, doc.y, { width: 220, height: 90 });
+              doc.y += 100;
+            } catch(e) {
+              doc.rect(50, doc.y, 220, 90).stroke('#cccccc');
+              doc.y += 100;
+            }
+          }
+
+          // Footer
+          doc.moveTo(50, doc.page.height - 60).lineTo(545, doc.page.height - 60).stroke('#dddddd');
+          doc.fontSize(8).fillColor('#aaaaaa').text(
+            'Documento generado y firmado digitalmente via DocuGen · docugen-monday-production.up.railway.app',
+            50, doc.page.height - 48, { align: 'center', width: 495 }
+          );
+
+          doc.end();
+        });
 
         await pool.query(
           'UPDATE signature_requests SET signed_pdf=$1 WHERE token=$2',
