@@ -932,28 +932,36 @@ app.get('/sign/:token/preview-pdf', async (req, res) => {
     const filename = sig.document_filename;
     const pdfFilename = filename.replace(/\.docx$/i, '.pdf');
 
-    // 1. Buscar PDF ya convertido en DB
-    const pdfR = await pool.query(
-      'SELECT doc_data FROM documents WHERE filename=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
-      [pdfFilename]
-    );
-    if (pdfR.rows.length) {
+    // 1. Buscar PDF generado por item_id (el real, no la plantilla)
+    let pdfData = null;
+    if (sig.item_id) {
+      const pdfR = await pool.query(
+        "SELECT doc_data FROM documents WHERE item_id=$1 AND filename LIKE '%.pdf' AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+        [String(sig.item_id)]
+      );
+      if (pdfR.rows.length) pdfData = pdfR.rows[0].doc_data;
+    }
+    if (pdfData) {
       res.set('Content-Type', 'application/pdf');
-      res.set('Content-Disposition', 'inline; filename="' + pdfFilename + '"');
-      return res.send(pdfR.rows[0].doc_data);
+      res.set('Content-Disposition', 'inline; filename="documento.pdf"');
+      return res.send(pdfData);
     }
 
-    // 2. Buscar DOCX y convertir ahora
-    const docR = await pool.query(
-      'SELECT doc_data, filename FROM documents WHERE (filename=$1 OR template_name=$1) AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
-      [filename]
-    );
-    if (!docR.rows.length && sig.account_id) {
+    // 2. Buscar DOCX generado por item_id (no la plantilla)
+    const docR = { rows: [] };
+    if (sig.item_id) {
       const docR2 = await pool.query(
-        'SELECT doc_data, filename FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
-        [sig.account_id]
+        "SELECT doc_data, filename FROM documents WHERE item_id=$1 AND doc_data IS NOT NULL AND filename != $2 AND filename NOT LIKE '%.pdf' ORDER BY created_at DESC LIMIT 1",
+        [String(sig.item_id), filename]
       );
       if (docR2.rows.length) docR.rows.push(docR2.rows[0]);
+    }
+    if (!docR.rows.length && sig.account_id) {
+      const docR3 = await pool.query(
+        "SELECT doc_data, filename FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL AND filename != $2 AND filename NOT LIKE '%.pdf' ORDER BY created_at DESC LIMIT 1",
+        [sig.account_id, filename]
+      );
+      if (docR3.rows.length) docR.rows.push(docR3.rows[0]);
     }
 
     if (!docR.rows.length) return res.status(404).send('Documento no encontrado');
