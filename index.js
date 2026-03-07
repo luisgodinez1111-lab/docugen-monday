@@ -1199,7 +1199,7 @@ app.get('/sign/:token/info', async (req, res) => {
       document_filename: sig.document_filename,
       signer_name: sig.signer_name,
       signer_email: sig.signer_email ? sig.signer_email.replace(/(.{2}).*(@.*)/, '$1***$2') : null,
-      needs_otp: !!(sig.signer_email && process.env.SMTP_HOST),
+      needs_otp: !!(sig.signer_email),
       status: sig.status || 'pending',
       signed_at: sig.signed_at,
       created_at: sig.created_at,
