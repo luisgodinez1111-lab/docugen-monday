@@ -998,7 +998,14 @@ app.get('/sign/:token/download', async (req, res) => {
     // 1. Si tiene signed_pdf ya generado, servirlo
     const sigR = await pool.query('SELECT signature_data, signer_name, signed_at, signer_ip FROM signature_requests WHERE token=$1', [req.params.token]);
     const sigRow = sigR.rows[0];
-    // signed_pdf removed - always generate fresh PDF below
+    // 1. Si tiene signed_pdf generado al firmar, servirlo
+    const sigPdfR = await pool.query('SELECT signed_pdf FROM signature_requests WHERE token=$1', [req.params.token]);
+    if (sigPdfR.rows[0]?.signed_pdf?.length > 100) {
+      const outName = filename.replace(/\.\w+$/, '') + '_firmado.pdf';
+      res.set('Content-Disposition', 'attachment; filename="' + outName + '"');
+      res.set('Content-Type', 'application/pdf');
+      return res.send(sigPdfR.rows[0].signed_pdf);
+    }
 
     // 2. Buscar PDF real del documento (preferir PDF sobre DOCX)
     let docData = null;
@@ -1164,7 +1171,71 @@ app.post('/sign/:token', async (req, res) => {
       ['signed', signature_data, signer_name || sig.signer_name, signerIp, userAgent, req.params.token]
     );
 
-    // Incrustar firma en el documento
+    // Generar PDF firmado con contenido real del documento
+    try {
+      const mammoth = require('mammoth');
+      const htmlPdfNode = require('html-pdf-node');
+
+      // Buscar DOCX del documento
+      let docData = null;
+      const docR = await pool.query(
+        'SELECT doc_data FROM documents WHERE (filename=$1 OR template_name=$1) AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+        [sig.document_filename]
+      );
+      if (docR.rows.length) docData = docR.rows[0].doc_data;
+      if (!docData && sig.account_id) {
+        const docR2 = await pool.query(
+          'SELECT doc_data FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+          [sig.account_id]
+        );
+        if (docR2.rows.length) docData = docR2.rows[0].doc_data;
+      }
+
+      if (docData) {
+        const mammothResult = await mammoth.convertToHtml({ buffer: docData });
+        const docHtml = mammothResult.value;
+        const sigDate = new Date().toLocaleString('es-MX');
+        const sigIpVal = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+        const finalNameVal = signer_name || sig.signer_name || '';
+        const sigImgTag = signature_data ? '<img src="' + signature_data + '" style="max-width:250px;max-height:100px;display:block;margin-top:8px">' : '';
+
+        const fullHtml = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
+          'body{font-family:Georgia,serif;max-width:750px;margin:40px auto;padding:20px 40px;font-size:13px;line-height:1.8;color:#111}' +
+          'h1,h2,h3{font-family:Georgia,serif}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6px 10px}' +
+          '.sig-block{margin-top:60px;padding-top:20px;border-top:2px solid #333;page-break-inside:avoid}' +
+          '.sig-block h3{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#444;margin-bottom:12px}' +
+          '.sig-row{display:flex;gap:20px;margin-bottom:6px;font-size:12px}' +
+          '.sig-label{color:#666;min-width:120px;font-weight:bold}' +
+          '.sig-val{color:#111}' +
+          '.footer{margin-top:30px;padding-top:12px;border-top:1px solid #ccc;font-size:10px;color:#999;text-align:center}' +
+          '</style></head><body>' +
+          docHtml +
+          '<div class="sig-block">' +
+          '<h3>Firma Digital</h3>' +
+          '<div class="sig-row"><span class="sig-label">Firmante:</span><span class="sig-val">' + finalNameVal + '</span></div>' +
+          '<div class="sig-row"><span class="sig-label">Fecha y hora:</span><span class="sig-val">' + sigDate + '</span></div>' +
+          '<div class="sig-row"><span class="sig-label">Direccion IP:</span><span class="sig-val">' + sigIpVal + '</span></div>' +
+          '<div class="sig-row"><span class="sig-label">Documento:</span><span class="sig-val">' + sig.document_filename + '</span></div>' +
+          '<div class="sig-row"><span class="sig-label">Firma:</span></div>' +
+          sigImgTag +
+          '</div>' +
+          '<div class="footer">Documento firmado digitalmente via DocuGen · docugen-monday-production.up.railway.app</div>' +
+          '</body></html>';
+
+        const pdfBuffer = await htmlPdfNode.generatePdf(
+          { content: fullHtml },
+          { format: 'A4', margin: { top: '15mm', bottom: '15mm', left: '15mm', right: '15mm' }, printBackground: true }
+        );
+
+        await pool.query(
+          'UPDATE signature_requests SET signed_pdf=$1 WHERE token=$2',
+          [pdfBuffer, req.params.token]
+        );
+        console.log('PDF firmado generado:', pdfBuffer.length, 'bytes');
+      }
+    } catch(embedErr) { console.error('Embed signature error FULL:', embedErr.message, embedErr.stack); }
+
+    // Incrustar firma en el documento (legacy fallback)
     try {
       const PDFDocument = require('pdf-lib').PDFDocument;
       const { rgb } = require('pdf-lib');
