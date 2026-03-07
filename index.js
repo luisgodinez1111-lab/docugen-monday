@@ -1257,120 +1257,93 @@ app.post('/sign/:token', async (req, res) => {
       ['signed', signature_data, signer_name || sig.signer_name, signerIp, userAgent, req.params.token]
     );
 
-    // Generar PDF firmado con contenido real del documento
+    // Generar PDF firmado: PDF real de LibreOffice + certificado de firma con pdf-lib
     try {
-      const mammoth = require('mammoth');
-      const htmlPdfNode = require('html-pdf-node');
+      const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 
-      // Buscar DOCX del documento
-      let docData = null;
-      const docR = await pool.query(
-        'SELECT doc_data FROM documents WHERE (filename=$1 OR template_name=$1) AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
-        [sig.document_filename]
-      );
-      if (docR.rows.length) docData = docR.rows[0].doc_data;
-      if (!docData && sig.account_id) {
-        const docR2 = await pool.query(
-          'SELECT doc_data FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+      // Buscar el PDF generado por LibreOffice (el real con formato)
+      let pdfData = null;
+      if (sig.item_id) {
+        const pdfR = await pool.query(
+          "SELECT doc_data, filename FROM documents WHERE item_id=$1 AND filename LIKE '%.pdf' AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+          [String(sig.item_id)]
+        );
+        if (pdfR.rows.length) { pdfData = pdfR.rows[0].doc_data; console.log('PDF found:', pdfR.rows[0].filename); }
+      }
+      if (!pdfData && sig.account_id) {
+        const pdfR2 = await pool.query(
+          "SELECT doc_data, filename FROM documents WHERE account_id=$1 AND filename LIKE '%.pdf' AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1",
           [sig.account_id]
         );
-        if (docR2.rows.length) docData = docR2.rows[0].doc_data;
+        if (pdfR2.rows.length) { pdfData = pdfR2.rows[0].doc_data; console.log('PDF found by account:', pdfR2.rows[0].filename); }
       }
 
-      // Buscar el documento GENERADO más reciente (no la plantilla)
-      // Estrategia: buscar por item_id, template_name, con doc_data, excluyendo nombre igual a plantilla
-      if (!docData && sig.item_id) {
-        const docR3 = await pool.query(
-          "SELECT doc_data, filename FROM documents WHERE item_id=$1 AND doc_data IS NOT NULL AND filename != $2 AND filename NOT LIKE '%.pdf' ORDER BY created_at DESC LIMIT 1",
-          [String(sig.item_id), sig.document_filename]
-        );
-        if (docR3.rows.length) { docData = docR3.rows[0].doc_data; console.log('Found by item_id:', docR3.rows[0].filename); }
-      }
-      if (!docData && sig.account_id) {
-        const docR4 = await pool.query(
-          "SELECT doc_data, filename FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL AND filename != $2 AND filename NOT LIKE '%.pdf' ORDER BY created_at DESC LIMIT 1",
-          [sig.account_id, sig.document_filename]
-        );
-        if (docR4.rows.length) { docData = docR4.rows[0].doc_data; console.log('Found by account:', docR4.rows[0].filename); }
-      }
-      console.log('docData final:', !!docData, 'sig.document_filename:', sig.document_filename);
+      if (pdfData) {
+        // Cargar el PDF original
+        const pdfDoc = await PDFDocument.load(pdfData);
+        const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-      if (docData) {
-        const mammothHtml = await mammoth.convertToHtml({ buffer: docData });
-        const docHtmlContent = mammothHtml.value;
-        const mammothText = await mammoth.extractRawText({ buffer: docData });
-        const docText = mammothText.value;
-        console.log('docText length:', docText.length, 'preview:', docText.substring(0, 200));
+        // Agregar página de certificado
+        const certPage = pdfDoc.addPage([595, 842]); // A4
+        const { width, height } = certPage.getSize();
         const sigDate = new Date().toLocaleString('es-MX');
         const sigIpVal = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
         const finalNameVal = signer_name || sig.signer_name || '';
 
-        // Generar PDF con pdfkit
-        // Generar PDF con Chromium
-        const chromium = require('@sparticuz/chromium');
-        const puppeteer = require('puppeteer-core');
-        const sigImgTag = signature_data
-          ? `<img src="${signature_data}" style="max-width:260px;max-height:100px;border:1px solid #eee;padding:4px;background:white">`
-          : '<div style="width:260px;height:80px;border:2px dashed #ccc;background:#fafafa"></div>';
+        // Header azul
+        certPage.drawRectangle({ x: 0, y: height - 80, width, height: 80, color: rgb(0.06, 0.12, 0.24) });
+        certPage.drawText('CERTIFICADO DE FIRMA DIGITAL', { x: 30, y: height - 38, size: 18, font: helveticaBold, color: rgb(1,1,1) });
+        certPage.drawText('Documento firmado electronicamente via DocuGen', { x: 30, y: height - 58, size: 10, font: helvetica, color: rgb(0.8,0.8,0.8) });
 
-        const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-        <style>
-          body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:0;padding:20px 30px}
-          h1{font-size:18px;text-align:center;margin-bottom:4px}
-          h2{font-size:14px;margin:12px 0 4px}
-          table{border-collapse:collapse;width:100%;margin:8px 0}
-          td,th{border:1px solid #ccc;padding:5px 8px;font-size:11px}
-          th{background:#f0f0f0;font-weight:bold}
-          p{margin:4px 0;line-height:1.6}
-          .page-break{page-break-before:always;padding-top:20px}
-          .cert-header{background:#0f1e3d;color:white;padding:14px 18px;border-radius:4px;margin-bottom:16px}
-          .cert-header h2{color:white;margin:0;font-size:16px}
-          .cert-header p{margin:4px 0 0;opacity:0.7;font-size:11px}
-          .cert-table{width:100%;border-collapse:collapse}
-          .cert-table td{padding:8px 10px;border-bottom:1px solid #eee;font-size:12px}
-          .cert-table td:first-child{background:#f8f8f8;font-weight:bold;color:#555;width:140px}
-          .badge{display:inline-block;background:#d1fae5;color:#065f46;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:bold;margin-bottom:14px}
-          .footer{margin-top:20px;padding-top:10px;border-top:1px solid #eee;font-size:9px;color:#aaa;text-align:center}
-        </style></head><body>
-          ${docHtmlContent}
-          <div class="page-break">
-            <div class="cert-header">
-              <h2>Certificado de Firma Digital</h2>
-              <p>Documento firmado electronicamente via DocuGen</p>
-            </div>
-            <div class="badge">DOCUMENTO FIRMADO DIGITALMENTE</div>
-            <table class="cert-table">
-              <tr><td>Documento</td><td>${sig.document_filename}</td></tr>
-              <tr><td>Firmante</td><td>${finalNameVal}</td></tr>
-              <tr><td>Fecha y hora</td><td>${sigDate}</td></tr>
-              <tr><td>Direccion IP</td><td>${sigIpVal}</td></tr>
-              <tr><td>Metodo de firma</td><td>${req.body.signature_type || 'drawn'}</td></tr>
-            </table>
-            <div style="margin-top:14px">
-              <div style="font-size:11px;font-weight:bold;color:#555;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Firma del firmante</div>
-              ${sigImgTag}
-            </div>
-            <div class="footer">Generado por DocuGen · docugen-monday-production.up.railway.app</div>
-          </div>
-        </body></html>`;
+        // Badge verde
+        certPage.drawRectangle({ x: 30, y: height - 110, width: 220, height: 22, color: rgb(0.82, 0.97, 0.9), borderColor: rgb(0.2, 0.6, 0.4), borderWidth: 1 });
+        certPage.drawText('DOCUMENTO FIRMADO DIGITALMENTE', { x: 38, y: height - 103, size: 9, font: helveticaBold, color: rgb(0.02, 0.37, 0.25) });
 
-        chromium.setGraphicsMode = false;
-        const browser = await puppeteer.launch({
-          args: chromium.args,
-          defaultViewport: chromium.defaultViewport,
-          executablePath: await chromium.executablePath(),
-          headless: chromium.headless,
-        });
-        const page = await browser.newPage();
-        await page.setContent(fullHtml, { waitUntil: 'networkidle0' });
-        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '10mm', bottom: '10mm', left: '10mm', right: '10mm' } });
-        await browser.close();
+        // Tabla de datos
+        const rows = [
+          ['Documento:', sig.document_filename || ''],
+          ['Firmante:', finalNameVal],
+          ['Fecha y hora:', sigDate],
+          ['Direccion IP:', sigIpVal],
+          ['Metodo:', req.body.signature_type || 'drawn'],
+          ['Token:', req.params.token.substring(0,20) + '...'],
+        ];
+        let rowY = height - 145;
+        for (const [label, value] of rows) {
+          certPage.drawRectangle({ x: 30, y: rowY - 4, width: 160, height: 22, color: rgb(0.96, 0.96, 0.96) });
+          certPage.drawRectangle({ x: 190, y: rowY - 4, width: 375, height: 22, color: rgb(1,1,1), borderColor: rgb(0.88,0.88,0.88), borderWidth: 0.5 });
+          certPage.drawText(label, { x: 36, y: rowY + 4, size: 10, font: helveticaBold, color: rgb(0.3,0.3,0.3) });
+          certPage.drawText(String(value).substring(0, 55), { x: 196, y: rowY + 4, size: 10, font: helvetica, color: rgb(0.1,0.1,0.1) });
+          rowY -= 26;
+        }
 
+        // Imagen de firma
+        if (signature_data && signature_data.startsWith('data:image')) {
+          try {
+            const b64 = signature_data.replace(/^data:image\/\w+;base64,/, '');
+            const imgBytes = Buffer.from(b64, 'base64');
+            const sigImg = signature_data.includes('image/png')
+              ? await pdfDoc.embedPng(imgBytes)
+              : await pdfDoc.embedJpg(imgBytes);
+            certPage.drawText('FIRMA:', { x: 30, y: rowY - 10, size: 10, font: helveticaBold, color: rgb(0.3,0.3,0.3) });
+            certPage.drawImage(sigImg, { x: 30, y: rowY - 100, width: 200, height: 80 });
+            certPage.drawRectangle({ x: 30, y: rowY - 102, width: 204, height: 84, borderColor: rgb(0.8,0.8,0.8), borderWidth: 0.5 });
+          } catch(imgErr) { console.error('Sig image embed error:', imgErr.message); }
+        }
+
+        // Footer
+        certPage.drawLine({ start: { x: 30, y: 40 }, end: { x: width - 30, y: 40 }, thickness: 0.5, color: rgb(0.8,0.8,0.8) });
+        certPage.drawText('Generado por DocuGen · docugen-monday-production.up.railway.app', { x: 30, y: 26, size: 8, font: helvetica, color: rgb(0.6,0.6,0.6) });
+
+        const pdfBuffer = await pdfDoc.save();
         await pool.query(
           'UPDATE signature_requests SET signed_pdf=$1 WHERE token=$2',
-          [pdfBuffer, req.params.token]
+          [Buffer.from(pdfBuffer), req.params.token]
         );
-        console.log('PDF firmado generado:', pdfBuffer.length, 'bytes');
+        console.log('PDF firmado generado:', pdfBuffer.length, 'bytes con', pdfDoc.getPageCount(), 'paginas');
+      } else {
+        console.log('No se encontro PDF para firmar, item_id:', sig.item_id);
       }
     } catch(embedErr) { console.error('Embed signature error FULL:', embedErr.message, embedErr.stack); }
 
