@@ -968,7 +968,7 @@ app.get('/sign/:token/download', async (req, res) => {
     // Fallback por account
     if (!docData && sig.account_id) {
       const docR2 = await pool.query(
-        'SELECT doc_data, filename FROM documents WHERE account_id=$1 AND filename LIKE '%.pdf' AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+        "SELECT doc_data, filename FROM documents WHERE account_id=$1 AND filename LIKE '%.pdf' AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1",
         [sig.account_id]
       );
       if (docR2.rows.length) { docData = docR2.rows[0].doc_data; docFilename = docR2.rows[0].filename; }
