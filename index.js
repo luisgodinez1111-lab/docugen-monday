@@ -1227,8 +1227,10 @@ app.post('/sign/:token', async (req, res) => {
       console.log('docData final:', !!docData, 'sig.document_filename:', sig.document_filename);
 
       if (docData) {
-        const mammothResult = await mammoth.extractRawText({ buffer: docData });
-        const docText = mammothResult.value;
+        const mammothHtml = await mammoth.convertToHtml({ buffer: docData });
+        const docHtmlContent = mammothHtml.value;
+        const mammothText = await mammoth.extractRawText({ buffer: docData });
+        const docText = mammothText.value;
         console.log('docText length:', docText.length, 'preview:', docText.substring(0, 200));
         const sigDate = new Date().toLocaleString('es-MX');
         const sigIpVal = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
@@ -1249,20 +1251,55 @@ app.post('/sign/:token', async (req, res) => {
           doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#cccccc');
           doc.moveDown(0.5);
 
-          // Texto del documento
+          // Renderizar HTML del documento con estructura
+          const cheerio = require('cheerio');
+          const $ = cheerio.load(docHtmlContent);
           doc.fontSize(11).font('Helvetica');
-          const lines = docText.split('\n').filter(l => l.trim());
-          for (const line of lines) {
-            if (doc.y > 700) { doc.addPage(); }
-            const trimmed = line.trim();
-            if (trimmed.length === 0) { doc.moveDown(0.3); continue; }
-            // Detectar títulos (líneas cortas en mayúsculas)
-            if (trimmed.length < 60 && trimmed === trimmed.toUpperCase() && trimmed.length > 3) {
-              doc.moveDown(0.3).fontSize(12).font('Helvetica-Bold').text(trimmed).font('Helvetica').fontSize(11);
-            } else {
-              doc.text(trimmed, { align: 'justify' });
+
+          function renderNode(el) {
+            if (doc.y > 720) doc.addPage();
+            const tag = el.tagName ? el.tagName.toLowerCase() : '';
+            const text = $(el).text().trim();
+            if (!text && tag !== 'table') return;
+
+            if (tag === 'h1') {
+              doc.moveDown(0.3).fontSize(16).font('Helvetica-Bold').text(text, { align: 'center' }).font('Helvetica').fontSize(11).moveDown(0.3);
+            } else if (tag === 'h2') {
+              doc.moveDown(0.3).fontSize(13).font('Helvetica-Bold').text(text).font('Helvetica').fontSize(11).moveDown(0.2);
+            } else if (tag === 'h3') {
+              doc.moveDown(0.2).fontSize(12).font('Helvetica-Bold').text(text).font('Helvetica').fontSize(11);
+            } else if (tag === 'p') {
+              if (text) doc.fontSize(11).font('Helvetica').text(text, { align: 'justify' }).moveDown(0.2);
+            } else if (tag === 'table') {
+              doc.moveDown(0.3);
+              const rows = $(el).find('tr');
+              let isFirst = true;
+              rows.each((i, row) => {
+                if (doc.y > 720) doc.addPage();
+                const cells = $(row).find('td, th');
+                const cellTexts = [];
+                cells.each((j, cell) => cellTexts.push($(cell).text().trim()));
+                const rowText = cellTexts.join('  |  ');
+                if (isFirst) {
+                  doc.fontSize(10).font('Helvetica-Bold').text(rowText).font('Helvetica');
+                  doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#cccccc');
+                  isFirst = false;
+                } else {
+                  doc.fontSize(10).font('Helvetica').text(rowText);
+                }
+              });
+              doc.moveDown(0.3);
+            } else if (tag === 'strong' || tag === 'b') {
+              doc.font('Helvetica-Bold').text(text, { continued: false }).font('Helvetica');
+            } else if (tag === 'ul' || tag === 'ol') {
+              $(el).find('li').each((i, li) => {
+                if (doc.y > 720) doc.addPage();
+                doc.fontSize(11).font('Helvetica').text('• ' + $(li).text().trim(), { indent: 20 });
+              });
             }
           }
+
+          $('body').children().each((i, el) => renderNode(el));
 
           // ── PÁGINA DE FIRMA ──
           doc.addPage();
