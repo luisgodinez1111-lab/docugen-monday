@@ -1237,116 +1237,69 @@ app.post('/sign/:token', async (req, res) => {
         const finalNameVal = signer_name || sig.signer_name || '';
 
         // Generar PDF con pdfkit
-        const PDFKit = require('pdfkit');
-        const pdfBuffer = await new Promise((resolve, reject) => {
-          const doc = new PDFKit({ margin: 50, size: 'A4' });
-          const chunks = [];
-          doc.on('data', c => chunks.push(c));
-          doc.on('end', () => resolve(Buffer.concat(chunks)));
-          doc.on('error', reject);
+        // Generar PDF con Chromium
+        const chromium = require('@sparticuz/chromium');
+        const puppeteer = require('puppeteer-core');
 
-          // ── CONTENIDO DEL DOCUMENTO ──
-          doc.fontSize(18).font('Helvetica-Bold').text(sig.document_filename.replace(/\.[^.]+$/, ''), { align: 'center' });
-          doc.moveDown(0.5);
-          doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#cccccc');
-          doc.moveDown(0.5);
+        const sigDate = new Date().toLocaleString('es-MX');
+        const sigIpVal = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+        const finalNameVal = signer_name || sig.signer_name || '';
+        const sigImgTag = signature_data
+          ? `<img src="${signature_data}" style="max-width:260px;max-height:100px;border:1px solid #eee;padding:4px;background:white">`
+          : '<div style="width:260px;height:80px;border:2px dashed #ccc;background:#fafafa"></div>';
 
-          // Renderizar HTML usando regex simple (sin cheerio)
-          doc.fontSize(11).font('Helvetica');
-          const html = docHtmlContent;
+        const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+        <style>
+          body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:0;padding:20px 30px}
+          h1{font-size:18px;text-align:center;margin-bottom:4px}
+          h2{font-size:14px;margin:12px 0 4px}
+          table{border-collapse:collapse;width:100%;margin:8px 0}
+          td,th{border:1px solid #ccc;padding:5px 8px;font-size:11px}
+          th{background:#f0f0f0;font-weight:bold}
+          p{margin:4px 0;line-height:1.6}
+          .page-break{page-break-before:always;padding-top:20px}
+          .cert-header{background:#0f1e3d;color:white;padding:14px 18px;border-radius:4px;margin-bottom:16px}
+          .cert-header h2{color:white;margin:0;font-size:16px}
+          .cert-header p{margin:4px 0 0;opacity:0.7;font-size:11px}
+          .cert-table{width:100%;border-collapse:collapse}
+          .cert-table td{padding:8px 10px;border-bottom:1px solid #eee;font-size:12px}
+          .cert-table td:first-child{background:#f8f8f8;font-weight:bold;color:#555;width:140px}
+          .badge{display:inline-block;background:#d1fae5;color:#065f46;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:bold;margin-bottom:14px}
+          .footer{margin-top:20px;padding-top:10px;border-top:1px solid #eee;font-size:9px;color:#aaa;text-align:center}
+        </style></head><body>
+          ${docHtmlContent}
+          <div class="page-break">
+            <div class="cert-header">
+              <h2>Certificado de Firma Digital</h2>
+              <p>Documento firmado electronicamente via DocuGen</p>
+            </div>
+            <div class="badge">DOCUMENTO FIRMADO DIGITALMENTE</div>
+            <table class="cert-table">
+              <tr><td>Documento</td><td>${sig.document_filename}</td></tr>
+              <tr><td>Firmante</td><td>${finalNameVal}</td></tr>
+              <tr><td>Fecha y hora</td><td>${sigDate}</td></tr>
+              <tr><td>Direccion IP</td><td>${sigIpVal}</td></tr>
+              <tr><td>Metodo de firma</td><td>${req.body.signature_type || 'drawn'}</td></tr>
+            </table>
+            <div style="margin-top:14px">
+              <div style="font-size:11px;font-weight:bold;color:#555;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Firma del firmante</div>
+              ${sigImgTag}
+            </div>
+            <div class="footer">Generado por DocuGen · docugen-monday-production.up.railway.app</div>
+          </div>
+        </body></html>`;
 
-          // Parsear HTML a bloques de texto con formato
-          const blocks = [];
-          const tagRe = /<(h[1-6]|p|li|td|th|strong|b|br)[^>]*>([\s\S]*?)<\/\1>|<br\s*\/?>/gi;
-          let match;
-          while ((match = tagRe.exec(html)) !== null) {
-            const tag = (match[1] || 'br').toLowerCase();
-            const text = (match[2] || '').replace(/<[^>]+>/g, '').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&nbsp;/g,' ').replace(/&#[0-9]+;/g,' ').trim();
-            if (tag === 'br') { blocks.push({ type: 'br' }); continue; }
-            if (!text) continue;
-            if (tag === 'h1') blocks.push({ type: 'h1', text });
-            else if (tag === 'h2' || tag === 'h3') blocks.push({ type: 'h2', text });
-            else if (tag === 'th') blocks.push({ type: 'th', text });
-            else if (tag === 'td') blocks.push({ type: 'td', text });
-            else if (tag === 'li') blocks.push({ type: 'li', text });
-            else if (tag === 'strong' || tag === 'b') blocks.push({ type: 'bold', text });
-            else blocks.push({ type: 'p', text });
-          }
-
-          for (const block of blocks) {
-            if (doc.y > 720) doc.addPage();
-            if (block.type === 'h1') {
-              doc.moveDown(0.4).fontSize(15).font('Helvetica-Bold').text(block.text, { align: 'center' }).fontSize(11).font('Helvetica').moveDown(0.3);
-            } else if (block.type === 'h2') {
-              doc.moveDown(0.3).fontSize(12).font('Helvetica-Bold').text(block.text).fontSize(11).font('Helvetica').moveDown(0.2);
-            } else if (block.type === 'th') {
-              doc.fontSize(10).font('Helvetica-Bold').text(block.text, { continued: true, width: 120 }).font('Helvetica');
-            } else if (block.type === 'td') {
-              doc.fontSize(10).font('Helvetica').text(block.text, { continued: true, width: 120 });
-            } else if (block.type === 'li') {
-              doc.fontSize(11).font('Helvetica').text('• ' + block.text, { indent: 15 });
-            } else if (block.type === 'bold') {
-              doc.fontSize(11).font('Helvetica-Bold').text(block.text).font('Helvetica');
-            } else if (block.type === 'br') {
-              doc.moveDown(0.2);
-            } else {
-              doc.fontSize(11).font('Helvetica').text(block.text, { align: 'justify' }).moveDown(0.1);
-            }
-          }
-
-          // ── PÁGINA DE FIRMA ──
-          doc.addPage();
-          // Header azul
-          doc.rect(50, 50, 495, 60).fill('#0f1e3d');
-          doc.fillColor('white').fontSize(16).font('Helvetica-Bold').text('CERTIFICADO DE FIRMA DIGITAL', 70, 65);
-          doc.fontSize(10).font('Helvetica').text('Documento firmado electronicamente via DocuGen', 70, 88);
-          doc.fillColor('#111111');
-          doc.moveDown(3);
-
-          // Tabla de datos
-          const tableY = doc.y;
-          const rows = [
-            ['Documento', sig.document_filename],
-            ['Firmante', finalNameVal],
-            ['Fecha y hora', sigDate],
-            ['Direccion IP', sigIpVal],
-            ['Metodo', req.body.signature_type || 'drawn'],
-          ];
-          let rowY = tableY;
-          for (const [label, val] of rows) {
-            doc.rect(50, rowY, 150, 26).fill('#f5f5f5').stroke('#e0e0e0');
-            doc.rect(200, rowY, 345, 26).fill('white').stroke('#e0e0e0');
-            doc.fillColor('#555').fontSize(10).font('Helvetica-Bold').text(label, 58, rowY + 8);
-            doc.fillColor('#111').font('Helvetica').text(String(val), 208, rowY + 8, { width: 330 });
-            rowY += 26;
-          }
-          doc.moveDown(1);
-          doc.y = rowY + 16;
-
-          // Firma imagen
-          doc.fontSize(10).font('Helvetica-Bold').fillColor('#555').text('FIRMA DEL FIRMANTE:', 50);
-          doc.moveDown(0.5);
-          if (signature_data && signature_data.startsWith('data:image')) {
-            try {
-              const b64 = signature_data.replace(/^data:image\/\w+;base64,/, '');
-              const imgBuf = Buffer.from(b64, 'base64');
-              doc.image(imgBuf, 50, doc.y, { width: 220, height: 90 });
-              doc.y += 100;
-            } catch(e) {
-              doc.rect(50, doc.y, 220, 90).stroke('#cccccc');
-              doc.y += 100;
-            }
-          }
-
-          // Footer
-          doc.moveTo(50, doc.page.height - 60).lineTo(545, doc.page.height - 60).stroke('#dddddd');
-          doc.fontSize(8).fillColor('#aaaaaa').text(
-            'Documento generado y firmado digitalmente via DocuGen · docugen-monday-production.up.railway.app',
-            50, doc.page.height - 48, { align: 'center', width: 495 }
-          );
-
-          doc.end();
+        chromium.setGraphicsMode = false;
+        const browser = await puppeteer.launch({
+          args: chromium.args,
+          defaultViewport: chromium.defaultViewport,
+          executablePath: await chromium.executablePath(),
+          headless: chromium.headless,
         });
+        const page = await browser.newPage();
+        await page.setContent(fullHtml, { waitUntil: 'networkidle0' });
+        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '10mm', bottom: '10mm', left: '10mm', right: '10mm' } });
+        await browser.close();
 
         await pool.query(
           'UPDATE signature_requests SET signed_pdf=$1 WHERE token=$2',
