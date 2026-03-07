@@ -1240,10 +1240,6 @@ app.post('/sign/:token', async (req, res) => {
         // Generar PDF con Chromium
         const chromium = require('@sparticuz/chromium');
         const puppeteer = require('puppeteer-core');
-
-        const sigDate = new Date().toLocaleString('es-MX');
-        const sigIpVal = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
-        const finalNameVal = signer_name || sig.signer_name || '';
         const sigImgTag = signature_data
           ? `<img src="${signature_data}" style="max-width:260px;max-height:100px;border:1px solid #eee;padding:4px;background:white">`
           : '<div style="width:260px;height:80px;border:2px dashed #ccc;background:#fafafa"></div>';
