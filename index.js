@@ -1099,6 +1099,84 @@ app.get('/sign/:token/preview-pdf', async (req, res) => {
 });
 
 // INFO endpoint - debe ir ANTES del portal
+// Enviar OTP al firmante
+app.post('/sign/:token/send-otp', async (req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1 AND status=$2', [req.params.token, 'pending']);
+    if (!r.rows.length) return res.status(404).json({ error: 'Link no válido' });
+    const sig = r.rows[0];
+    if (!sig.signer_email) return res.status(400).json({ error: 'No hay email registrado para este firmante' });
+
+    // Generar OTP de 6 dígitos
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutos
+
+    await pool.query(
+      'UPDATE signature_requests SET otp_code=$1, otp_verified=FALSE, otp_attempts=0 WHERE token=$2',
+      [otp, req.params.token]
+    );
+
+    // Enviar email
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+    });
+
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: sig.signer_email,
+      subject: 'Código de verificación para firma de documento',
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:20px">
+          <div style="background:#0f1e3d;color:white;padding:20px;border-radius:8px 8px 0 0;text-align:center">
+            <h2 style="margin:0">DocuGen · Verificación de Firma</h2>
+          </div>
+          <div style="background:#f9f9f9;padding:24px;border:1px solid #e0e0e0;border-radius:0 0 8px 8px">
+            <p>Hola <b>${sig.signer_name || 'firmante'}</b>,</p>
+            <p>Tu código de verificación para firmar el documento <b>${sig.document_filename}</b> es:</p>
+            <div style="background:white;border:2px solid #0f1e3d;border-radius:8px;padding:20px;text-align:center;margin:20px 0">
+              <span style="font-size:36px;font-weight:bold;letter-spacing:8px;color:#0f1e3d">${otp}</span>
+            </div>
+            <p style="color:#666;font-size:13px">Este código expira en <b>15 minutos</b>. No lo compartas con nadie.</p>
+            <p style="color:#666;font-size:12px">Si no solicitaste esta firma, ignora este mensaje.</p>
+          </div>
+        </div>
+      `
+    });
+
+    console.log('OTP enviado a:', sig.signer_email);
+    res.json({ ok: true, email: sig.signer_email.replace(/(.{2}).*(@.*)/, '$1***$2') });
+  } catch(e) {
+    console.error('OTP send error:', e.message);
+    res.status(500).json({ error: 'Error enviando OTP: ' + e.message });
+  }
+});
+
+// Verificar OTP
+app.post('/sign/:token/verify-otp', async (req, res) => {
+  try {
+    const { otp } = req.body;
+    const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Token no válido' });
+    const sig = r.rows[0];
+
+    if (sig.otp_attempts >= 5) return res.status(400).json({ error: 'Demasiados intentos. Solicita un nuevo código.' });
+
+    if (sig.otp_code !== otp) {
+      await pool.query('UPDATE signature_requests SET otp_attempts=otp_attempts+1 WHERE token=$1', [req.params.token]);
+      return res.status(400).json({ error: 'Código incorrecto', attempts: (sig.otp_attempts || 0) + 1 });
+    }
+
+    await pool.query('UPDATE signature_requests SET otp_verified=TRUE, identity_verified=TRUE WHERE token=$1', [req.params.token]);
+    res.json({ ok: true, verified: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/sign/:token/info', async (req, res) => {
   try {
     const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
