@@ -55,6 +55,66 @@ async function initDB() {
       created_at TIMESTAMP DEFAULT NOW()
     );`);
     await pool.query('ALTER TABLE pdf_jobs ADD COLUMN IF NOT EXISTS pdf_data BYTEA');
+    await pool.query(`CREATE TABLE IF NOT EXISTS accounts (
+      account_id TEXT PRIMARY KEY,
+      plan TEXT DEFAULT 'free',
+      docs_generated INT DEFAULT 0,
+      created_at TIMESTAMP DEFAULT NOW()
+    );`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS webhook_events (
+      id SERIAL PRIMARY KEY,
+      event_type TEXT,
+      item_id TEXT,
+      board_id TEXT,
+      column_id TEXT,
+      column_value TEXT,
+      account_id TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    );`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS webhook_triggers (
+      id SERIAL PRIMARY KEY,
+      account_id TEXT,
+      board_id TEXT,
+      column_id TEXT,
+      trigger_value TEXT,
+      template_name TEXT,
+      action TEXT DEFAULT 'generate',
+      created_at TIMESTAMP DEFAULT NOW()
+    );`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS scheduled_automations (
+      id SERIAL PRIMARY KEY,
+      account_id TEXT,
+      name TEXT,
+      cron_expression TEXT,
+      board_id TEXT,
+      template_name TEXT,
+      condition_column TEXT,
+      condition_value TEXT,
+      last_run TIMESTAMP,
+      next_run TIMESTAMP,
+      status TEXT DEFAULT 'active',
+      created_at TIMESTAMP DEFAULT NOW()
+    );`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS signature_requests (
+      id SERIAL PRIMARY KEY,
+      account_id TEXT,
+      item_id TEXT,
+      board_id TEXT,
+      document_filename TEXT,
+      signer_name TEXT,
+      signer_email TEXT,
+      token TEXT UNIQUE,
+      status TEXT DEFAULT 'pending',
+      signed_at TIMESTAMP,
+      ip_address TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    );`);
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signed_pdf BYTEA');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signature_type TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signer_order INT DEFAULT 1');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS group_id TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_code TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_verified BOOLEAN DEFAULT FALSE');
     console.log('Base de datos inicializada');
   } catch (err) {
     console.error('Error iniciando DB:', err.message);
