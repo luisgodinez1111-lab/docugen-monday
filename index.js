@@ -1208,24 +1208,23 @@ app.post('/sign/:token', async (req, res) => {
         if (docR2.rows.length) docData = docR2.rows[0].doc_data;
       }
 
-      // Buscar el documento generado más reciente para este item/account
-      // El document_filename en signature_requests es la PLANTILLA, no el doc generado
+      // Buscar el documento GENERADO más reciente (no la plantilla)
+      // Estrategia: buscar por item_id, template_name, con doc_data, excluyendo nombre igual a plantilla
       if (!docData && sig.item_id) {
         const docR3 = await pool.query(
-          'SELECT doc_data, filename FROM documents WHERE item_id=$1 AND doc_data IS NOT NULL AND filename NOT LIKE $2 ORDER BY created_at DESC LIMIT 1',
-          [String(sig.item_id), '%.pdf']
+          "SELECT doc_data, filename FROM documents WHERE item_id=$1 AND doc_data IS NOT NULL AND filename != $2 AND filename NOT LIKE '%.pdf' ORDER BY created_at DESC LIMIT 1",
+          [String(sig.item_id), sig.document_filename]
         );
         if (docR3.rows.length) { docData = docR3.rows[0].doc_data; console.log('Found by item_id:', docR3.rows[0].filename); }
       }
-      // Buscar el doc generado más reciente del account que NO sea la plantilla
       if (!docData && sig.account_id) {
         const docR4 = await pool.query(
-          'SELECT doc_data, filename FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL AND filename NOT LIKE $2 AND template_name=$3 ORDER BY created_at DESC LIMIT 1',
-          [sig.account_id, '%.pdf', sig.document_filename]
+          "SELECT doc_data, filename FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL AND filename != $2 AND filename NOT LIKE '%.pdf' ORDER BY created_at DESC LIMIT 1",
+          [sig.account_id, sig.document_filename]
         );
-        if (docR4.rows.length) { docData = docR4.rows[0].doc_data; console.log('Found by template_name:', docR4.rows[0].filename); }
+        if (docR4.rows.length) { docData = docR4.rows[0].doc_data; console.log('Found by account:', docR4.rows[0].filename); }
       }
-      console.log('docData found:', !!docData, 'filename:', sig.document_filename, 'item_id:', sig.item_id);
+      console.log('docData final:', !!docData, 'sig.document_filename:', sig.document_filename);
 
       if (docData) {
         const mammothResult = await mammoth.extractRawText({ buffer: docData });
