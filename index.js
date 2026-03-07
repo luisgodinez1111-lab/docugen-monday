@@ -944,20 +944,75 @@ app.get('/sign/:token/download', async (req, res) => {
     const sigRow = sigR.rows[0];
     // signed_pdf removed - always generate fresh PDF below
 
-    // 2. Buscar doc_data del documento
+    // 2. Buscar PDF real del documento (preferir PDF sobre DOCX)
     let docData = null;
-    const docR = await pool.query(
-      'SELECT doc_data FROM documents WHERE (filename=$1 OR template_name=$1) AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
-      [filename]
-    );
-    if (docR.rows.length) docData = docR.rows[0].doc_data;
+    let docFilename = filename;
+    const pdfFilename = filename.replace(/\.docx$/i, '.pdf');
 
+    // Primero buscar PDF convertido
+    const pdfR = await pool.query(
+      'SELECT doc_data, filename FROM documents WHERE filename=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+      [pdfFilename]
+    );
+    if (pdfR.rows.length) { docData = pdfR.rows[0].doc_data; docFilename = pdfFilename; }
+
+    // Si no hay PDF, buscar DOCX
+    if (!docData) {
+      const docR = await pool.query(
+        'SELECT doc_data, filename FROM documents WHERE (filename=$1 OR template_name=$1) AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+        [filename]
+      );
+      if (docR.rows.length) { docData = docR.rows[0].doc_data; docFilename = docR.rows[0].filename || filename; }
+    }
+
+    // Fallback por account
     if (!docData && sig.account_id) {
       const docR2 = await pool.query(
-        'SELECT doc_data FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+        'SELECT doc_data, filename FROM documents WHERE account_id=$1 AND filename LIKE '%.pdf' AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
         [sig.account_id]
       );
-      if (docR2.rows.length) docData = docR2.rows[0].doc_data;
+      if (docR2.rows.length) { docData = docR2.rows[0].doc_data; docFilename = docR2.rows[0].filename; }
+    }
+    if (!docData && sig.account_id) {
+      const docR3 = await pool.query(
+        'SELECT doc_data, filename FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+        [sig.account_id]
+      );
+      if (docR3.rows.length) { docData = docR3.rows[0].doc_data; docFilename = docR3.rows[0].filename; }
+    }
+
+    // 3. Si tenemos PDF real y está firmado, incrustar firma en él
+    if (docData && docFilename.endsWith('.pdf') && sig.status === 'signed' && sigRow?.signature_data) {
+      try {
+        const existingPdf = await PDFDocument.load(docData);
+        const pages = existingPdf.getPages();
+        const lastPage = pages[pages.length - 1];
+        const { width, height } = lastPage.getSize();
+        const b64 = sigRow.signature_data.replace(/^data:image\/\w+;base64,/, '');
+        const imgBytes = Buffer.from(b64, 'base64');
+        let sigImg;
+        try { sigImg = sigRow.signature_data.includes('png') ? await existingPdf.embedPng(imgBytes) : await existingPdf.embedJpg(imgBytes); } catch(e) {}
+        if (sigImg) {
+          const dims = sigImg.scaleToFit(200, 80);
+          lastPage.drawLine({ start:{x:40,y:120}, end:{x:width-40,y:120}, thickness:0.5, color:rgb(0.7,0.7,0.7) });
+          lastPage.drawText('Firmado por: ' + (sigRow.signer_name || ''), { x:40, y:108, size:9, color:rgb(0.4,0.4,0.4) });
+          lastPage.drawText('Fecha: ' + (sigRow.signed_at ? new Date(sigRow.signed_at).toLocaleString('es-MX') : ''), { x:40, y:96, size:9, color:rgb(0.4,0.4,0.4) });
+          lastPage.drawText('IP: ' + (sigRow.signer_ip || ''), { x:40, y:84, size:9, color:rgb(0.4,0.4,0.4) });
+          lastPage.drawImage(sigImg, { x:width-dims.width-40, y:80, width:dims.width, height:dims.height });
+        }
+        const signedBytes = await existingPdf.save();
+        const outName = docFilename.replace('.pdf', '_firmado.pdf');
+        res.set('Content-Disposition', 'attachment; filename="' + outName + '"');
+        res.set('Content-Type', 'application/pdf');
+        return res.send(Buffer.from(signedBytes));
+      } catch(e) { console.error('PDF embed error:', e.message); }
+    }
+
+    // Si tenemos PDF real sin firma, servirlo directo
+    if (docData && docFilename.endsWith('.pdf')) {
+      res.set('Content-Disposition', 'attachment; filename="' + docFilename + '"');
+      res.set('Content-Type', 'application/pdf');
+      return res.send(docData);
     }
 
     // 3. Generar PDF con info del documento + firma si existe
