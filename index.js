@@ -1197,6 +1197,16 @@ app.post('/sign/:token', async (req, res) => {
         if (docR2.rows.length) docData = docR2.rows[0].doc_data;
       }
 
+      // Debug: loguear qué encontramos
+      console.log('docData found:', !!docData, 'filename:', sig.document_filename, 'item_id:', sig.item_id, 'account_id:', sig.account_id);
+      if (!docData && sig.item_id) {
+        const docR3 = await pool.query(
+          'SELECT doc_data, filename FROM documents WHERE item_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+          [String(sig.item_id)]
+        );
+        if (docR3.rows.length) { docData = docR3.rows[0].doc_data; console.log('Found by item_id:', docR3.rows[0].filename); }
+      }
+
       if (docData) {
         const mammothResult = await mammoth.extractRawText({ buffer: docData });
         const docText = mammothResult.value;
