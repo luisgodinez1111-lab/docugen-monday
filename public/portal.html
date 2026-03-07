@@ -305,7 +305,7 @@ function prevPage() {}
 function nextPage() {}
 
 // ── AUTH ──
-async function authAccess() {
+async async function authAccess() {
   const name = document.getElementById('auth-name').value.trim();
   if (!name) { document.getElementById('auth-error').textContent = 'Ingresa tu nombre'; return; }
   try {
@@ -313,7 +313,11 @@ async function authAccess() {
     const data = await res.json();
     if (!data.success) { document.getElementById('auth-error').textContent = data.error || 'Enlace no válido'; return; }
     if (data.expired) { document.getElementById('auth-error').textContent = 'Este enlace ha expirado'; document.querySelector('.btn-dark').disabled = true; return; }
-    if (data.needs_otp) { showScreen('otp'); return; }
+    if (data.signer_email || data.needs_otp) {
+      window._signerName = name;
+      await sendOtp();
+      return;
+    }
     loadPortal(name, data);
   } catch(e) { document.getElementById('auth-error').textContent = 'Error de conexión'; }
 }
