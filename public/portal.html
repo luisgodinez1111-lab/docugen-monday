@@ -305,7 +305,7 @@ function prevPage() {}
 function nextPage() {}
 
 // ── AUTH ──
-async async function authAccess() {
+async function authAccess() {
   const name = document.getElementById('auth-name').value.trim();
   if (!name) { document.getElementById('auth-error').textContent = 'Ingresa tu nombre'; return; }
   try {
