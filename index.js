@@ -1210,6 +1210,7 @@ app.post('/sign/:token', async (req, res) => {
       if (docData) {
         const mammothResult = await mammoth.extractRawText({ buffer: docData });
         const docText = mammothResult.value;
+        console.log('docText length:', docText.length, 'preview:', docText.substring(0, 200));
         const sigDate = new Date().toLocaleString('es-MX');
         const sigIpVal = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
         const finalNameVal = signer_name || sig.signer_name || '';
