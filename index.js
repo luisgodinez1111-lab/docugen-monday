@@ -255,6 +255,17 @@ const GRAPHQL_COLUMN_FRAGMENT = `
   ... on FormulaValue { display_value }
 `;
 
+app.get('/debug-docs', async (req, res) => {
+  try {
+    const accountId = req.query.account_id || req.headers['x-account-id'];
+    const r = await pool.query(
+      'SELECT id, filename, template_name, item_id, created_at, doc_data IS NOT NULL as has_data, length(doc_data) as data_size FROM documents WHERE account_id=$1 ORDER BY created_at DESC LIMIT 15',
+      [accountId]
+    );
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/', (req, res) => { res.json({ status: 'ok', message: 'DocuGen for monday', version: '3.0.0' }); });
 
 app.get('/oauth/start', (req, res) => {
