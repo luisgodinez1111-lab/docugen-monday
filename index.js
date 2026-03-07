@@ -1086,7 +1086,9 @@ app.get('/sign/:token/download', async (req, res) => {
     const sigRow = sigR.rows[0];
     // 1. Si tiene signed_pdf generado al firmar, servirlo
     const sigPdfR = await pool.query('SELECT signed_pdf FROM signature_requests WHERE token=$1', [req.params.token]);
-    if (sigPdfR.rows[0]?.signed_pdf?.length > 100) {
+    const signedPdfSize = sigPdfR.rows[0]?.signed_pdf?.length || 0;
+    console.log('signed_pdf size:', signedPdfSize, 'token:', req.params.token.substring(0,10));
+    if (signedPdfSize > 10000) {
       const outName = filename.replace(/\.\w+$/, '') + '_firmado.pdf';
       res.set('Content-Disposition', 'attachment; filename="' + outName + '"');
       res.set('Content-Type', 'application/pdf');
