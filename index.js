@@ -1251,55 +1251,48 @@ app.post('/sign/:token', async (req, res) => {
           doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#cccccc');
           doc.moveDown(0.5);
 
-          // Renderizar HTML del documento con estructura
-          const cheerio = require('cheerio');
-          const $ = cheerio.load(docHtmlContent);
+          // Renderizar HTML usando regex simple (sin cheerio)
           doc.fontSize(11).font('Helvetica');
+          const html = docHtmlContent;
 
-          function renderNode(el) {
-            if (doc.y > 720) doc.addPage();
-            const tag = el.tagName ? el.tagName.toLowerCase() : '';
-            const text = $(el).text().trim();
-            if (!text && tag !== 'table') return;
-
-            if (tag === 'h1') {
-              doc.moveDown(0.3).fontSize(16).font('Helvetica-Bold').text(text, { align: 'center' }).font('Helvetica').fontSize(11).moveDown(0.3);
-            } else if (tag === 'h2') {
-              doc.moveDown(0.3).fontSize(13).font('Helvetica-Bold').text(text).font('Helvetica').fontSize(11).moveDown(0.2);
-            } else if (tag === 'h3') {
-              doc.moveDown(0.2).fontSize(12).font('Helvetica-Bold').text(text).font('Helvetica').fontSize(11);
-            } else if (tag === 'p') {
-              if (text) doc.fontSize(11).font('Helvetica').text(text, { align: 'justify' }).moveDown(0.2);
-            } else if (tag === 'table') {
-              doc.moveDown(0.3);
-              const rows = $(el).find('tr');
-              let isFirst = true;
-              rows.each((i, row) => {
-                if (doc.y > 720) doc.addPage();
-                const cells = $(row).find('td, th');
-                const cellTexts = [];
-                cells.each((j, cell) => cellTexts.push($(cell).text().trim()));
-                const rowText = cellTexts.join('  |  ');
-                if (isFirst) {
-                  doc.fontSize(10).font('Helvetica-Bold').text(rowText).font('Helvetica');
-                  doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#cccccc');
-                  isFirst = false;
-                } else {
-                  doc.fontSize(10).font('Helvetica').text(rowText);
-                }
-              });
-              doc.moveDown(0.3);
-            } else if (tag === 'strong' || tag === 'b') {
-              doc.font('Helvetica-Bold').text(text, { continued: false }).font('Helvetica');
-            } else if (tag === 'ul' || tag === 'ol') {
-              $(el).find('li').each((i, li) => {
-                if (doc.y > 720) doc.addPage();
-                doc.fontSize(11).font('Helvetica').text('• ' + $(li).text().trim(), { indent: 20 });
-              });
-            }
+          // Parsear HTML a bloques de texto con formato
+          const blocks = [];
+          const tagRe = /<(h[1-6]|p|li|td|th|strong|b|br)[^>]*>([\s\S]*?)<\/\1>|<br\s*\/?>/gi;
+          let match;
+          while ((match = tagRe.exec(html)) !== null) {
+            const tag = (match[1] || 'br').toLowerCase();
+            const text = (match[2] || '').replace(/<[^>]+>/g, '').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&nbsp;/g,' ').replace(/&#[0-9]+;/g,' ').trim();
+            if (tag === 'br') { blocks.push({ type: 'br' }); continue; }
+            if (!text) continue;
+            if (tag === 'h1') blocks.push({ type: 'h1', text });
+            else if (tag === 'h2' || tag === 'h3') blocks.push({ type: 'h2', text });
+            else if (tag === 'th') blocks.push({ type: 'th', text });
+            else if (tag === 'td') blocks.push({ type: 'td', text });
+            else if (tag === 'li') blocks.push({ type: 'li', text });
+            else if (tag === 'strong' || tag === 'b') blocks.push({ type: 'bold', text });
+            else blocks.push({ type: 'p', text });
           }
 
-          $('body').children().each((i, el) => renderNode(el));
+          for (const block of blocks) {
+            if (doc.y > 720) doc.addPage();
+            if (block.type === 'h1') {
+              doc.moveDown(0.4).fontSize(15).font('Helvetica-Bold').text(block.text, { align: 'center' }).fontSize(11).font('Helvetica').moveDown(0.3);
+            } else if (block.type === 'h2') {
+              doc.moveDown(0.3).fontSize(12).font('Helvetica-Bold').text(block.text).fontSize(11).font('Helvetica').moveDown(0.2);
+            } else if (block.type === 'th') {
+              doc.fontSize(10).font('Helvetica-Bold').text(block.text, { continued: true, width: 120 }).font('Helvetica');
+            } else if (block.type === 'td') {
+              doc.fontSize(10).font('Helvetica').text(block.text, { continued: true, width: 120 });
+            } else if (block.type === 'li') {
+              doc.fontSize(11).font('Helvetica').text('• ' + block.text, { indent: 15 });
+            } else if (block.type === 'bold') {
+              doc.fontSize(11).font('Helvetica-Bold').text(block.text).font('Helvetica');
+            } else if (block.type === 'br') {
+              doc.moveDown(0.2);
+            } else {
+              doc.fontSize(11).font('Helvetica').text(block.text, { align: 'justify' }).moveDown(0.1);
+            }
+          }
 
           // ── PÁGINA DE FIRMA ──
           doc.addPage();
