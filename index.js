@@ -339,6 +339,17 @@ const GRAPHQL_COLUMN_FRAGMENT = `
   ... on FormulaValue { display_value }
 `;
 
+app.get('/debug-sigs', async (req, res) => {
+  try {
+    const accountId = req.query.account_id || req.headers['x-account-id'];
+    const r = await pool.query(
+      'SELECT id, token, signer_name, signer_email, status, document_filename, item_id, created_at FROM signature_requests WHERE account_id=$1 ORDER BY created_at DESC LIMIT 5',
+      [accountId]
+    );
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/debug-docs', async (req, res) => {
   try {
     const accountId = req.query.account_id || req.headers['x-account-id'];
