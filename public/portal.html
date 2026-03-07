@@ -209,8 +209,15 @@ canvas#sigCanvas{display:block;width:100%}
             </div>
             <input type="file" id="sig-file" accept="image/*" style="display:none" onchange="handleUpload(event)">
           </div>
-          <button class="btn btn-green" onclick="submitSignature()" id="btn-sign">Firmar documento</button>
-          <div class="notice" style="margin-top:8px">Se registrará IP, nombre y fecha exacta</div>
+          <!-- Consentimiento legal explícito -->
+          <div style="background:#f8faff;border:1px solid #c7d7f0;border-radius:8px;padding:12px;margin:12px 0;font-size:12px;color:#333">
+            <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer">
+              <input type="checkbox" id="consent-check" style="margin-top:2px;width:16px;height:16px;flex-shrink:0" onchange="document.getElementById('btn-sign').disabled=!this.checked">
+              <span>Acepto que mi firma electrónica tiene <b>plena validez legal</b> conforme al Código de Comercio de México (Art. 89-114) y NOM-151-SCFI-2016. He leído y acepto el contenido del documento. Entiendo que se registrará mi nombre, dirección IP y fecha/hora exacta como parte del certificado de firma.</span>
+            </label>
+          </div>
+          <button class="btn btn-green" onclick="submitSignature()" id="btn-sign" disabled>✍️ Firmar documento</button>
+          <div class="notice" style="margin-top:8px;font-size:11px">🔒 Firma con validez legal · Se registrará IP, nombre y fecha exacta</div>
         </div>
 
         <!-- Descarga -->
