@@ -280,22 +280,16 @@ function getSig(){
 // ── DOC VIEWER (HTML via mammoth) ──
 async function loadPDF() {
   const container = document.getElementById('viewer-pages');
-  container.innerHTML = '<div class="viewer-loading">Cargando documento...</div>';
+  container.innerHTML = '';
   try {
-    const url = '/sign/' + TOKEN + '/preview-pdf';
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('Error ' + res.status);
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('text/html')) {
-      const html = await res.text();
-      const iframe = document.createElement('iframe');
-      iframe.style.cssText = 'width:100%;height:100%;border:none;min-height:600px;background:white';
-      iframe.srcdoc = html;
-      container.innerHTML = '';
-      container.style.padding = '0';
-      container.appendChild(iframe);
-      document.getElementById('page-info').textContent = 'HTML';
-    }
+    // Usar iframe directo — el endpoint devuelve PDF binario
+    const iframe = document.createElement('iframe');
+    iframe.src = '/sign/' + TOKEN + '/preview-pdf';
+    iframe.style.cssText = 'width:100%;height:700px;border:none;background:white';
+    iframe.onload = () => { document.getElementById('page-info').textContent = 'PDF'; };
+    iframe.onerror = () => { container.innerHTML = '<div class="viewer-loading">Error cargando PDF</div>'; };
+    container.style.padding = '0';
+    container.appendChild(iframe);
   } catch(e) {
     container.innerHTML = '<div class="viewer-loading">Error cargando documento: ' + e.message + '</div>';
   }
