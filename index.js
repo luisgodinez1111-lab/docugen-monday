@@ -946,24 +946,19 @@ app.get('/sign/:token/preview-pdf', async (req, res) => {
     const tmpPdf = tmpDocx.replace('.docx', '.pdf');
     fs.writeFileSync(tmpDocx, docR.rows[0].doc_data);
 
-    exec('libreoffice --headless --convert-to pdf --outdir ' + outputsDir + ' ' + tmpDocx, async (err) => {
+    // Convertir DOCX a HTML con mammoth y devolver como HTML embebible
+    try {
+      const mammoth = require('mammoth');
+      const result = await mammoth.convertToHtml({ buffer: docR.rows[0].doc_data });
       try { fs.unlinkSync(tmpDocx); } catch(e) {}
-      if (err || !fs.existsSync(tmpPdf)) {
-        return res.status(500).send('Error convirtiendo documento');
-      }
-      const pdfData = fs.readFileSync(tmpPdf);
-      try { fs.unlinkSync(tmpPdf); } catch(e) {}
-
-      // Guardar en DB para próxima vez
-      pool.query(
-        'INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-        [sig.account_id, sig.board_id, sig.item_id, sig.signer_name, filename, pdfFilename, pdfData]
-      ).catch(e => console.error('PDF cache save:', e.message));
-
-      res.set('Content-Type', 'application/pdf');
-      res.set('Content-Disposition', 'inline; filename="' + pdfFilename + '"');
-      res.send(pdfData);
-    });
+      const html = result.value;
+      res.set('Content-Type', 'text/html; charset=utf-8');
+      res.send('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:Georgia,serif;max-width:750px;margin:40px auto;padding:20px;font-size:14px;line-height:1.8;color:#111}h1,h2,h3{font-family:Georgia,serif}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6px 10px}img{max-width:100%}p{margin-bottom:10px}</style></head><body>' + html + '</body></html>');
+    } catch(mammothErr) {
+      try { fs.unlinkSync(tmpDocx); } catch(e) {}
+      console.error('Mammoth error:', mammothErr.message);
+      res.status(500).send('Error convirtiendo documento');
+    }
   } catch(e) { res.status(500).send('Error: ' + e.message); }
 });
 
