@@ -396,7 +396,9 @@ app.get('/', (req, res) => { res.json({ status: 'ok', message: 'DocuGen for mond
 app.get('/oauth/start', (req, res) => {
   const clientId = process.env.MONDAY_CLIENT_ID;
   const redirectUri = encodeURIComponent(process.env.REDIRECT_URI);
-  res.redirect('https://auth.monday.com/oauth2/authorize?client_id=' + clientId + '&redirect_uri=' + redirectUri);
+  const scopes = 'boards:read boards:write me:read notifications:write';
+  const state = Math.random().toString(36).substring(2);
+  res.redirect('https://auth.monday.com/oauth2/authorize?client_id=' + clientId + '&redirect_uri=' + redirectUri + '&scope=' + encodeURIComponent(scopes) + '&state=' + state);
 });
 
 app.get('/oauth/callback', async (req, res) => {
