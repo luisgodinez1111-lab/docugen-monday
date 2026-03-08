@@ -1567,6 +1567,14 @@ app.post('/sign/:token', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── LOGO DELETE ──
+app.delete('/logo/delete', requireAuth, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM logos WHERE account_id=$1', [req.accountId]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── SETTINGS ──
 app.get('/settings', async (req, res) => {
   const accountId = req.query.account_id || req.headers['x-account-id'];

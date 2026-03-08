@@ -490,8 +490,9 @@
           <div><div class="card-title" data-i18n="ajustes_logo">🖼 Logo del portal de firmas</div><div class="card-subtitle" data-i18n="ajustes_logo_sub">Aparece en el link que se comparte para firmar</div></div>
         </div>
         <div class="card-body">
-          <div id="logo-preview" style="margin-bottom:12px;display:none">
+          <div id="logo-preview" style="margin-bottom:12px;display:none;align-items:center;gap:12px">
             <img id="logo-img" style="max-height:60px;border-radius:8px;border:1px solid var(--border)">
+            <button onclick="deleteLogo()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer;color:var(--muted);font-size:12px">🗑 Eliminar logo</button>
           </div>
           <div class="upload-area" id="logo-upload-area">
             <input type="file" accept="image/*" onchange="handleLogoUpload(event)">
@@ -1272,6 +1273,20 @@
       headers: {'Content-Type': 'application/json', 'x-account-id': accountId},
       body: JSON.stringify({settings: {custom_fields: customFields}})
     });
+  }
+
+  async function deleteLogo() {
+    if (!confirm('¿Eliminar el logo?')) return;
+    try {
+      await fetch(API + '/logo/delete', { method: 'DELETE', headers: { 'x-account-id': accountId } });
+      document.getElementById('logo-preview').style.display = 'none';
+      document.getElementById('logo-img').src = '';
+      document.getElementById('logo-upload-area').style.display = '';
+      document.getElementById('logo-upload-area').classList.remove('has-file');
+      document.getElementById('logo-filename').textContent = '';
+      document.getElementById('logo-status').textContent = '✅ Logo eliminado';
+      setTimeout(() => document.getElementById('logo-status').textContent = '', 2000);
+    } catch(e) { alert('Error al eliminar logo'); }
   }
 
   async function handleLogoUpload(e) {
