@@ -1608,6 +1608,40 @@ app.post('/sign/:token', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── PORTAL LOGO (solo para portal de firmas, separado del logo de documentos) ──
+app.post('/portal-logo/upload', upload.single('logo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No se recibio imagen' });
+  const accountId = req.body.account_id || req.headers['x-account-id'];
+  if (!accountId) return res.status(400).json({ error: 'account_id required' });
+  try {
+    await pool.query('CREATE TABLE IF NOT EXISTS portal_logos (account_id TEXT PRIMARY KEY, filename TEXT, data BYTEA, mimetype TEXT, updated_at TIMESTAMP DEFAULT NOW())');
+    await pool.query(
+      'INSERT INTO portal_logos (account_id, filename, data, mimetype) VALUES ($1,$2,$3,$4) ON CONFLICT (account_id) DO UPDATE SET filename=$2, data=$3, mimetype=$4, updated_at=NOW()',
+      [accountId, req.file.originalname, req.file.buffer, req.file.mimetype]
+    );
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/portal-logo', async (req, res) => {
+  const accountId = req.query.account_id || req.headers['x-account-id'];
+  if (!accountId) return res.status(400).json({ error: 'account_id required' });
+  try {
+    await pool.query('CREATE TABLE IF NOT EXISTS portal_logos (account_id TEXT PRIMARY KEY, filename TEXT, data BYTEA, mimetype TEXT, updated_at TIMESTAMP DEFAULT NOW())');
+    const r = await pool.query('SELECT data, mimetype FROM portal_logos WHERE account_id=$1', [accountId]);
+    if (!r.rows.length) return res.status(404).json({ error: 'No hay logo' });
+    res.set('Content-Type', r.rows[0].mimetype);
+    res.send(r.rows[0].data);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/portal-logo/delete', requireAuth, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM portal_logos WHERE account_id=$1', [req.accountId]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── LOGO DELETE ──
 app.delete('/logo/delete', requireAuth, async (req, res) => {
   try {

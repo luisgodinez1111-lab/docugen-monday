@@ -256,7 +256,7 @@ const TOKEN = window.location.pathname.split('/sign/')[1]?.split('/')[0];
         applyAll();
       }
       // Cargar logo de la cuenta
-      const logoRes = await fetch('/logo?account_id=' + data.account_id);
+      const logoRes = await fetch('/portal-logo?account_id=' + data.account_id);
       if (logoRes.ok) {
         const blob = await logoRes.blob();
         if (blob.size > 0) {
