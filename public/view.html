@@ -448,7 +448,7 @@
         </div>
         <div class="card-body">
           <div class="input-group">
-            <select class="input" id="cfg-language" onchange="saveSettings()">
+            <select class="input" id="cfg-language" onchange="applyLanguage(this.value);saveSettings()">
               <option value="es">Español</option>
               <option value="en">English</option>
             </select>
@@ -613,6 +613,103 @@
       }).catch(function() {});
     }
   } catch(e) { console.log('Monday SDK:', e.message); }
+
+  // ── TRADUCCIONES ──
+  const i18n = {
+    es: {
+      tab_generate: '⚡ Generar', tab_firmas: '✍️ Firmas', tab_auto: '🤖 Automático', tab_historial: '📁 Historial', tab_ajustes: '⚙️ Ajustes',
+      plantilla: 'Plantilla', plantilla_sub: 'Selecciona o sube una plantilla .docx',
+      item: 'Item del tablero', item_sub: 'Items del tablero activo',
+      generar: 'Generar documento', generar_sub: 'Exporta con los datos del item seleccionado',
+      btn_word: '⬇ Word', btn_pdf: '⬇ PDF', btn_excel: '⬇ Excel',
+      btn_disenhar: '✏️ Diseñar', btn_panel: '📊 Panel',
+      firmas_title: 'Solicitar firma digital', firmas_sub: 'Genera un link de firma para el documento',
+      firmas_name: 'Nombre del firmante', firmas_email: 'Email para OTP (recomendado)',
+      firmas_btn: '✍️ Generar link de firma', firmas_list: 'Solicitudes de firma',
+      auto_bulk: 'Generación masiva', auto_bulk_sub: 'Genera documentos para todos los items del tablero',
+      auto_bulk_btn: '⚡ Generar para todos los items',
+      auto_trigger: 'Triggers automáticos', auto_trigger_sub: 'Genera documentos cuando cambia un valor en monday',
+      auto_sched: 'Automatización programada', auto_sched_sub: 'Genera documentos en horario automático',
+      historial_title: 'Documentos generados',
+      ajustes_lang: '🌐 Idioma del sistema', ajustes_lang_sub: 'Cambia el idioma de la interfaz',
+      ajustes_fecha: '📅 Fecha y hora', ajustes_fecha_sub: 'Formato usado en documentos generados',
+      ajustes_logo: '🖼 Logo del portal de firmas', ajustes_logo_sub: 'Aparece en el link que se comparte para firmar',
+      ajustes_campos: '🏷 Campos personalizados', ajustes_campos_sub: 'Variables globales disponibles en todas las plantillas',
+      ajustes_fiscal: '🧾 Datos fiscales y empresa', ajustes_fiscal_sub: 'Aparecen como variables en todas las plantillas',
+      ajustes_notif: '🔔 Notificaciones', ajustes_notif_sub: 'Email que recibe alertas cuando se firma un documento',
+      btn_save: '💾 Guardar todos los ajustes', btn_add: '+ Agregar', btn_update: '↻ Actualizar',
+      empty_templates: 'No hay plantillas. Sube una.', empty_items: 'No hay items en este tablero',
+      empty_firmas: 'Sin solicitudes de firma', empty_triggers: 'Sin triggers activos',
+      empty_autos: 'Sin automatizaciones activas', empty_historial: 'No hay documentos generados aún',
+      upload_text: 'Click para subir un archivo .docx',
+      signed: 'Firmado', pending: 'Pendiente', expired: 'Expirado',
+    },
+    en: {
+      tab_generate: '⚡ Generate', tab_firmas: '✍️ Signatures', tab_auto: '🤖 Automation', tab_historial: '📁 History', tab_ajustes: '⚙️ Settings',
+      plantilla: 'Template', plantilla_sub: 'Select or upload a .docx template',
+      item: 'Board item', item_sub: 'Items from active board',
+      generar: 'Generate document', generar_sub: 'Export with data from selected item',
+      btn_word: '⬇ Word', btn_pdf: '⬇ PDF', btn_excel: '⬇ Excel',
+      btn_disenhar: '✏️ Design', btn_panel: '📊 Dashboard',
+      firmas_title: 'Request digital signature', firmas_sub: 'Generate a signature link for the document',
+      firmas_name: 'Signer name', firmas_email: 'Email for OTP (recommended)',
+      firmas_btn: '✍️ Generate signature link', firmas_list: 'Signature requests',
+      auto_bulk: 'Bulk generation', auto_bulk_sub: 'Generate documents for all board items',
+      auto_bulk_btn: '⚡ Generate for all items',
+      auto_trigger: 'Automatic triggers', auto_trigger_sub: 'Generate documents when a value changes in monday',
+      auto_sched: 'Scheduled automation', auto_sched_sub: 'Generate documents on automatic schedule',
+      historial_title: 'Generated documents',
+      ajustes_lang: '🌐 System language', ajustes_lang_sub: 'Change interface language',
+      ajustes_fecha: '📅 Date and time', ajustes_fecha_sub: 'Format used in generated documents',
+      ajustes_logo: '🖼 Signature portal logo', ajustes_logo_sub: 'Shown in the link shared for signing',
+      ajustes_campos: '🏷 Custom fields', ajustes_campos_sub: 'Global variables available in all templates',
+      ajustes_fiscal: '🧾 Company & fiscal data', ajustes_fiscal_sub: 'Available as variables in all templates',
+      ajustes_notif: '🔔 Notifications', ajustes_notif_sub: 'Email that receives alerts when a document is signed',
+      btn_save: '💾 Save all settings', btn_add: '+ Add', btn_update: '↻ Refresh',
+      empty_templates: 'No templates. Upload one.', empty_items: 'No items in this board',
+      empty_firmas: 'No signature requests', empty_triggers: 'No active triggers',
+      empty_autos: 'No active automations', empty_historial: 'No documents generated yet',
+      upload_text: 'Click to upload a .docx file',
+      signed: 'Signed', pending: 'Pending', expired: 'Expired',
+    }
+  };
+  let currentLang = 'es';
+
+  function applyLanguage(lang) {
+    currentLang = lang;
+    const t = i18n[lang] || i18n.es;
+    // Tabs
+    const tabMap = {generate:'tab_generate', firmas:'tab_firmas', auto:'tab_auto', historial:'tab_historial', ajustes:'tab_ajustes'};
+    Object.entries(tabMap).forEach(([id, key]) => {
+      const el = document.getElementById('tab-' + id);
+      if (el) el.innerHTML = t[key];
+    });
+    // Card titles/subtitles via data attributes
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      if (t[key]) el.textContent = t[key];
+    });
+    // Placeholders
+    const ph = document.getElementById('signerName');
+    if (ph) ph.placeholder = t.firmas_name;
+    const ph2 = document.getElementById('signerEmail');
+    if (ph2) ph2.placeholder = t.firmas_email;
+    // Buttons
+    const btnSign = document.querySelector('[onclick="requestSignature()"]');
+    if (btnSign) btnSign.textContent = t.firmas_btn;
+    const btnBulk = document.querySelector('[onclick="generateBulk()"]');
+    if (btnBulk) btnBulk.textContent = t.auto_bulk_btn;
+    const btnSave = document.querySelector('[onclick="saveSettingsNow()"]');
+    if (btnSave) btnSave.textContent = t.btn_save;
+    const btnWord = document.getElementById('generate-btn');
+    if (btnWord) btnWord.textContent = t.btn_word;
+    const btnPdf = document.getElementById('generate-pdf-btn');
+    if (btnPdf) btnPdf.textContent = t.btn_pdf;
+    const btnXlsx = document.getElementById('generate-xlsx-btn');
+    if (btnXlsx) btnXlsx.textContent = t.btn_excel;
+    // Save to localStorage
+    try { localStorage.setItem('docugen_lang', lang); } catch(e) {}
+  }
 
   function switchTab(name) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -1064,7 +1161,7 @@
       const data = await res.json();
       if (!data.settings) return;
       const s = data.settings;
-      if (s.language) document.getElementById('cfg-language').value = s.language;
+      if (s.language) { document.getElementById('cfg-language').value = s.language; applyLanguage(s.language); }
       if (s.date_format) document.getElementById('cfg-date-format').value = s.date_format;
       if (s.timezone) document.getElementById('cfg-timezone').value = s.timezone;
       if (s.empresa) document.getElementById('cfg-empresa').value = s.empresa;
@@ -1187,6 +1284,8 @@
     } catch(e) {}
   }
 
+  // Aplicar idioma guardado en localStorage al inicio
+  try { const savedLang = localStorage.getItem('docugen_lang'); if (savedLang) applyLanguage(savedLang); } catch(e) {}
   init();
 </script>
 </body>
