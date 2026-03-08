@@ -1652,6 +1652,22 @@ app.delete('/logo/delete', requireAuth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── SEVERITY CODES (Monday Workflows Action Blocks) ──
+// Según docs: https://developer.monday.com/apps/docs/error-handling
+function severityError(code, title, description, runtimeDesc, disableDesc) {
+  const body = {
+    severityCode: code,
+    notificationErrorTitle: title,
+    notificationErrorDescription: description,
+    runtimeErrorDescription: runtimeDesc
+  };
+  if (code === 6000 && disableDesc) body.disableErrorDescription = disableDesc;
+  return body;
+}
+// Uso: res.status(500).json(severityError(4000, 'Error', 'Desc', 'Log desc'))
+// 4000 = error recuperable (automation puede volver a correr)
+// 6000 = error permanente (automation se deshabilita)
+
 // ── SETTINGS ──
 app.get('/settings', async (req, res) => {
   const accountId = req.query.account_id || req.headers['x-account-id'];
