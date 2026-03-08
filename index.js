@@ -1680,8 +1680,7 @@ app.post('/sign/:token', async (req, res) => {
         }
       } catch(syncErr) { console.error('Monday sync error:', syncErr.message); }
     }
-
-    } catch(bgErr) { console.error('Background PDF error:', bgErr.message); } });
+    } catch(bgErr) { console.error('Background PDF error:', bgErr.message); } }); // end setImmediate
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
