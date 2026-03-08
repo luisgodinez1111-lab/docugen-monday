@@ -1653,64 +1653,86 @@ app.delete('/logo/delete', requireAuth, async (req, res) => {
 });
 
 // ── APP LIFECYCLE EVENTS (Monday.com) ──
-// Docs: https://developer.monday.com/apps/docs/app-lifecycle-events
+// Docs: https://developer.monday.com/apps/docs/webhooks-1
+// Eventos soportados: install, uninstall, app_subscription_created, app_subscription_changed,
+// app_subscription_renewed, app_subscription_cancelled_by_user, app_subscription_cancelled,
+// app_subscription_cancellation_revoked_by_user, app_subscription_renewal_attempt_failed,
+// app_subscription_renewal_failed, app_trial_subscription_started, app_trial_subscription_ended
 app.post('/monday/lifecycle', async (req, res) => {
   // Responder 200 inmediatamente según docs
   res.sendStatus(200);
 
   try {
     const { type, data } = req.body;
-    if (!type) return;
+    if (!type || !data) return;
 
-    const accountId = data?.account_id?.toString() || data?.user?.account?.id?.toString();
-    const userId = data?.user?.id?.toString();
-    console.log('Lifecycle event:', type, 'account:', accountId, 'user:', userId);
+    // account_id viene directamente en data según docs
+    const accountId = data.account_id?.toString();
+    const userId = data.user_id?.toString();
+    const planId = data.subscription?.plan_id;
+    const isTrial = data.subscription?.is_trial;
+    const renewalDate = data.subscription?.renewal_date;
+
+    console.log('Lifecycle event:', type, 'account:', accountId, 'plan:', planId);
 
     await pool.query(`CREATE TABLE IF NOT EXISTS lifecycle_events (
-      id SERIAL PRIMARY KEY,
-      event_type TEXT NOT NULL,
-      account_id TEXT,
-      user_id TEXT,
-      data JSONB,
-      created_at TIMESTAMP DEFAULT NOW()
+      id SERIAL PRIMARY KEY, event_type TEXT NOT NULL, account_id TEXT,
+      user_id TEXT, plan_id TEXT, is_trial BOOLEAN, renewal_date TEXT,
+      data JSONB, created_at TIMESTAMP DEFAULT NOW()
     )`);
-
     await pool.query(
-      'INSERT INTO lifecycle_events (event_type, account_id, user_id, data) VALUES ($1,$2,$3,$4)',
-      [type, accountId, userId, JSON.stringify(data || {})]
+      'INSERT INTO lifecycle_events (event_type, account_id, user_id, plan_id, is_trial, renewal_date, data) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [type, accountId, userId, planId, isTrial, renewalDate, JSON.stringify(data)]
     );
 
+    await pool.query(`CREATE TABLE IF NOT EXISTS subscriptions (
+      account_id TEXT PRIMARY KEY, plan_id TEXT, status TEXT DEFAULT 'active',
+      is_trial BOOLEAN DEFAULT false, renewal_date TEXT,
+      subscribed_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW()
+    )`);
+
     if (type === 'install') {
-      console.log('App instalada — account:', accountId);
-      // Inicializar settings por defecto para la cuenta
-      await pool.query(`CREATE TABLE IF NOT EXISTS account_settings (account_id TEXT PRIMARY KEY, settings JSONB DEFAULT '{}', updated_at TIMESTAMP DEFAULT NOW())`);
+      // Inicializar settings por defecto
       await pool.query(
-        'INSERT INTO account_settings (account_id, settings) VALUES ($1,$2) ON CONFLICT (account_id) DO NOTHING',
+        `INSERT INTO account_settings (account_id, settings) VALUES ($1,$2) ON CONFLICT (account_id) DO NOTHING`,
         [accountId, JSON.stringify({ language: 'es', date_format: 'es-MX', timezone: 'America/Mexico_City' })]
       );
+      // Registrar suscripción del install
+      if (planId) {
+        await pool.query(
+          'INSERT INTO subscriptions (account_id, plan_id, status, is_trial, renewal_date) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (account_id) DO UPDATE SET plan_id=$2, status=$3, is_trial=$4, renewal_date=$5, updated_at=NOW()',
+          [accountId, planId, 'active', isTrial || false, renewalDate]
+        );
+      }
     }
 
     if (type === 'uninstall') {
-      console.log('App desinstalada — account:', accountId);
-      // Limpiar tokens de acceso (no los datos del usuario)
       await pool.query('DELETE FROM tokens WHERE account_id=$1', [accountId]);
+      await pool.query("UPDATE subscriptions SET status='uninstalled', updated_at=NOW() WHERE account_id=$1", [accountId]);
     }
 
-    if (type === 'app_subscribed') {
-      console.log('Suscripcion activada — account:', accountId, 'plan:', data?.plan_id);
-      await pool.query(`CREATE TABLE IF NOT EXISTS subscriptions (
-        account_id TEXT PRIMARY KEY, plan_id TEXT, status TEXT DEFAULT 'active',
-        subscribed_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW()
-      )`);
+    if (['app_subscription_created', 'app_subscription_changed', 'app_subscription_renewed', 'app_trial_subscription_started'].includes(type)) {
       await pool.query(
-        'INSERT INTO subscriptions (account_id, plan_id, status) VALUES ($1,$2,$3) ON CONFLICT (account_id) DO UPDATE SET plan_id=$2, status=$3, updated_at=NOW()',
-        [accountId, data?.plan_id || 'basic', 'active']
+        'INSERT INTO subscriptions (account_id, plan_id, status, is_trial, renewal_date) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (account_id) DO UPDATE SET plan_id=$2, status=$3, is_trial=$4, renewal_date=$5, updated_at=NOW()',
+        [accountId, planId, 'active', isTrial || false, renewalDate]
       );
     }
 
-    if (type === 'app_unsubscribed') {
-      console.log('Suscripcion cancelada — account:', accountId);
-      await pool.query('UPDATE subscriptions SET status=$1, updated_at=NOW() WHERE account_id=$2', ['cancelled', accountId]);
+    if (['app_subscription_cancelled', 'app_trial_subscription_ended'].includes(type)) {
+      await pool.query("UPDATE subscriptions SET status='cancelled', updated_at=NOW() WHERE account_id=$1", [accountId]);
+    }
+
+    if (type === 'app_subscription_cancelled_by_user') {
+      // Suscripción sigue activa hasta renewal_date
+      await pool.query("UPDATE subscriptions SET status='cancelling', updated_at=NOW() WHERE account_id=$1", [accountId]);
+    }
+
+    if (type === 'app_subscription_cancellation_revoked_by_user') {
+      await pool.query("UPDATE subscriptions SET status='active', updated_at=NOW() WHERE account_id=$1", [accountId]);
+    }
+
+    if (['app_subscription_renewal_attempt_failed', 'app_subscription_renewal_failed'].includes(type)) {
+      await pool.query("UPDATE subscriptions SET status='payment_failed', updated_at=NOW() WHERE account_id=$1", [accountId]);
     }
 
   } catch(e) {
