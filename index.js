@@ -1127,19 +1127,17 @@ app.post('/sign/:token/send-otp', async (req, res) => {
       [otp, req.params.token]
     );
 
-    // Enviar email
-    const nodemailer = require('nodemailer');
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: process.env.SMTP_SECURE === 'true',
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-    });
-
-    await transporter.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      to: sig.signer_email,
-      subject: 'Código de verificación para firma de documento',
+    // Enviar email via Resend API
+    const emailRes = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + process.env.SMTP_PASS,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: process.env.SMTP_FROM || 'DocuGen <noreply@velumlaser.com>',
+        to: [sig.signer_email],
+        subject: 'Código de verificación para firma de documento',
       html: `
         <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:20px">
           <div style="background:#0f1e3d;color:white;padding:20px;border-radius:8px 8px 0 0;text-align:center">
@@ -1156,8 +1154,10 @@ app.post('/sign/:token/send-otp', async (req, res) => {
           </div>
         </div>
       `
+      })
     });
-
+    const emailData = await emailRes.json();
+    if (!emailRes.ok) throw new Error('Resend error: ' + JSON.stringify(emailData));
     console.log('OTP enviado a:', sig.signer_email);
     res.json({ ok: true, email: sig.signer_email.replace(/(.{2}).*(@.*)/, '$1***$2') });
   } catch(e) {
