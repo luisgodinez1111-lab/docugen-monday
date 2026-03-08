@@ -495,21 +495,21 @@
         const downloadBtn = signed
           ? '<a href="' + API + '/sign/' + s.token + '/download" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:#059669;color:white;border-radius:5px;font-size:11px;text-decoration:none;font-weight:600">⬇ PDF Firmado</a>'
           : '<button onclick="navigator.clipboard.writeText(\''+portalUrl+'\')" style="padding:4px 10px;background:#3b82f6;color:white;border:none;border-radius:5px;font-size:11px;cursor:pointer;font-weight:600">📋 Copiar link</button>';
-        return \`<div style="padding:12px 14px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--surface)">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-            <div style="flex:1;min-width:0">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-                <span style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\${s.signer_name || 'Sin nombre'}</span>
-                <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;background:\${statusBg};color:\${statusColor}">\${statusIcon} \${statusLabel}</span>
-              </div>
-              <div style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📄 \${s.document_filename}</div>
-              \${s.signer_email ? '<div style="font-size:11px;color:var(--text-muted)">✉️ '+s.signer_email+'</div>' : ''}
-              \${signed ? '<div style="font-size:11px;color:#059669;margin-top:3px">🖊 Firmado: '+signedDate+'</div>' : '<div style="font-size:11px;color:var(--text-muted)">📅 Creado: '+createdDate+'</div>'}
-              \${s.signer_ip ? '<div style="font-size:10px;color:var(--text-muted)">🌐 IP: '+s.signer_ip+'</div>' : ''}
-            </div>
-            <div style="flex-shrink:0">\${downloadBtn}</div>
-          </div>
-        </div>\`;
+        const emailRow = s.signer_email ? '<div style="font-size:11px;color:var(--text-muted)">'+s.signer_email+'</div>' : '';
+        const dateRow = signed ? '<div style="font-size:11px;color:#059669;margin-top:3px">Firmado: '+signedDate+'</div>' : '<div style="font-size:11px;color:var(--text-muted)">Creado: '+createdDate+'</div>';
+        const ipRow = s.signer_ip ? '<div style="font-size:10px;color:var(--text-muted)">IP: '+s.signer_ip+'</div>' : '';
+        return '<div style="padding:12px 14px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--surface)">' +
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">' +
+          '<div style="flex:1;min-width:0">' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+          '<span style="font-weight:600;font-size:13px">' + (s.signer_name || 'Sin nombre') + '</span>' +
+          '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;background:'+statusBg+';color:'+statusColor+'">' + statusIcon + ' ' + statusLabel + '</span>' +
+          '</div>' +
+          '<div style="font-size:11px;color:var(--text-muted)">📄 ' + s.document_filename + '</div>' +
+          emailRow + dateRow + ipRow +
+          '</div>' +
+          '<div style="flex-shrink:0">' + downloadBtn + '</div>' +
+          '</div></div>';
       }).join('');
     } catch(e) {}
   }
