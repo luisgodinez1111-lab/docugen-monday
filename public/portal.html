@@ -414,7 +414,7 @@ async function loadPDF() {
       iframe.srcdoc = html;
       document.getElementById('page-info').textContent = 'DOC';
     } else {
-      iframe.src = '/sign/' + TOKEN + '/preview-pdf';
+      iframe.src = '/sign/' + TOKEN + '/preview-pdf?t=' + Date.now();
       document.getElementById('page-info').textContent = 'PDF';
     }
     container.appendChild(iframe);
