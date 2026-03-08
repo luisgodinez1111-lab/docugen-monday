@@ -393,38 +393,33 @@ function getSig(){
 // ── DOC VIEWER ──
 async function loadPDF() {
   const container = document.getElementById('viewer-pages');
-  const loadingEl = document.getElementById('viewer-loading');
-  container.innerHTML = '<div class="viewer-loading" id="viewer-loading">Cargando documento...</div>';
+  if (!container) { console.error('viewer-pages not found'); return; }
+  container.innerHTML = '<div class="viewer-loading">Cargando documento...</div>';
+  container.style.padding = '20px';
+  console.log('loadPDF: fetching', '/sign/' + TOKEN + '/preview-pdf');
   try {
     const resp = await fetch('/sign/' + TOKEN + '/preview-pdf');
+    console.log('loadPDF: status', resp.status, resp.headers.get('content-type'));
     if (!resp.ok) {
-      container.innerHTML = '<div class="viewer-loading">❌ Documento no disponible ('+resp.status+')</div>';
+      container.innerHTML = '<div class="viewer-loading">❌ Error ' + resp.status + '</div>';
       return;
     }
     const ct = resp.headers.get('content-type') || '';
+    container.innerHTML = '';
+    container.style.padding = '0';
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'width:100%;height:700px;border:none;background:white;display:block';
     if (ct.includes('text/html')) {
       const html = await resp.text();
-      container.innerHTML = '';
-      container.style.padding = '0';
-      const iframe = document.createElement('iframe');
-      iframe.style.cssText = 'width:100%;height:100%;min-height:600px;border:none;background:white';
       iframe.srcdoc = html;
-      container.appendChild(iframe);
       document.getElementById('page-info').textContent = 'DOC';
-    } else if (ct.includes('application/pdf')) {
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      container.innerHTML = '';
-      container.style.padding = '0';
-      const iframe = document.createElement('iframe');
-      iframe.src = url;
-      iframe.style.cssText = 'width:100%;height:100%;min-height:600px;border:none;background:white';
-      container.appendChild(iframe);
-      document.getElementById('page-info').textContent = 'PDF';
     } else {
-      container.innerHTML = '<div class="viewer-loading">⚠️ Formato no soportado</div>';
+      iframe.src = '/sign/' + TOKEN + '/preview-pdf';
+      document.getElementById('page-info').textContent = 'PDF';
     }
+    container.appendChild(iframe);
   } catch(e) {
+    console.error('loadPDF error:', e);
     container.innerHTML = '<div class="viewer-loading">❌ Error: ' + e.message + '</div>';
   }
 }
