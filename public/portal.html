@@ -322,6 +322,21 @@ async function authAccess() {
   } catch(e) { document.getElementById('auth-error').textContent = 'Error de conexión'; }
 }
 
+async function sendOtp() {
+  try {
+    const res = await fetch('/sign/' + TOKEN + '/send-otp', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById('otp-email-display').textContent = data.email;
+      showScreen('otp');
+    } else {
+      document.getElementById('auth-error').textContent = data.error || 'Error enviando código';
+    }
+  } catch(e) {
+    document.getElementById('auth-error').textContent = 'Error enviando OTP: ' + e.message;
+  }
+}
+
 async function verifyOtp() {
   const otp = document.getElementById('otp-input').value;
   const res = await fetch('/sign/' + TOKEN + '/verify-otp', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({otp}) });
