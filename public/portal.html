@@ -342,8 +342,12 @@ async function verifyOtp() {
   const otp = document.getElementById('otp-input').value;
   const res = await fetch('/sign/' + TOKEN + '/verify-otp', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({otp}) });
   const data = await res.json();
-  if (data.success) loadPortal(document.getElementById('auth-name').value, {});
-  else document.getElementById('otp-error').textContent = 'Codigo incorrecto';
+  if (data.verified || data.success) {
+    const name = window._signerName || document.getElementById('auth-name').value;
+    const infoRes = await fetch('/sign/' + TOKEN + '/info');
+    const infoData = await infoRes.json();
+    loadPortal(name, infoData);
+  } else document.getElementById('otp-error').textContent = 'Codigo incorrecto';
 }
 
 function showScreen(name) {
