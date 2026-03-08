@@ -1752,6 +1752,155 @@ app.get('/subscription', requireAuth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── MONDAY WORKFLOWS - ACTION BLOCKS ──
+// Docs: https://developer.monday.com/apps/docs/workflows-actions
+// JWT verification helper
+function verifyWorkflowJWT(req) {
+  try {
+    const auth = req.headers['authorization'] || '';
+    const token = auth.replace('Bearer ', '');
+    if (!token) return null;
+    return jwt.verify(token, process.env.MONDAY_SIGNING_SECRET || process.env.MONDAY_CLIENT_SECRET || '');
+  } catch(e) { return null; }
+}
+
+// ACTION BLOCK 1: Generar documento desde workflow
+// Run URL: https://docugen-monday-production.up.railway.app/workflows/generate-document
+app.post('/workflows/generate-document', async (req, res) => {
+  const verified = verifyWorkflowJWT(req);
+  if (!verified) return res.status(401).json(severityError(4000, 'Auth error', 'Invalid token', 'JWT verification failed'));
+
+  const { payload } = req.body;
+  const fields = payload?.inboundFieldValues || payload?.inputFields || {};
+  const accountId = verified.accountId || verified.account_id;
+
+  const itemId    = fields.itemId    || fields.item_id;
+  const boardId   = fields.boardId   || fields.board_id;
+  const templateId = fields.templateId || fields.template_id;
+
+  if (!itemId || !boardId || !templateId) {
+    return res.status(400).json(severityError(4000, 'Campos requeridos', 'Faltan itemId, boardId o templateId', 'Missing required input fields'));
+  }
+
+  try {
+    // Obtener token del account
+    const tokenRow = await pool.query('SELECT access_token FROM tokens WHERE account_id=$1 LIMIT 1', [accountId]);
+    if (!tokenRow.rows.length) return res.status(401).json(severityError(6000, 'No autenticado', 'La cuenta no tiene token', 'No token found for account'));
+    const accessToken = tokenRow.rows[0].access_token;
+
+    // Obtener datos del item via GraphQL
+    const gqlResp = await fetch('https://api.monday.com/v2', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': accessToken },
+      body: JSON.stringify({ query: `query {
+        items(ids: [${itemId}]) {
+          id name
+          column_values { id text value }
+        }
+      }` })
+    });
+    const gqlData = await gqlResp.json();
+    const item = gqlData?.data?.items?.[0];
+    if (!item) return res.status(404).json(severityError(4000, 'Item no encontrado', 'El item no existe o no es accesible', 'Item not found'));
+
+    // Obtener template
+    const tmplRow = await pool.query('SELECT * FROM templates WHERE id=$1 AND account_id=$2', [templateId, accountId]);
+    if (!tmplRow.rows.length) return res.status(404).json(severityError(4000, 'Template no encontrado', 'El template no existe', 'Template not found'));
+
+    // Construir rowData desde column_values
+    const rowData = { item_name: item.name };
+    item.column_values.forEach(cv => {
+      rowData[cv.id] = cv.text || '';
+      try { const v = JSON.parse(cv.value); if (v && typeof v === 'object') rowData[cv.id + '_raw'] = v; } catch(e){}
+    });
+
+    // Generar documento usando la función existente
+    const doc = new DocxTemplater();
+    const templateBuf = tmplRow.rows[0].file_data;
+    doc.loadZip(new PizZip(templateBuf));
+    doc.setData(rowData);
+    doc.render();
+    const docBuf = doc.getZip().generate({ type: 'nodebuffer' });
+
+    // Guardar en documents
+    const docRow = await pool.query(
+      'INSERT INTO documents (account_id, template_id, item_id, board_id, file_data, filename, created_at) VALUES ($1,$2,$3,$4,$5,$6,NOW()) RETURNING id',
+      [accountId, templateId, itemId, boardId, docBuf, `${item.name}_${Date.now()}.docx`]
+    );
+    const docId = docRow.rows[0].id;
+
+    console.log('Workflow generate-document: doc', docId, 'item', itemId, 'account', accountId);
+
+    res.status(200).json({
+      outputFields: {
+        documentId: docId.toString(),
+        itemName: item.name,
+        success: true,
+        generatedAt: new Date().toISOString()
+      }
+    });
+  } catch(e) {
+    console.error('Workflow generate-document error:', e.message);
+    res.status(500).json(severityError(4000, 'Error al generar', 'Ocurrió un error al generar el documento', e.message));
+  }
+});
+
+// ACTION BLOCK 2: Enviar documento a firma desde workflow
+// Run URL: https://docugen-monday-production.up.railway.app/workflows/send-for-signature
+app.post('/workflows/send-for-signature', async (req, res) => {
+  const verified = verifyWorkflowJWT(req);
+  if (!verified) return res.status(401).json(severityError(4000, 'Auth error', 'Invalid token', 'JWT verification failed'));
+
+  const { payload } = req.body;
+  const fields = payload?.inboundFieldValues || payload?.inputFields || {};
+  const accountId = verified.accountId || verified.account_id;
+
+  const documentId   = fields.documentId || fields.document_id;
+  const signerName   = fields.signerName  || fields.signer_name  || '';
+  const signerEmail  = fields.signerEmail || fields.signer_email || '';
+  const itemId       = fields.itemId      || fields.item_id;
+
+  if (!documentId) {
+    return res.status(400).json(severityError(4000, 'Campo requerido', 'Falta documentId', 'Missing documentId'));
+  }
+
+  try {
+    // Verificar que el documento existe
+    const docRow = await pool.query('SELECT * FROM documents WHERE id=$1 AND account_id=$2', [documentId, accountId]);
+    if (!docRow.rows.length) return res.status(404).json(severityError(4000, 'Documento no encontrado', 'El documento no existe', 'Document not found'));
+
+    // Crear signature request
+    const token = require('crypto').randomBytes(32).toString('hex');
+    const sigRow = await pool.query(
+      `INSERT INTO signature_requests (document_id, account_id, item_id, signer_name, signer_email, token, status, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,'pending',NOW()) RETURNING id`,
+      [documentId, accountId, itemId || null, signerName, signerEmail, token]
+    );
+    const sigId = sigRow.rows[0].id;
+    const portalUrl = `${process.env.APP_URL || 'https://docugen-monday-production.up.railway.app'}/portal.html?token=${token}`;
+
+    // Enviar email si hay email del firmante
+    if (signerEmail) {
+      await sendSignatureEmail(signerEmail, signerName, portalUrl, docRow.rows[0].filename || 'Documento');
+    }
+
+    console.log('Workflow send-for-signature: sig', sigId, 'doc', documentId, 'account', accountId);
+
+    res.status(200).json({
+      outputFields: {
+        signatureRequestId: sigId.toString(),
+        portalUrl,
+        signerEmail,
+        success: true,
+        sentAt: new Date().toISOString()
+      }
+    });
+  } catch(e) {
+    console.error('Workflow send-for-signature error:', e.message);
+    res.status(500).json(severityError(4000, 'Error al enviar', 'Ocurrió un error al enviar a firma', e.message));
+  }
+});
+
 // ── SEVERITY CODES (Monday Workflows Action Blocks) ──
 // Según docs: https://developer.monday.com/apps/docs/error-handling
 function severityError(code, title, description, runtimeDesc, disableDesc) {
