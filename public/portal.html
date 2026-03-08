@@ -103,7 +103,7 @@ canvas#sigCanvas{display:block;width:100%}
   <div class="auth-card">
     <div class="doc-chip">📄 <span id="auth-docname">Cargando...</span></div>
     <h1>Accede al documento</h1>
-    <p>Ingresa tu nombre para continuar al portal de firma.</p>
+    <p id="auth-sub">Ingresa tu nombre para continuar al portal de firma.</p>
     <label>Tu nombre completo</label>
     <input type="text" id="auth-name" placeholder="Nombre completo">
     <label>Correo electrónico (opcional)</label>
@@ -118,7 +118,7 @@ canvas#sigCanvas{display:block;width:100%}
 <div class="screen" id="screen-otp">
   <div class="auth-card">
     <h1>Verifica tu identidad</h1>
-    <p>Ingresa el código de 6 dígitos enviado a tu correo.</p>
+    <p id="otp-sub">Ingresa el código de 6 dígitos enviado a tu correo.</p>
     <input class="otp-input" id="otp-input" maxlength="6" placeholder="000000" type="tel">
     <button class="btn btn-dark" onclick="verifyOtp()">Verificar →</button>
     <div class="err" id="otp-error"></div>
@@ -150,7 +150,7 @@ canvas#sigCanvas{display:block;width:100%}
 
         <!-- Doc info -->
         <div class="s-card">
-          <h3>Documento</h3>
+          <h3 id="sig-section-title">Tu firma</h3>
           <div style="font-size:13px;font-weight:600;margin-bottom:4px" id="doc-name">—</div>
           <div style="font-size:11px;color:var(--muted)" id="doc-status">—</div>
         </div>
@@ -185,7 +185,7 @@ canvas#sigCanvas{display:block;width:100%}
 
         <!-- Firma -->
         <div class="s-card" id="sig-card">
-          <h3>Tu firma</h3>
+          <h3 id="sig-section-title">Tu firma</h3>
           <label style="margin-top:0">Nombre completo</label>
           <input type="text" id="signer-name" placeholder="Tu nombre" style="margin-bottom:10px">
           <div class="sig-tabs">
@@ -213,7 +213,7 @@ canvas#sigCanvas{display:block;width:100%}
           <div style="background:#f8faff;border:1px solid #c7d7f0;border-radius:8px;padding:12px;margin:12px 0;font-size:12px;color:#333">
             <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer">
               <input type="checkbox" id="consent-check" style="margin-top:2px;width:16px;height:16px;flex-shrink:0" onchange="document.getElementById('btn-sign').disabled=!this.checked">
-              <span>Acepto que mi firma electrónica tiene <b>plena validez legal</b> conforme al Código de Comercio de México (Art. 89-114) y NOM-151-SCFI-2016. He leído y acepto el contenido del documento. Entiendo que se registrará mi nombre, dirección IP y fecha/hora exacta como parte del certificado de firma.</span>
+              <span><span id="consent-text">Acepto que mi firma electrónica tiene <b>plena validez legal</b> conforme al Código de Comercio de México (Art. 89-114) y NOM-151-SCFI-2016. He leído y acepto el contenido del documento. Entiendo que se registrará mi nombre, dirección IP y fecha/hora exacta como parte del certificado de firma.</span></span>
             </label>
           </div>
           <button class="btn btn-green" onclick="submitSignature()" id="btn-sign" disabled>✍️ Firmar documento</button>
@@ -222,7 +222,7 @@ canvas#sigCanvas{display:block;width:100%}
 
         <!-- Descarga -->
         <div class="s-card" id="download-card">
-          <h3>Descargar</h3>
+          <h3 id="download-section-title">Descargar</h3>
           <a id="download-btn" href="#" class="btn-download">📄 Descargar PDF</a>
         </div>
 
@@ -235,6 +235,70 @@ canvas#sigCanvas{display:block;width:100%}
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 const TOKEN = window.location.pathname.split('/sign/')[1]?.split('/')[0];
+
+// ── i18n PORTAL ──
+const portalI18n = {
+  es: {
+    auth_title: 'Bienvenido', auth_sub: 'Ingresa tu nombre para continuar al portal de firma.',
+    auth_placeholder: 'Tu nombre completo', auth_btn: 'Continuar →',
+    otp_title: 'Verificación', otp_sub: 'Ingresa el código de 6 dígitos enviado a tu correo.',
+    otp_btn: 'Verificar →',
+    doc_label: 'Documento', status_signed: 'Firmado', status_pending: 'Pendiente de firma',
+    tl_sent: 'Solicitud enviada', tl_viewed: 'Documento revisado', tl_pending: 'Pendiente de firma',
+    tl_signed: 'Firmado',
+    sig_title: 'Tu firma', tab_draw: '✏️ Dibujar', tab_type: '⌨️ Escribir', tab_upload: '📁 Subir',
+    typed_placeholder: 'Escribe tu firma', typed_preview: 'Tu firma',
+    upload_label: 'Subir imagen de firma',
+    consent: '<span id="consent-text">Acepto que mi firma electrónica tiene <b>plena validez legal</b> conforme al Código de Comercio de México (Art. 89-114) y NOM-151-SCFI-2016. He leído y acepto el contenido del documento. Entiendo que se registrará mi nombre, dirección IP y fecha/hora exacta como parte del certificado de firma.',
+    btn_sign: '✍️ Firmar documento', btn_signing: 'Firmando...',
+    notice: '🔒 Firma con validez legal · Se registrará IP, nombre y fecha exacta',
+    download_title: 'Descargar', download_btn: '📄 Descargar PDF',
+    signed_title: 'Documento firmado', signed_msg: 'Firma registrada correctamente',
+    draw_hint: 'Dibuja tu firma', type_hint: 'Escribe tu firma',
+    name_required: 'Ingresa tu nombre',
+  },
+  en: {
+    auth_title: 'Welcome', auth_sub: 'Enter your name to access the signature portal.',
+    auth_placeholder: 'Your full name', auth_btn: 'Continue →',
+    otp_title: 'Verification', otp_sub: 'Enter the 6-digit code sent to your email.',
+    otp_btn: 'Verify →',
+    doc_label: 'Document', status_signed: 'Signed', status_pending: 'Pending signature',
+    tl_sent: 'Request sent', tl_viewed: 'Document reviewed', tl_pending: 'Pending signature',
+    tl_signed: 'Signed',
+    sig_title: 'Your signature', tab_draw: '✏️ Draw', tab_type: '⌨️ Type', tab_upload: '📁 Upload',
+    typed_placeholder: 'Type your signature', typed_preview: 'Your signature',
+    upload_label: 'Upload signature image',
+    consent: 'I accept that my electronic signature has <b>full legal validity</b> under the Mexican Commerce Code (Art. 89-114) and NOM-151-SCFI-2016. I have read and accept the document content. I understand that my name, IP address, and exact date/time will be recorded as part of the signature certificate.',
+    btn_sign: '✍️ Sign document', btn_signing: 'Signing...',
+    notice: '🔒 Legally valid signature · IP, name and exact date will be recorded',
+    download_title: 'Download', download_btn: '📄 Download PDF',
+    signed_title: 'Document signed', signed_msg: 'Signature successfully recorded',
+    draw_hint: 'Draw your signature', type_hint: 'Type your signature',
+    name_required: 'Enter your name',
+  }
+};
+
+let portalLang = 'es';
+function applyPortalLang(lang) {
+  portalLang = lang;
+  const t = portalI18n[lang] || portalI18n.es;
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.innerHTML = val; };
+  const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  const setPh = (id, val) => { const el = document.getElementById(id); if (el) el.placeholder = val; };
+  set('auth-title', t.auth_title); set('auth-sub', t.auth_sub);
+  setPh('signer-name', t.auth_placeholder);
+  const authBtn = document.querySelector('[onclick="authAccess()"]'); if (authBtn) authBtn.textContent = t.auth_btn;
+  set('otp-title', t.otp_title); set('otp-sub', t.otp_sub);
+  const otpBtn = document.querySelector('[onclick="verifyOtp()"]'); if (otpBtn) otpBtn.textContent = t.otp_btn;
+  setText('tl-label1', t.tl_sent); setText('tl-label2', t.tl_viewed); setText('tl-label3', t.tl_pending);
+  set('consent-text', t.consent);
+  const btnSign = document.getElementById('btn-sign'); if (btnSign && btnSign.textContent !== t.btn_signing) btnSign.textContent = t.btn_sign;
+  set('sig-section-title', t.sig_title);
+  set('download-section-title', t.download_title);
+  const dlBtn = document.getElementById('download-btn'); if (dlBtn) dlBtn.textContent = t.download_btn;
+  setPh('typed-sig', t.typed_placeholder);
+  const notice = document.querySelector('.notice'); if (notice) notice.textContent = t.notice;
+}
 let pdfDoc = null, currentPage = 1, totalPages = 1;
 let uploadedSigData = null, currentTab = 'draw', hasSig = false, drawing = false;
 
@@ -357,6 +421,7 @@ function showScreen(name) {
 
 function loadPortal(name, data) {
   showScreen('portal');
+  if (data.account_id) loadPortalLangFromSettings(data.account_id);
   document.getElementById('doc-name').textContent = data.document_filename || 'Documento';
   document.getElementById('viewer-filename').textContent = data.document_filename || 'Documento';
   document.getElementById('doc-status').textContent = data.status === 'signed' ? 'Firmado' : 'Pendiente de firma';
