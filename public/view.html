@@ -251,8 +251,8 @@
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">Plantilla</div>
-            <div class="card-subtitle">Selecciona o sube una plantilla .docx</div>
+            <div class="card-title" data-i18n="plantilla">Plantilla</div>
+            <div class="card-subtitle" data-i18n="plantilla_sub">Selecciona o sube una plantilla .docx</div>
           </div>
           <div style="display:flex;gap:6px">
             <button class="btn btn-sm btn-ghost" onclick="openEditor()">✏️ Diseñar</button>
@@ -276,8 +276,8 @@
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">Item del tablero</div>
-            <div class="card-subtitle" id="items-desc">Items del tablero activo</div>
+            <div class="card-title" data-i18n="item">Item del tablero</div>
+            <div class="card-subtitle" id="items-desc" data-i18n="item_sub">Items del tablero activo</div>
           </div>
         </div>
         <div class="card-body">
@@ -301,8 +301,8 @@
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">Generar documento</div>
-            <div class="card-subtitle">Exporta con los datos del item seleccionado</div>
+            <div class="card-title" data-i18n="generar">Generar documento</div>
+            <div class="card-subtitle" data-i18n="generar_sub">Exporta con los datos del item seleccionado</div>
           </div>
         </div>
         <div class="card-body">
@@ -327,8 +327,8 @@
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">Solicitar firma digital</div>
-            <div class="card-subtitle">Genera un link de firma para el documento</div>
+            <div class="card-title" data-i18n="firmas_title">Solicitar firma digital</div>
+            <div class="card-subtitle" data-i18n="firmas_sub">Genera un link de firma para el documento</div>
           </div>
         </div>
         <div class="card-body">
@@ -344,7 +344,7 @@
       <!-- Lista de firmas -->
       <div class="card">
         <div class="card-header">
-          <div class="card-title">Solicitudes de firma</div>
+          <div class="card-title" data-i18n="firmas_list">Solicitudes de firma</div>
           <button onclick="loadSignatures()" class="btn btn-sm btn-ghost">↻ Actualizar</button>
         </div>
         <div class="card-body" style="padding:8px">
@@ -364,8 +364,8 @@
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">Generación masiva</div>
-            <div class="card-subtitle">Genera documentos para todos los items del tablero</div>
+            <div class="card-title" data-i18n="auto_bulk">Generación masiva</div>
+            <div class="card-subtitle" data-i18n="auto_bulk_sub">Genera documentos para todos los items del tablero</div>
           </div>
         </div>
         <div class="card-body">
@@ -378,19 +378,19 @@
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">Triggers automáticos</div>
-            <div class="card-subtitle">Genera documentos cuando cambia un valor en monday</div>
+            <div class="card-title" data-i18n="auto_trigger">Triggers automáticos</div>
+            <div class="card-subtitle" data-i18n="auto_trigger_sub">Genera documentos cuando cambia un valor en monday</div>
           </div>
         </div>
         <div class="card-body">
           <div class="input-group">
-            <input class="input" id="triggerColumnId" placeholder="ID de columna (ej: status)">
-            <input class="input" id="triggerValue" placeholder="Valor que activa (ej: Aprobado)">
+            <input class="input" id="triggerColumnId" placeholder="ID de columna (ej: status)" data-ph="trigger_col">
+            <input class="input" id="triggerValue" placeholder="Valor que activa (ej: Aprobado)" data-ph="trigger_val">
             <button class="btn btn-primary" onclick="saveTrigger()">⚡ Guardar trigger</button>
           </div>
         </div>
         <div style="padding:0 18px 14px">
-          <div class="section-label">Triggers activos</div>
+          <div class="section-label" data-i18n="auto_trigger_active">Triggers activos</div>
           <div id="triggersList"><div class="empty">Sin triggers</div></div>
         </div>
       </div>
@@ -399,25 +399,25 @@
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">Automatización programada</div>
-            <div class="card-subtitle">Genera documentos en horario automático</div>
+            <div class="card-title" data-i18n="auto_sched">Automatización programada</div>
+            <div class="card-subtitle" data-i18n="auto_sched_sub">Genera documentos en horario automático</div>
           </div>
         </div>
         <div class="card-body">
           <div class="input-group">
-            <input class="input" id="autoName" placeholder="Nombre (ej: Facturas mensuales)">
+            <input class="input" id="autoName" placeholder="Nombre (ej: Facturas mensuales)" data-ph="auto_name">
             <select class="input" id="autoCron">
               <option value="daily">Cada día (8am)</option>
               <option value="weekly">Cada semana (Lunes 8am)</option>
               <option value="monthly">Cada mes (Día 1, 8am)</option>
             </select>
-            <input class="input" id="autoCondCol" placeholder="Condición: ID columna (opcional)">
-            <input class="input" id="autoCondVal" placeholder="Condición: valor requerido (opcional)">
+            <input class="input" id="autoCondCol" placeholder="Condición: ID columna (opcional)" data-ph="auto_cond_col">
+            <input class="input" id="autoCondVal" placeholder="Condición: valor requerido (opcional)" data-ph="auto_cond_val">
             <button class="btn btn-primary" onclick="saveScheduledAuto()">💾 Guardar automatización</button>
           </div>
         </div>
         <div style="padding:0 18px 14px">
-          <div class="section-label">Automatizaciones activas</div>
+          <div class="section-label" data-i18n="auto_sched_active">Automatizaciones activas</div>
           <div id="scheduledAutosList"><div class="empty">Sin automatizaciones</div></div>
         </div>
       </div>
@@ -431,7 +431,7 @@
     <div class="panel" id="panel-historial">
       <div class="card">
         <div class="card-header">
-          <div class="card-title">Documentos generados</div>
+          <div class="card-title" data-i18n="historial_title">Documentos generados</div>
           <span class="pill pill-gray">Últimos 20</span>
         </div>
         <div id="historial-list"><div class="empty" style="padding:28px">Cargando historial...</div></div>
@@ -444,7 +444,7 @@
       <!-- Idioma -->
       <div class="card">
         <div class="card-header">
-          <div><div class="card-title">🌐 Idioma del sistema</div><div class="card-subtitle">Cambia el idioma de la interfaz</div></div>
+          <div><div class="card-title" data-i18n="ajustes_lang">🌐 Idioma del sistema</div><div class="card-subtitle" data-i18n="ajustes_lang_sub">Cambia el idioma de la interfaz</div></div>
         </div>
         <div class="card-body">
           <div class="input-group">
@@ -459,7 +459,7 @@
       <!-- Fecha y hora -->
       <div class="card">
         <div class="card-header">
-          <div><div class="card-title">📅 Fecha y hora</div><div class="card-subtitle">Formato usado en documentos generados</div></div>
+          <div><div class="card-title" data-i18n="ajustes_fecha">📅 Fecha y hora</div><div class="card-subtitle" data-i18n="ajustes_fecha_sub">Formato usado en documentos generados</div></div>
         </div>
         <div class="card-body">
           <div class="input-group">
@@ -487,7 +487,7 @@
       <!-- Logo portal de firmas -->
       <div class="card">
         <div class="card-header">
-          <div><div class="card-title">🖼 Logo del portal de firmas</div><div class="card-subtitle">Aparece en el link que se comparte para firmar</div></div>
+          <div><div class="card-title" data-i18n="ajustes_logo">🖼 Logo del portal de firmas</div><div class="card-subtitle" data-i18n="ajustes_logo_sub">Aparece en el link que se comparte para firmar</div></div>
         </div>
         <div class="card-body">
           <div id="logo-preview" style="margin-bottom:12px;display:none">
@@ -506,7 +506,7 @@
       <!-- Campos personalizados -->
       <div class="card">
         <div class="card-header">
-          <div><div class="card-title">🏷 Campos personalizados</div><div class="card-subtitle">Variables globales disponibles en todas las plantillas</div></div>
+          <div><div class="card-title" data-i18n="ajustes_campos">🏷 Campos personalizados</div><div class="card-subtitle" data-i18n="ajustes_campos_sub">Variables globales disponibles en todas las plantillas</div></div>
           <button class="btn btn-sm btn-ghost" onclick="addCustomField()">+ Agregar</button>
         </div>
         <div class="card-body" style="padding:8px">
@@ -707,6 +707,25 @@
     if (btnPdf) btnPdf.textContent = t.btn_pdf;
     const btnXlsx = document.getElementById('generate-xlsx-btn');
     if (btnXlsx) btnXlsx.textContent = t.btn_excel;
+    // Placeholders con data-ph
+    const phMap = {
+      trigger_col: {es:'ID de columna (ej: status)', en:'Column ID (e.g. status)'},
+      trigger_val: {es:'Valor que activa (ej: Aprobado)', en:'Trigger value (e.g. Approved)'},
+      auto_name: {es:'Nombre (ej: Facturas mensuales)', en:'Name (e.g. Monthly invoices)'},
+      auto_cond_col: {es:'Condición: ID columna (opcional)', en:'Condition: column ID (optional)'},
+      auto_cond_val: {es:'Condición: valor requerido (opcional)', en:'Condition: required value (optional)'},
+    };
+    document.querySelectorAll('[data-ph]').forEach(el => {
+      const key = el.getAttribute('data-ph');
+      if (phMap[key] && phMap[key][lang]) el.placeholder = phMap[key][lang];
+    });
+    // Botón diseñar/panel
+    document.querySelectorAll('[onclick="openEditor()"]').forEach(el => { el.textContent = t.btn_disenhar; });
+    // Trigger save button
+    const btnTrigger = document.querySelector('[onclick="saveTrigger()"]');
+    if (btnTrigger) btnTrigger.textContent = lang === 'en' ? '⚡ Save trigger' : '⚡ Guardar trigger';
+    const btnSched = document.querySelector('[onclick="saveScheduledAuto()"]');
+    if (btnSched) btnSched.textContent = lang === 'en' ? '💾 Save automation' : '💾 Guardar automatización';
     // Save to localStorage
     try { localStorage.setItem('docugen_lang', lang); } catch(e) {}
   }
