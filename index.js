@@ -1059,12 +1059,14 @@ app.post('/signatures/request', requireAuth, async (req, res) => {
     const consentText = 'Al firmar este documento, el firmante acepta que su firma electronica tiene plena validez legal conforme a la legislacion mexicana (Codigo de Comercio Art. 89-114, NOM-151-SCFI-2016). IP: ' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '') + '. Fecha: ' + new Date().toISOString();
     // Guardar doc_data directamente en la solicitud de firma
     let signDocData = null;
+    console.log('FIRMA: item_id=', item_id, 'account=', req.accountId, 'doc_filename=', document_filename);
     try {
       if (item_id) {
         const docQ = await pool.query(
           "SELECT doc_data FROM documents WHERE item_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1",
           [String(item_id)]
         );
+        console.log('FIRMA: docs by item_id:', docQ.rows.length);
         if (docQ.rows.length) signDocData = docQ.rows[0].doc_data;
       }
       if (!signDocData) {
@@ -1072,6 +1074,7 @@ app.post('/signatures/request', requireAuth, async (req, res) => {
           "SELECT doc_data FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1",
           [req.accountId]
         );
+        console.log('FIRMA: docs by account:', docQ2.rows.length);
         if (docQ2.rows.length) signDocData = docQ2.rows[0].doc_data;
       }
     } catch(e) {}
@@ -1080,6 +1083,7 @@ app.post('/signatures/request', requireAuth, async (req, res) => {
       'INSERT INTO signature_requests (token, account_id, document_filename, signer_name, signer_email, item_id, board_id, expires_at, doc_hash, audit_log, consent_text, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
       [token, req.accountId, document_filename, signer_name, signer_email, item_id, board_id, expiresAt, docHashVal, auditInit, consentText, signDocData]
     );
+    console.log('FIRMA: signDocData guardado:', signDocData ? signDocData.length + ' bytes' : 'NULL');
     const signUrl = process.env.APP_URL + '/sign/' + token;
 
     // Enviar email al firmante si hay email
