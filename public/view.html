@@ -4,224 +4,439 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DocuGen</title>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #F5F4F0; --surface: #FFFFFF; --border: #E2E0D8; --text: #1A1916;
-      --muted: #8A8880; --accent: #2D5BE3; --accent-light: #EEF2FD;
-      --success: #1A7A4A; --success-light: #EDFBF3; --error: #C0392B;
-      --error-light: #FDF0EE; --mono: 'DM Mono', monospace; --sans: 'DM Sans', sans-serif;
+      --bg: #F2F2F7;
+      --surface: #FFFFFF;
+      --surface2: #F9F9FB;
+      --border: rgba(0,0,0,0.08);
+      --border2: rgba(0,0,0,0.12);
+      --text: #1C1C1E;
+      --text2: #3C3C43;
+      --muted: rgba(60,60,67,0.6);
+      --accent: #007AFF;
+      --accent-light: rgba(0,122,255,0.08);
+      --accent-mid: rgba(0,122,255,0.15);
+      --green: #34C759;
+      --green-light: rgba(52,199,89,0.1);
+      --orange: #FF9500;
+      --orange-light: rgba(255,149,0,0.1);
+      --red: #FF3B30;
+      --red-light: rgba(255,59,48,0.1);
+      --purple: #AF52DE;
+      --purple-light: rgba(175,82,222,0.1);
+      --sans: -apple-system, 'SF Pro Display', 'Inter', sans-serif;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-md: 0 4px 16px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04);
     }
-    body { font-family: var(--sans); background: var(--bg); color: var(--text); min-height: 100vh; }
-    .app { max-width: 720px; margin: 0 auto; padding: 32px 24px; }
-    .header { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
-    .logo { width: 36px; height: 36px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
-    .logo svg { width: 20px; height: 20px; fill: white; }
-    .header-text h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
-    .header-text p { font-size: 13px; color: var(--muted); }
-    .account-badge { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--border); padding: 4px 10px; border-radius: 20px; }
-    .board-badge { font-family: var(--mono); font-size: 11px; color: var(--accent); background: var(--accent-light); padding: 4px 10px; border-radius: 20px; margin-left: 8px; }
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 16px; }
-    .card-label { font-size: 11px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; font-family: var(--mono); }
-    .section-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
-    .section-desc { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
-    .badge { display: inline-flex; padding: 2px 8px; background: var(--accent-light); color: var(--accent); border-radius: 20px; font-size: 11px; font-weight: 500; font-family: var(--mono); }
-    .badge-formula { background: #FFF8E7; color: #B7791F; }
-    .badge-subitem { background: #F0FFF4; color: #276749; }
-    .template-list, .items-list { display: flex; flex-direction: column; gap: 8px; }
-    .items-list { max-height: 200px; overflow-y: auto; }
-    .template-item, .item-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; transition: all 0.15s; font-size: 13px; }
-    .template-item:hover, .item-row:hover { border-color: var(--accent); background: var(--accent-light); }
-    .template-item.selected, .item-row.selected { border-color: var(--accent); background: var(--accent-light); color: var(--accent); font-weight: 500; }
-    .item-id { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-left: auto; }
-    .divider { display: flex; align-items: center; gap: 12px; margin: 16px 0; color: var(--muted); font-size: 11px; font-family: var(--mono); text-transform: uppercase; }
-    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
-    .upload-area { border: 2px dashed var(--border); border-radius: 8px; padding: 24px; text-align: center; cursor: pointer; transition: all 0.2s; position: relative; }
-    .upload-area:hover { border-color: var(--accent); background: var(--accent-light); }
-    .upload-area.has-file { border-color: var(--success); background: var(--success-light); }
-    .upload-area input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
-    .upload-icon { font-size: 24px; margin-bottom: 8px; }
-    .upload-text { font-size: 13px; color: var(--muted); }
-    .upload-text strong { color: var(--accent); }
-    .upload-filename { font-family: var(--mono); font-size: 12px; color: var(--success); margin-top: 4px; }
-    .btn { width: 100%; padding: 13px 20px; border: none; border-radius: 10px; font-family: var(--sans); font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
-    .btn-primary { background: var(--accent); color: white; }
-    .btn-primary:hover:not(:disabled) { background: #1E44C2; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(45,91,227,0.3); }
-    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-auth { background: #FF3D57; color: white; margin-bottom: 16px; }
-    .btn-auth:hover { background: #E0001B; }
-    .btn-sm { width: auto; padding: 6px 12px; font-size: 12px; border-radius: 6px; }
-    .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .status { padding: 12px 16px; border-radius: 8px; font-size: 13px; margin-top: 12px; }
-    .status.success { background: var(--success-light); color: var(--success); border: 1px solid #C3EDD8; }
-    .status.error { background: var(--error-light); color: var(--error); border: 1px solid #F5C6C2; }
-    .download-btn { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 8px 16px; background: var(--success); color: white; border-radius: 8px; text-decoration: none; font-size: 13px; font-weight: 500; }
-    .empty { text-align: center; padding: 20px; color: var(--muted); font-size: 13px; }
-    .auth-wall { text-align: center; padding: 40px 24px; }
-    .auth-wall h2 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
-    .auth-wall p { font-size: 14px; color: var(--muted); margin-bottom: 24px; }
+    body { font-family: var(--sans); background: var(--bg); color: var(--text); min-height: 100vh; -webkit-font-smoothing: antialiased; }
 
-    /* Variables panel */
-    .variables-panel { margin-top: 16px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-    .variables-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #F9F8F5; border-bottom: 1px solid var(--border); cursor: pointer; }
-    .variables-header span { font-size: 12px; font-weight: 600; color: var(--muted); font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.6px; }
-    .variables-header .toggle { font-size: 12px; color: var(--accent); }
-    .variables-table { display: none; }
-    .variables-table.open { display: block; }
-    .var-row { display: flex; align-items: flex-start; padding: 8px 14px; border-bottom: 1px solid #F0EEE8; gap: 12px; }
-    .var-row:last-child { border-bottom: none; }
-    .var-name { font-family: var(--mono); font-size: 11px; color: var(--accent); background: var(--accent-light); padding: 2px 7px; border-radius: 4px; white-space: nowrap; cursor: pointer; min-width: 140px; }
-    .var-name:hover { background: var(--accent); color: white; }
-    .var-value { font-size: 12px; color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .var-type { font-size: 10px; color: var(--muted); white-space: nowrap; }
-    .copy-hint { font-size: 10px; color: var(--accent); margin-top: 4px; }
+    /* ── AUTH WALL ── */
+    .auth-wall { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; padding:32px; text-align:center; }
+    .auth-icon { width:72px; height:72px; background:var(--accent); border-radius:20px; display:flex; align-items:center; justify-content:center; margin:0 auto 24px; box-shadow:0 8px 24px rgba(0,122,255,0.3); }
+    .auth-icon svg { width:36px; height:36px; fill:white; }
+    .auth-wall h2 { font-size:26px; font-weight:600; letter-spacing:-0.5px; margin-bottom:8px; }
+    .auth-wall p { font-size:15px; color:var(--muted); margin-bottom:32px; }
+    .btn-connect { background:var(--accent); color:white; border:none; border-radius:14px; padding:14px 28px; font-size:15px; font-weight:600; cursor:pointer; font-family:var(--sans); box-shadow:0 4px 16px rgba(0,122,255,0.3); transition:all 0.2s; }
+    .btn-connect:hover { background:#0066CC; transform:translateY(-1px); }
+
+    /* ── APP SHELL ── */
+    .app { max-width: 680px; margin: 0 auto; padding: 0 0 40px; }
+
+    /* ── TOPBAR ── */
+    .topbar { display:flex; align-items:center; gap:12px; padding:16px 20px 0; margin-bottom:8px; }
+    .logo-mark { width:32px; height:32px; background:var(--accent); border-radius:9px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .logo-mark svg { width:17px; height:17px; fill:white; }
+    .app-name { font-size:17px; font-weight:600; letter-spacing:-0.3px; }
+    .topbar-badges { margin-left:auto; display:flex; align-items:center; gap:6px; }
+    .pill { font-size:11px; font-weight:500; padding:3px 9px; border-radius:20px; font-family:monospace; }
+    .pill-gray { background:rgba(120,120,128,0.12); color:var(--muted); }
+    .pill-blue { background:var(--accent-light); color:var(--accent); }
+
+    /* ── TAB BAR ── */
+    .tab-bar { display:flex; align-items:center; gap:2px; padding:4px; background:rgba(118,118,128,0.12); border-radius:11px; margin:12px 20px; }
+    .tab { flex:1; display:flex; align-items:center; justify-content:center; gap:5px; padding:7px 4px; border-radius:8px; border:none; background:transparent; font-family:var(--sans); font-size:12px; font-weight:500; color:var(--muted); cursor:pointer; transition:all 0.2s; white-space:nowrap; }
+    .tab.active { background:var(--surface); color:var(--text); box-shadow:var(--shadow); font-weight:600; }
+    .tab-icon { font-size:13px; }
+
+    /* ── PANELS ── */
+    .panel { display:none; padding:0 20px; }
+    .panel.active { display:block; }
+
+    /* ── CARDS ── */
+    .card { background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow); margin-bottom:12px; overflow:hidden; }
+    .card-header { padding:16px 18px 12px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+    .card-title { font-size:13px; font-weight:600; color:var(--text); }
+    .card-subtitle { font-size:12px; color:var(--muted); margin-top:2px; }
+    .card-body { padding:14px 18px; }
+    .card-footer { padding:10px 18px; background:var(--surface2); border-top:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+
+    /* ── TEMPLATE LIST ── */
+    .template-list, .items-list { display:flex; flex-direction:column; gap:6px; }
+    .items-list { max-height:220px; overflow-y:auto; }
+    .template-item { display:flex; align-items:center; gap:10px; padding:10px 12px; border:1.5px solid var(--border); border-radius:var(--radius-sm); cursor:pointer; transition:all 0.15s; }
+    .template-item:hover { border-color:var(--accent); background:var(--accent-light); }
+    .template-item.selected { border-color:var(--accent); background:var(--accent-light); }
+    .template-name { font-size:13px; font-weight:500; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .template-actions { display:flex; gap:3px; flex-shrink:0; }
+    .icon-btn { padding:4px 7px; background:transparent; border:1px solid var(--border2); border-radius:6px; font-size:10px; cursor:pointer; color:var(--muted); transition:all 0.15s; }
+    .icon-btn:hover { border-color:var(--accent); color:var(--accent); background:var(--accent-light); }
+    .icon-btn.danger:hover { border-color:var(--red); color:var(--red); background:var(--red-light); }
+
+    .item-row { display:flex; align-items:center; gap:10px; padding:9px 12px; border:1.5px solid var(--border); border-radius:var(--radius-sm); cursor:pointer; transition:all 0.15s; font-size:13px; }
+    .item-row:hover { border-color:var(--accent); background:var(--accent-light); }
+    .item-row.selected { border-color:var(--accent); background:var(--accent-light); font-weight:500; color:var(--accent); }
+    .item-id { font-size:10px; color:var(--muted); margin-left:auto; font-family:monospace; }
+
+    /* ── UPLOAD ── */
+    .upload-area { border:2px dashed var(--border2); border-radius:var(--radius-sm); padding:20px; text-align:center; cursor:pointer; transition:all 0.2s; position:relative; }
+    .upload-area:hover { border-color:var(--accent); background:var(--accent-light); }
+    .upload-area.has-file { border-color:var(--green); background:var(--green-light); }
+    .upload-area input[type="file"] { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
+    .upload-text { font-size:13px; color:var(--muted); }
+    .upload-text strong { color:var(--accent); }
+    .upload-filename { font-family:monospace; font-size:11px; color:var(--green); margin-top:4px; }
+
+    /* ── DIVIDER ── */
+    .divider { display:flex; align-items:center; gap:10px; margin:12px 0; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:0.5px; }
+    .divider::before, .divider::after { content:''; flex:1; height:1px; background:var(--border2); }
+
+    /* ── BUTTONS ── */
+    .btn { width:100%; padding:12px 18px; border:none; border-radius:var(--radius-sm); font-family:var(--sans); font-size:14px; font-weight:600; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; justify-content:center; gap:8px; }
+    .btn-primary { background:var(--accent); color:white; }
+    .btn-primary:hover:not(:disabled) { background:#0066CC; }
+    .btn-primary:disabled { opacity:0.35; cursor:not-allowed; }
+    .btn-green { background:var(--green); color:white; }
+    .btn-green:hover:not(:disabled) { background:#28A745; }
+    .btn-green:disabled { opacity:0.35; cursor:not-allowed; }
+    .btn-red { background:var(--red); color:white; }
+    .btn-red:hover:not(:disabled) { background:#CC2200; }
+    .btn-red:disabled { opacity:0.35; cursor:not-allowed; }
+    .btn-purple { background:var(--purple); color:white; }
+    .btn-purple:hover:not(:disabled) { background:#8B3DB8; }
+    .btn-sm { width:auto; padding:6px 12px; font-size:12px; border-radius:7px; }
+    .btn-ghost { background:rgba(120,120,128,0.08); color:var(--text2); border:none; }
+    .btn-ghost:hover { background:rgba(120,120,128,0.15); }
+    .spinner { width:14px; height:14px; border:2px solid rgba(255,255,255,0.3); border-top-color:white; border-radius:50%; animation:spin 0.7s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    /* ── STATUS ── */
+    .status { padding:10px 14px; border-radius:var(--radius-sm); font-size:13px; margin-top:10px; }
+    .status.success { background:var(--green-light); color:#1A7A4A; }
+    .status.error { background:var(--red-light); color:var(--red); }
+    .status.info { background:var(--accent-light); color:var(--accent); }
+
+    /* ── GENERATE BUTTONS ROW ── */
+    .gen-row { display:flex; gap:8px; }
+    .gen-row .btn { flex:1; font-size:13px; padding:11px 10px; }
+
+    /* ── VARIABLES ── */
+    .variables-panel { border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden; margin-top:10px; }
+    .variables-header { display:flex; align-items:center; justify-content:space-between; padding:9px 13px; background:var(--surface2); cursor:pointer; }
+    .variables-header span { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; }
+    .variables-toggle { font-size:11px; color:var(--accent); }
+    .variables-table { display:none; }
+    .variables-table.open { display:block; }
+    .var-row { display:flex; align-items:flex-start; padding:7px 13px; border-top:1px solid var(--border); gap:10px; }
+    .var-tag { font-family:monospace; font-size:10px; color:var(--accent); background:var(--accent-light); padding:2px 6px; border-radius:4px; cursor:pointer; white-space:nowrap; }
+    .var-tag:hover { background:var(--accent); color:white; }
+    .var-value { font-size:11px; color:var(--muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .var-type { font-size:10px; color:var(--muted); white-space:nowrap; }
+
+    /* ── SIGNATURES ── */
+    .sig-item { padding:12px 14px; border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:8px; }
+    .sig-header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:4px; }
+    .sig-name { font-size:13px; font-weight:600; }
+    .badge-status { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:20px; font-size:10px; font-weight:700; }
+    .sig-meta { font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:2px; }
+    .sig-action { flex-shrink:0; }
+
+    /* ── INPUT ── */
+    .input { width:100%; padding:10px 13px; border:1.5px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); font-size:13px; font-family:var(--sans); outline:none; transition:border-color 0.2s; }
+    .input:focus { border-color:var(--accent); }
+    .input::placeholder { color:var(--muted); }
+    select.input { cursor:pointer; }
+    .input-group { display:flex; flex-direction:column; gap:8px; }
+
+    /* ── HISTORIAL ── */
+    .doc-row { display:flex; align-items:center; gap:10px; padding:10px 12px; border-bottom:1px solid var(--border); }
+    .doc-row:last-child { border-bottom:none; }
+    .doc-info { flex:1; min-width:0; }
+    .doc-name { font-size:13px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .doc-meta { font-size:11px; color:var(--muted); margin-top:1px; }
+
+    /* ── TRIGGERS ── */
+    .trigger-item { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:6px; }
+    .trigger-info { flex:1; }
+    .trigger-rule { font-size:12px; font-weight:600; }
+    .trigger-meta { font-size:11px; color:var(--muted); margin-top:2px; }
+
+    /* ── EMPTY ── */
+    .empty { text-align:center; padding:24px; color:var(--muted); font-size:13px; }
+
+    /* ── SECTION LABEL ── */
+    .section-label { font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; padding:16px 0 8px; }
+
+    /* ── DOWNLOAD LINK ── */
+    .download-link { display:inline-flex; align-items:center; gap:6px; margin-top:8px; padding:8px 14px; background:var(--green); color:white; border-radius:var(--radius-sm); text-decoration:none; font-size:13px; font-weight:500; }
+
+    /* ── ACTION LINK ── */
+    .action-link { display:inline-flex; align-items:center; gap:4px; padding:5px 11px; border-radius:7px; font-size:11px; font-weight:600; text-decoration:none; cursor:pointer; border:none; }
+    .action-link-green { background:#059669; color:white; }
+    .action-link-blue { background:var(--accent); color:white; }
+
+    /* scrollbar */
+    ::-webkit-scrollbar { width:4px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:rgba(0,0,0,0.15); border-radius:2px; }
   </style>
 </head>
 <body>
-<div class="app">
-  <div class="auth-wall" id="auth-wall" style="display:none">
-    <div style="font-size:48px;margin-bottom:16px">🔐</div>
-    <h2>Conecta tu cuenta</h2>
-    <p>Para usar DocuGen necesitas autorizar el acceso a tu cuenta de monday.com</p>
-    <button class="btn btn-auth" onclick="startAuth()">Conectar con monday.com</button>
-  </div>
 
-  <div id="main-content" style="display:none">
-    <div class="header">
-      <div class="logo">
+<!-- AUTH WALL -->
+<div class="auth-wall" id="auth-wall" style="display:none">
+  <div class="auth-icon">
+    <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM6 20V4h5v7h7v9H6z"/></svg>
+  </div>
+  <h2>Bienvenido a DocuGen</h2>
+  <p>Conecta tu cuenta de monday.com para empezar a generar documentos automáticamente.</p>
+  <button class="btn-connect" onclick="startAuth()">Conectar con monday.com →</button>
+</div>
+
+<!-- MAIN APP -->
+<div id="main-content" style="display:none">
+  <div class="app">
+
+    <!-- TOP BAR -->
+    <div class="topbar">
+      <div class="logo-mark">
         <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM6 20V4h5v7h7v9H6z"/></svg>
       </div>
-      <div class="header-text">
-        <h1>DocuGen</h1>
-        <p>Genera documentos Word desde tus tableros</p>
+      <span class="app-name">DocuGen</span>
+      <div class="topbar-badges">
+        <span class="pill pill-gray" id="account-badge"></span>
+        <span class="pill pill-blue" id="board-badge" style="display:none"></span>
       </div>
-      <div class="account-badge" id="account-badge"></div>
-      <div class="board-badge" id="board-badge" style="display:none"></div>
     </div>
 
-    <div class="card">
-      <div class="card-label">Paso 1 — Plantilla</div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <div class="section-title" style="margin-bottom:0">Selecciona una plantilla</div>
-        <button class="btn" onclick="openEditor()" style="font-size:11px;padding:5px 10px;background:var(--accent);color:white;border:none;border-radius:6px;cursor:pointer">✏ Diseñar</button>
-        <button class="btn" onclick="window.open('/dashboard?account_id=' + accountId, '_blank')" style="font-size:11px;padding:5px 10px;background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:6px;cursor:pointer">📊 Dashboard</button>
-      </div>
-      <div class="section-desc">Elige una plantilla con variables <span class="badge">{{variable}}</span></div>
-      <div id="template-list" class="template-list"><div class="empty">Cargando...</div></div>
-      <div class="divider">o sube nueva</div>
-      <div class="upload-area" id="upload-area">
-        <input type="file" accept=".docx" id="file-input" onchange="handleFileUpload(event)">
-        <div class="upload-icon">📄</div>
-        <div class="upload-text"><strong>Click para subir</strong> un .docx</div>
-        <div class="upload-filename" id="upload-filename"></div>
-      </div>
-      <div id="upload-status"></div>
+    <!-- TAB BAR -->
+    <div class="tab-bar">
+      <button class="tab active" onclick="switchTab('generate')" id="tab-generate">
+        <span class="tab-icon">⚡</span> Generar
+      </button>
+      <button class="tab" onclick="switchTab('firmas')" id="tab-firmas">
+        <span class="tab-icon">✍️</span> Firmas
+      </button>
+      <button class="tab" onclick="switchTab('auto')" id="tab-auto">
+        <span class="tab-icon">🤖</span> Automático
+      </button>
+      <button class="tab" onclick="switchTab('historial')" id="tab-historial">
+        <span class="tab-icon">📁</span> Historial
+      </button>
     </div>
 
-    <div class="card">
-      <div class="card-label">Paso 2 — Item</div>
-      <div class="section-title">Selecciona un item</div>
-      <div class="section-desc" id="items-desc">Items del tablero activo</div>
-      <div id="items-list" class="items-list"><div class="empty">Cargando...</div></div>
+    <!-- ═══════════════════════════════════════
+         TAB 1: GENERAR
+    ════════════════════════════════════════ -->
+    <div class="panel active" id="panel-generate">
 
-      <!-- Panel de variables -->
-      <div id="variables-panel" class="variables-panel" style="display:none">
-        <div class="variables-header" onclick="toggleVariables()">
-          <span>Variables disponibles</span>
-          <span class="toggle" id="toggle-icon">▼ ver</span>
+      <!-- Plantilla -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Plantilla</div>
+            <div class="card-subtitle">Selecciona o sube una plantilla .docx</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-sm btn-ghost" onclick="openEditor()">✏️ Diseñar</button>
+            <button class="btn btn-sm btn-ghost" onclick="window.open('/dashboard?account_id='+accountId,'_blank')">📊 Panel</button>
+          </div>
         </div>
-        <div class="variables-table" id="variables-table">
-          <div id="variables-list"></div>
-          <div class="var-row" style="background:#F9F8F5">
-            <span class="copy-hint" style="font-size:11px;color:var(--muted);padding:4px 0">Click en una variable para copiarla al portapapeles</span>
+        <div class="card-body">
+          <div id="template-list" class="template-list"><div class="empty">Cargando...</div></div>
+          <div class="divider">o sube nueva</div>
+          <div class="upload-area" id="upload-area">
+            <input type="file" accept=".docx" id="file-input" onchange="handleFileUpload(event)">
+            <div style="font-size:22px;margin-bottom:6px">📄</div>
+            <div class="upload-text"><strong>Click para subir</strong> un archivo .docx</div>
+            <div class="upload-filename" id="upload-filename"></div>
+          </div>
+          <div id="upload-status"></div>
+        </div>
+      </div>
+
+      <!-- Item -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Item del tablero</div>
+            <div class="card-subtitle" id="items-desc">Items del tablero activo</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div id="items-list" class="items-list"><div class="empty">Cargando...</div></div>
+          <div id="variables-panel" class="variables-panel" style="display:none;margin-top:10px">
+            <div class="variables-header" onclick="toggleVariables()">
+              <span>Variables disponibles</span>
+              <span class="variables-toggle" id="toggle-icon">▼ ver</span>
+            </div>
+            <div class="variables-table" id="variables-table">
+              <div id="variables-list"></div>
+              <div class="var-row" style="background:var(--surface2)">
+                <span id="copy-hint" style="font-size:11px;color:var(--muted);padding:2px 0">Click en una variable para copiarla</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    
-    <div class="card">
-      <div class="card-label">Firma digital</div>
-      <div class="section-title">Solicitar firma</div>
-      <div class="section-desc">Envía el documento generado para firma digital.</div>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
-        <input id="signerName" placeholder="Nombre del firmante" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;outline:none">
-        <input id="signerEmail" placeholder="Email (opcional)" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;outline:none">
-        <button onclick="requestSignature()" style="width:100%;padding:9px;background:#7C3AED;color:white;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">✍️ Solicitar firma</button>
-      </div>
-      <div id="signatureResult" style="margin-top:10px"></div>
-      <div style="margin-top:14px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div class="section-title">Solicitudes de firma</div>
-          <button onclick="loadSignatures()" style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 10px;font-size:11px;color:var(--text-muted);cursor:pointer">↻ Actualizar</button>
+      <!-- Generar -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Generar documento</div>
+            <div class="card-subtitle">Exporta con los datos del item seleccionado</div>
+          </div>
         </div>
-        <div id="signaturesList"><div class="empty">Cargando...</div></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-label">Automatizaciones</div>
-      <div class="section-title">Triggers automáticos</div>
-      <div class="section-desc">Genera documentos cuando cambia un valor en monday.</div>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
-        <input id="triggerColumnId" placeholder="ID de columna (ej: status)" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;outline:none">
-        <input id="triggerValue" placeholder="Valor que activa (ej: Aprobado)" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;outline:none">
-        <button onclick="saveTrigger()" style="width:100%;padding:9px;background:var(--accent);color:white;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">⚡ Guardar trigger</button>
-      </div>
-      <div style="margin-top:14px">
-        <div class="section-title" style="margin-bottom:8px">Triggers activos</div>
-        <div id="triggersList"><div class="empty">Cargando...</div></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-label">Automatización avanzada</div>
-
-      <div class="section-title">⚡ Generación masiva</div>
-      <div class="section-desc">Genera documentos para todos los items del board de una vez.</div>
-      <button onclick="generateBulk()" style="width:100%;padding:9px;background:#7C3AED;color:white;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;margin-top:8px">⚡ Generar para todos los items</button>
-      <div id="bulkResult" style="margin-top:8px"></div>
-
-      <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
-        <div class="section-title">🕐 Automatización programada</div>
-        <div class="section-desc">Genera documentos automáticamente en un horario.</div>
-        <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
-          <input id="autoName" placeholder="Nombre (ej: Facturas mensuales)" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;outline:none">
-          <select id="autoCron" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;outline:none">
-            <option value="daily">Cada día (8am)</option>
-            <option value="weekly">Cada semana (Lunes 8am)</option>
-            <option value="monthly">Cada mes (Día 1, 8am)</option>
-          </select>
-          <input id="autoCondCol" placeholder="Condición: ID columna (opcional)" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;outline:none">
-          <input id="autoCondVal" placeholder="Condición: valor requerido (opcional)" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;outline:none">
-          <button onclick="saveScheduledAuto()" style="width:100%;padding:9px;background:var(--accent);color:white;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">💾 Guardar automatización</button>
-        </div>
-        <div style="margin-top:12px">
-          <div class="section-title" style="margin-bottom:8px">Automatizaciones activas</div>
-          <div id="scheduledAutosList"><div class="empty">Cargando...</div></div>
+        <div class="card-body">
+          <div class="gen-row">
+            <button class="btn btn-primary" id="generate-btn" onclick="generateDocument('docx')" disabled>⬇ Word</button>
+            <button class="btn btn-red" id="generate-pdf-btn" onclick="generateDocument('pdf')" disabled>⬇ PDF</button>
+            <button class="btn btn-green" id="generate-xlsx-btn" onclick="generateXlsx()" disabled>⬇ Excel</button>
+          </div>
+          <div id="generate-status"></div>
         </div>
       </div>
-    </div>
-<div class="card">
-      <div class="card-label">Paso 3 — Generar</div>
-      <div class="section-title">Genera el documento</div>
-      <div class="section-desc">Los datos del item seleccionado se insertarán en la plantilla.</div>
-      <div style="display:flex;gap:10px">
-        <button class="btn btn-primary" id="generate-btn" onclick="generateDocument('docx')" disabled style="flex:1">⬇ Generar Word</button>
-        <button class="btn btn-primary" id="generate-pdf-btn" onclick="generateDocument('pdf')" disabled style="flex:1;background:#E53E3E">⬇ Generar PDF</button>
-        <button class="btn btn-primary" id="generate-xlsx-btn" onclick="generateXlsx()" disabled style="flex:1;background:#1D6F42">⬇ Exportar Excel</button>
-      </div>
-      <div id="generate-status"></div>
-    </div>
 
-    <div class="card" id="historial-card">
-      <div class="card-label">Historial</div>
-      <div class="section-title">Documentos generados</div>
-      <div class="section-desc">Tus ultimos 20 documentos generados.</div>
-      <div id="historial-list"><div class="empty">Cargando historial...</div></div>
-    </div>
-  </div>
-</div>
+    </div><!-- /panel-generate -->
+
+
+    <!-- ═══════════════════════════════════════
+         TAB 2: FIRMAS
+    ════════════════════════════════════════ -->
+    <div class="panel" id="panel-firmas">
+
+      <!-- Solicitar firma -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Solicitar firma digital</div>
+            <div class="card-subtitle">Genera un link de firma para el documento</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="input-group">
+            <input class="input" id="signerName" placeholder="Nombre del firmante">
+            <input class="input" id="signerEmail" placeholder="Email para OTP (recomendado)">
+            <button class="btn btn-purple" onclick="requestSignature()">✍️ Generar link de firma</button>
+          </div>
+          <div id="signatureResult"></div>
+        </div>
+      </div>
+
+      <!-- Lista de firmas -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Solicitudes de firma</div>
+          <button onclick="loadSignatures()" class="btn btn-sm btn-ghost">↻ Actualizar</button>
+        </div>
+        <div class="card-body" style="padding:8px">
+          <div id="signaturesList"><div class="empty">Cargando...</div></div>
+        </div>
+      </div>
+
+    </div><!-- /panel-firmas -->
+
+
+    <!-- ═══════════════════════════════════════
+         TAB 3: AUTOMÁTICO
+    ════════════════════════════════════════ -->
+    <div class="panel" id="panel-auto">
+
+      <!-- Generación masiva -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Generación masiva</div>
+            <div class="card-subtitle">Genera documentos para todos los items del tablero</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <button class="btn btn-purple" onclick="generateBulk()">⚡ Generar para todos los items</button>
+          <div id="bulkResult"></div>
+        </div>
+      </div>
+
+      <!-- Triggers automáticos -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Triggers automáticos</div>
+            <div class="card-subtitle">Genera documentos cuando cambia un valor en monday</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="input-group">
+            <input class="input" id="triggerColumnId" placeholder="ID de columna (ej: status)">
+            <input class="input" id="triggerValue" placeholder="Valor que activa (ej: Aprobado)">
+            <button class="btn btn-primary" onclick="saveTrigger()">⚡ Guardar trigger</button>
+          </div>
+        </div>
+        <div style="padding:0 18px 14px">
+          <div class="section-label">Triggers activos</div>
+          <div id="triggersList"><div class="empty">Sin triggers</div></div>
+        </div>
+      </div>
+
+      <!-- Automatización programada -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Automatización programada</div>
+            <div class="card-subtitle">Genera documentos en horario automático</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="input-group">
+            <input class="input" id="autoName" placeholder="Nombre (ej: Facturas mensuales)">
+            <select class="input" id="autoCron">
+              <option value="daily">Cada día (8am)</option>
+              <option value="weekly">Cada semana (Lunes 8am)</option>
+              <option value="monthly">Cada mes (Día 1, 8am)</option>
+            </select>
+            <input class="input" id="autoCondCol" placeholder="Condición: ID columna (opcional)">
+            <input class="input" id="autoCondVal" placeholder="Condición: valor requerido (opcional)">
+            <button class="btn btn-primary" onclick="saveScheduledAuto()">💾 Guardar automatización</button>
+          </div>
+        </div>
+        <div style="padding:0 18px 14px">
+          <div class="section-label">Automatizaciones activas</div>
+          <div id="scheduledAutosList"><div class="empty">Sin automatizaciones</div></div>
+        </div>
+      </div>
+
+    </div><!-- /panel-auto -->
+
+
+    <!-- ═══════════════════════════════════════
+         TAB 4: HISTORIAL
+    ════════════════════════════════════════ -->
+    <div class="panel" id="panel-historial">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Documentos generados</div>
+          <span class="pill pill-gray">Últimos 20</span>
+        </div>
+        <div id="historial-list"><div class="empty" style="padding:28px">Cargando historial...</div></div>
+      </div>
+    </div><!-- /panel-historial -->
+
+  </div><!-- /app -->
+</div><!-- /main-content -->
 
 <script>
   const API = 'https://docugen-monday-production.up.railway.app';
@@ -231,332 +446,38 @@
   const sessionToken = params.get('sessionToken');
 
   if (sessionToken && !accountId) {
-    try {
-      const payload = JSON.parse(atob(sessionToken.split('.')[1]));
-      accountId = payload?.dat?.account_id?.toString();
-    } catch(e) {}
+    try { const p = JSON.parse(atob(sessionToken.split('.')[1])); accountId = p?.dat?.account_id?.toString(); } catch(e) {}
   }
 
   let selectedTemplate = null;
   let selectedItem = null;
   let variablesOpen = false;
 
-
-  async function loadHistorial() {
-    try {
-      const res = await fetch(API + '/documents', {
-        headers: { 'x-account-id': accountId }
-      });
-      const data = await res.json();
-      const list = document.getElementById('historial-list');
-      if (!data.documents || !data.documents.length) {
-        list.innerHTML = '<div class="empty">No hay documentos generados aun</div>';
-        return;
-      }
-      list.innerHTML = data.documents.map(doc => {
-        const fecha = new Date(doc.created_at).toLocaleDateString('es-MX', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
-        return '<div class="item-row" style="cursor:default">' +
-          '<span>📄</span>' +
-          '<div style="flex:1;min-width:0">' +
-            '<div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + doc.item_name + '</div>' +
-            '<div style="font-size:11px;color:var(--muted)">' + doc.template_name + ' · ' + fecha + '</div>' +
-          '</div>' +
-          '<a href="' + API + '/download/' + doc.filename + '" target="_blank" style="font-size:11px;color:var(--accent);text-decoration:none;white-space:nowrap">⬇ Descargar</a>' +
-        '</div>';
-      }).join('');
-    } catch(e) {
-      document.getElementById('historial-list').innerHTML = '<div class="empty">Error al cargar historial</div>';
-    }
+  /* ── TAB SWITCHING ── */
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    document.getElementById('panel-' + name).classList.add('active');
   }
 
-
-  async function loadLogo() {
-    try {
-      const res = await fetch(API + '/logo?account_id=' + accountId);
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        document.getElementById('logo-img').src = url;
-        document.getElementById('logo-preview').style.display = 'flex';
-        document.getElementById('logo-preview').style.alignItems = 'center';
-      }
-    } catch(e) {}
-  }
-
-  async function handleLogoUpload(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const formData = new FormData();
-    formData.append('logo', file);
-    formData.append('account_id', accountId);
-    document.getElementById('logo-filename').textContent = 'Subiendo...';
-    document.getElementById('logo-upload-area').classList.add('has-file');
-    try {
-      const res = await fetch(API + '/logo/upload', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (data.success) {
-        document.getElementById('logo-filename').textContent = '✓ ' + file.name;
-        document.getElementById('logo-status').innerHTML = '<div class="status success">✓ Logo guardado</div>';
-        await loadLogo();
-      }
-    } catch(e) {
-      document.getElementById('logo-status').innerHTML = '<div class="status error">✗ Error al subir logo</div>';
-    }
-  }
-  async function renameTemplate(filename) {
-    const newName = prompt('Nuevo nombre:', filename.replace('.docx',''));
-    if (!newName || newName + '.docx' === filename) return;
-    const res = await fetch(API + '/templates/' + encodeURIComponent(filename) + '/rename', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
-      body: JSON.stringify({ newName })
-    });
-    const data = await res.json();
-    if (data.success) { await loadTemplates(); }
-    else alert('Error: ' + data.error);
-  }
-
-  async function duplicateTemplate(filename) {
-    const newName = prompt('Nombre para la copia:', filename.replace('.docx','') + '_copia');
-    if (!newName) return;
-    const res = await fetch(API + '/templates/' + encodeURIComponent(filename) + '/duplicate', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
-      body: JSON.stringify({ newName })
-    });
-    const data = await res.json();
-    if (data.success) { await loadTemplates(); }
-    else alert('Error: ' + data.error);
-  }
-
-  async function deleteTemplate(filename) {
-    if (!confirm('¿Eliminar plantilla ' + filename + '?')) return;
-    const res = await fetch(API + '/templates/' + encodeURIComponent(filename), {
-      method: 'DELETE', headers: { 'x-account-id': accountId }
-    });
-    const data = await res.json();
-    if (data.success) { await loadTemplates(); }
-    else alert('Error: ' + data.error);
-  }
-
-  async function generateBulk() {
-    if (!selectedTemplate) { alert('Selecciona una plantilla primero'); return; }
-    if (!confirm('¿Generar documentos para todos los items del board?')) return;
-    const btn = event.target;
-    btn.textContent = 'Generando...'; btn.disabled = true;
-    try {
-      // Obtener items del board
-      const itemsRes = await fetch(API + '/board-items', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account_id: accountId, board_id: boardId })
-      });
-      const itemsData = await itemsRes.json();
-      const itemIds = (itemsData.items || []).map(i => i.id);
-      if (!itemIds.length) { alert('No hay items en el board'); return; }
-
-      const res = await fetch(API + '/generate-bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
-        body: JSON.stringify({ board_id: boardId, item_ids: itemIds, template_name: selectedTemplate })
-      });
-      const data = await res.json();
-      document.getElementById('bulkResult').innerHTML =
-        '<div class="status success">✅ ' + data.generated + '/' + data.total + ' documentos generados</div>';
-      await loadHistory();
-    } catch(e) {
-      document.getElementById('bulkResult').innerHTML = '<div class="status error">Error: ' + e.message + '</div>';
-    }
-    btn.textContent = '⚡ Generar para todos los items'; btn.disabled = false;
-  }
-
-  async function saveScheduledAuto() {
-    const name = document.getElementById('autoName').value;
-    const cron = document.getElementById('autoCron').value;
-    const condCol = document.getElementById('autoCondCol').value;
-    const condVal = document.getElementById('autoCondVal').value;
-    if (!name) { alert('Ingresa un nombre'); return; }
-    if (!selectedTemplate) { alert('Selecciona una plantilla'); return; }
-    const res = await fetch(API + '/scheduled-automations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
-      body: JSON.stringify({ name, cron_expression: cron, board_id: boardId, template_name: selectedTemplate, condition_column: condCol, condition_value: condVal })
-    });
-    const data = await res.json();
-    if (data.success) { alert('✅ Automatización guardada'); await loadScheduledAutos(); }
-    else alert('Error: ' + data.error);
-  }
-
-  async function loadScheduledAutos() {
-    try {
-      const res = await fetch(API + '/scheduled-automations', { headers: { 'x-account-id': accountId } });
-      const data = await res.json();
-      const list = document.getElementById('scheduledAutosList');
-      if (!data.automations || !data.automations.length) { list.innerHTML = '<div class="empty">Sin automatizaciones</div>'; return; }
-      const cronLabel = { daily: 'Diario', weekly: 'Semanal', monthly: 'Mensual' };
-      list.innerHTML = data.automations.map(a =>
-        '<div style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:5px;font-size:12px;display:flex;justify-content:space-between;align-items:center">' +
-        '<div><div>🕐 ' + a.name + ' — <b>' + (cronLabel[a.cron_expression]||a.cron_expression) + '</b></div>' +
-        '<div style="color:var(--text-muted);font-size:10px;margin-top:2px">📄 ' + a.template_name + (a.condition_column ? ' · si ' + a.condition_column + '=' + a.condition_value : '') + '</div></div>' +
-        '<button onclick="deleteScheduledAuto(' + a.id + ')" style="padding:2px 8px;background:transparent;border:1px solid var(--danger);color:var(--danger);border-radius:4px;font-size:10px;cursor:pointer">🗑</button>' +
-        '</div>'
-      ).join('');
-    } catch(e) {}
-  }
-
-  async function deleteScheduledAuto(id) {
-    if (!confirm('¿Eliminar automatización?')) return;
-    await fetch(API + '/scheduled-automations/' + id, { method: 'DELETE', headers: { 'x-account-id': accountId } });
-    await loadScheduledAutos();
-  }
-
-  async function saveTrigger() {
-    const columnId = document.getElementById('triggerColumnId').value;
-    const triggerValue = document.getElementById('triggerValue').value;
-    if (!columnId || !triggerValue) { alert('Ingresa columna y valor'); return; }
-    if (!selectedTemplate) { alert('Selecciona una plantilla'); return; }
-    const res = await fetch(API + '/webhooks/triggers', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
-      body: JSON.stringify({ board_id: boardId, column_id: columnId, trigger_value: triggerValue, template_name: selectedTemplate })
-    });
-    const data = await res.json();
-    if (data.success) { alert('✅ Trigger guardado'); await loadTriggers(); }
-    else alert('Error: ' + data.error);
-  }
-
-  async function loadTriggers() {
-    try {
-      const res = await fetch(API + '/webhooks/triggers', { headers: { 'x-account-id': accountId } });
-      const data = await res.json();
-      const list = document.getElementById('triggersList');
-      if (!data.triggers || !data.triggers.length) { list.innerHTML = '<div class="empty">Sin triggers</div>'; return; }
-      list.innerHTML = data.triggers.map(t =>
-        '<div style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:5px;font-size:12px;display:flex;justify-content:space-between;align-items:center">' +
-        '<div><div>⚡ ' + t.column_id + ' = <b>' + t.trigger_value + '</b></div>' +
-        '<div style="color:var(--text-muted);font-size:10px;margin-top:2px">📄 ' + t.template_name + '</div></div>' +
-        '<button onclick="deleteTrigger(' + t.id + ')" style="padding:2px 8px;background:transparent;border:1px solid var(--danger);color:var(--danger);border-radius:4px;font-size:10px;cursor:pointer">🗑</button>' +
-        '</div>'
-      ).join('');
-    } catch(e) {}
-  }
-
-  async function deleteTrigger(id) {
-    if (!confirm('¿Eliminar trigger?')) return;
-    await fetch(API + '/webhooks/triggers/' + id, { method: 'DELETE', headers: { 'x-account-id': accountId } });
-    await loadTriggers();
-    await loadScheduledAutos();
-  }
-
-  async function requestSignature() {
-    const signerName = document.getElementById('signerName').value;
-    if (!signerName) { alert('Ingresa el nombre del firmante'); return; }
-    if (!selectedTemplate) { alert('Selecciona una plantilla primero'); return; }
-    const signerEmail = document.getElementById('signerEmail').value;
-    try {
-      const res = await fetch(API + '/signatures/request', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
-        body: JSON.stringify({
-          document_filename: selectedTemplate,
-          signer_name: signerName,
-          signer_email: signerEmail,
-          item_id: selectedItem ? selectedItem.id : null,
-          board_id: boardId
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        document.getElementById('signatureResult').innerHTML =
-          '<div class="status success" style="word-break:break-all">✓ Link generado: <a href="' + data.sign_url + '" target="_blank" style="color:var(--accent)">' + data.sign_url + '</a></div>';
-        await loadSignatures();
-    await loadTriggers();
-    await loadScheduledAutos();
-      } else {
-        document.getElementById('signatureResult').innerHTML = '<div class="status error">✗ ' + data.error + '</div>';
-      }
-    } catch(e) { document.getElementById('signatureResult').innerHTML = '<div class="status error">Error: ' + e.message + '</div>'; }
-  }
-
-  async function loadSignatures() {
-    try {
-      const res = await fetch(API + '/signatures', { headers: { 'x-account-id': accountId } });
-      const data = await res.json();
-      const list = document.getElementById('signaturesList');
-      if (!data.signatures || !data.signatures.length) { list.innerHTML = '<div class="empty">Sin solicitudes</div>'; return; }
-      list.innerHTML = data.signatures.map(s => {
-        const signed = s.status === 'signed';
-        const expired = s.expires_at && new Date(s.expires_at) < new Date() && !signed;
-        const statusColor = signed ? '#059669' : expired ? '#dc2626' : '#d97706';
-        const statusBg = signed ? '#d1fae5' : expired ? '#fee2e2' : '#fef3c7';
-        const statusIcon = signed ? '✅' : expired ? '❌' : '⏳';
-        const statusLabel = signed ? 'Firmado' : expired ? 'Expirado' : 'Pendiente';
-        const signedDate = s.signed_at ? new Date(s.signed_at).toLocaleString('es-MX') : '';
-        const createdDate = s.created_at ? new Date(s.created_at).toLocaleDateString('es-MX') : '';
-        const portalUrl = (window.location.origin) + '/sign/' + s.token;
-        const downloadBtn = signed
-          ? '<a href="' + API + '/sign/' + s.token + '/download" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:#059669;color:white;border-radius:5px;font-size:11px;text-decoration:none;font-weight:600">⬇ PDF Firmado</a>'
-          : '<button onclick="navigator.clipboard.writeText(\''+portalUrl+'\')" style="padding:4px 10px;background:#3b82f6;color:white;border:none;border-radius:5px;font-size:11px;cursor:pointer;font-weight:600">📋 Copiar link</button>';
-        const emailRow = s.signer_email ? '<div style="font-size:11px;color:var(--text-muted)">'+s.signer_email+'</div>' : '';
-        const dateRow = signed ? '<div style="font-size:11px;color:#059669;margin-top:3px">Firmado: '+signedDate+'</div>' : '<div style="font-size:11px;color:var(--text-muted)">Creado: '+createdDate+'</div>';
-        const ipRow = s.signer_ip ? '<div style="font-size:10px;color:var(--text-muted)">IP: '+s.signer_ip+'</div>' : '';
-        return '<div style="padding:12px 14px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--surface)">' +
-          '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">' +
-          '<div style="flex:1;min-width:0">' +
-          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
-          '<span style="font-weight:600;font-size:13px">' + (s.signer_name || 'Sin nombre') + '</span>' +
-          '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;background:'+statusBg+';color:'+statusColor+'">' + statusIcon + ' ' + statusLabel + '</span>' +
-          '</div>' +
-          '<div style="font-size:11px;color:var(--text-muted)">📄 ' + s.document_filename + '</div>' +
-          emailRow + dateRow + ipRow +
-          '</div>' +
-          '<div style="flex-shrink:0">' + downloadBtn + '</div>' +
-          '</div></div>';
-      }).join('');
-    } catch(e) {}
-  }
-
-  async function generateXlsx() {
-    if (!selectedTemplate || !selectedItem) return;
-    const btn = document.getElementById('generate-xlsx-btn');
-    btn.textContent = 'Generando...'; btn.disabled = true;
-    try {
-      const res = await fetch(API + '/export-xlsx', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
-        body: JSON.stringify({ board_id: boardId, item_id: selectedItem.id })
-      });
-      if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = selectedItem.name + '.xlsx'; a.click();
-      URL.revokeObjectURL(url);
-    } catch(e) { alert('Error: ' + e.message); }
-    finally { btn.textContent = '⬇ Exportar Excel'; btn.disabled = false; }
-  }
-
-  function openEditor() {
-    const url = '/editor?account_id=' + accountId + (boardId ? '&boardId=' + boardId : '');
-    window.open(url, '_blank');
-  }
-
+  /* ── INIT ── */
   async function init() {
-    if (!accountId) { document.getElementById('auth-wall').style.display = 'block'; return; }
+    if (!accountId) { document.getElementById('auth-wall').style.display = 'flex'; return; }
     try {
       const check = await fetch(API + '/auth/check?account_id=' + accountId);
       const auth = await check.json();
-      if (!auth.authenticated) { document.getElementById('auth-wall').style.display = 'block'; return; }
-    } catch(e) { document.getElementById('auth-wall').style.display = 'block'; return; }
+      if (!auth.authenticated) { document.getElementById('auth-wall').style.display = 'flex'; return; }
+    } catch(e) { document.getElementById('auth-wall').style.display = 'flex'; return; }
 
     document.getElementById('main-content').style.display = 'block';
     document.getElementById('account-badge').textContent = '#' + accountId;
-
     if (boardId) {
       const bb = document.getElementById('board-badge');
       bb.textContent = '📋 ' + boardId;
-      bb.style.display = 'flex';
+      bb.style.display = 'inline-flex';
     }
 
-    await loadLogo();
     await loadTemplates();
     await loadSignatures();
     await loadTriggers();
@@ -566,7 +487,9 @@
   }
 
   function startAuth() { window.location.href = API + '/oauth/start'; }
+  function openEditor() { window.open('/editor?account_id=' + accountId + (boardId ? '&boardId=' + boardId : ''), '_blank'); }
 
+  /* ── TEMPLATES ── */
   async function loadTemplates() {
     try {
       const res = await fetch(API + '/templates?account_id=' + accountId);
@@ -575,32 +498,16 @@
       const tpls = (data.templates || []).map(t => typeof t === 'string' ? t : t.filename);
       if (!tpls.length) { list.innerHTML = '<div class="empty">No hay plantillas. Sube una.</div>'; return; }
       list.innerHTML = tpls.map(t =>
-        '<div class="template-item" id="tpl-' + t.replace(/[\.\s]/g,'-') + '" style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px">' +
-        '<div onclick="selectTemplate(\'' + t + '\')" style="display:flex;align-items:center;gap:8px;flex:1;cursor:pointer"><span>📄</span><span style="font-size:12px">' + t + '</span></div>' +
-        '<div style="display:flex;gap:3px">' +
-        '<button onclick="event.stopPropagation();renameTemplate(\'' + t + '\')" title="Renombrar" style="padding:2px 6px;font-size:10px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer">✎</button>' +
-        '<button onclick="event.stopPropagation();duplicateTemplate(\'' + t + '\')" title="Duplicar" style="padding:2px 6px;font-size:10px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer">⧉</button>' +
-        '<button onclick="event.stopPropagation();deleteTemplate(\'' + t + '\')" title="Eliminar" style="padding:2px 6px;font-size:10px;background:transparent;border:1px solid #f87171;border-radius:4px;color:#f87171;cursor:pointer">🗑</button>' +
+        '<div class="template-item" id="tpl-' + t.replace(/[\.\s]/g,'-') + '">' +
+        '<span style="font-size:15px">📄</span>' +
+        '<span class="template-name" onclick="selectTemplate(\'' + t + '\')" style="cursor:pointer">' + t + '</span>' +
+        '<div class="template-actions">' +
+        '<button class="icon-btn" onclick="event.stopPropagation();renameTemplate(\'' + t + '\')" title="Renombrar">✎</button>' +
+        '<button class="icon-btn" onclick="event.stopPropagation();duplicateTemplate(\'' + t + '\')" title="Duplicar">⧉</button>' +
+        '<button class="icon-btn danger" onclick="event.stopPropagation();deleteTemplate(\'' + t + '\')" title="Eliminar">🗑</button>' +
         '</div></div>'
       ).join('');
     } catch(e) { document.getElementById('template-list').innerHTML = '<div class="empty">Error al cargar</div>'; }
-  }
-
-  async function loadBoardItems(bid) {
-    try {
-      const res = await fetch(API + '/board-items', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
-        body: JSON.stringify({ account_id: accountId, board_id: bid })
-      });
-      const data = await res.json();
-      const items = data.data?.boards?.[0]?.items_page?.items || [];
-      const list = document.getElementById('items-list');
-      if (!items.length) { list.innerHTML = '<div class="empty">No hay items en este tablero</div>'; return; }
-      list.innerHTML = items.map(item =>
-        '<div class="item-row" onclick="selectItem(\'' + item.id + '\',\'' + item.name.replace(/'/g,"\\'") + '\')" id="item-' + item.id + '"><span>📋</span><span>' + item.name + '</span><span class="item-id">#' + item.id + '</span></div>'
-      ).join('');
-    } catch(e) { document.getElementById('items-list').innerHTML = '<div class="empty">Error al cargar items</div>'; }
   }
 
   function selectTemplate(name) {
@@ -611,8 +518,74 @@
     checkReady();
   }
 
+  async function renameTemplate(filename) {
+    const newName = prompt('Nuevo nombre:', filename.replace('.docx',''));
+    if (!newName || newName + '.docx' === filename) return;
+    const res = await fetch(API + '/templates/' + encodeURIComponent(filename) + '/rename', {
+      method:'POST', headers:{'Content-Type':'application/json','x-account-id':accountId},
+      body:JSON.stringify({newName})
+    });
+    const data = await res.json();
+    if (data.success) await loadTemplates(); else alert('Error: ' + data.error);
+  }
+
+  async function duplicateTemplate(filename) {
+    const newName = prompt('Nombre para la copia:', filename.replace('.docx','') + '_copia');
+    if (!newName) return;
+    const res = await fetch(API + '/templates/' + encodeURIComponent(filename) + '/duplicate', {
+      method:'POST', headers:{'Content-Type':'application/json','x-account-id':accountId},
+      body:JSON.stringify({newName})
+    });
+    const data = await res.json();
+    if (data.success) await loadTemplates(); else alert('Error: ' + data.error);
+  }
+
+  async function deleteTemplate(filename) {
+    if (!confirm('¿Eliminar plantilla ' + filename + '?')) return;
+    const res = await fetch(API + '/templates/' + encodeURIComponent(filename), {
+      method:'DELETE', headers:{'x-account-id':accountId}
+    });
+    const data = await res.json();
+    if (data.success) await loadTemplates(); else alert('Error: ' + data.error);
+  }
+
+  async function handleFileUpload(e) {
+    const file = e.target.files[0]; if (!file) return;
+    const formData = new FormData();
+    formData.append('template', file); formData.append('account_id', accountId);
+    document.getElementById('upload-filename').textContent = 'Subiendo...';
+    document.getElementById('upload-area').classList.add('has-file');
+    try {
+      await fetch(API + '/templates/upload', {method:'POST', body:formData});
+      document.getElementById('upload-filename').textContent = '✓ ' + file.name;
+      document.getElementById('upload-status').innerHTML = '<div class="status success">✓ Plantilla subida</div>';
+      await loadTemplates();
+      selectTemplate(file.name);
+    } catch(e) {
+      document.getElementById('upload-status').innerHTML = '<div class="status error">✗ Error al subir</div>';
+    }
+  }
+
+  /* ── ITEMS ── */
+  async function loadBoardItems(bid) {
+    try {
+      const res = await fetch(API + '/board-items', {
+        method:'POST', headers:{'Content-Type':'application/json','x-account-id':accountId},
+        body:JSON.stringify({account_id:accountId, board_id:bid})
+      });
+      const data = await res.json();
+      const items = data.data?.boards?.[0]?.items_page?.items || [];
+      const list = document.getElementById('items-list');
+      if (!items.length) { list.innerHTML = '<div class="empty">No hay items en este tablero</div>'; return; }
+      list.innerHTML = items.map(item =>
+        '<div class="item-row" onclick="selectItem(\'' + item.id + '\',\'' + item.name.replace(/'/g,"\\'") + '\')" id="item-' + item.id + '">' +
+        '<span>📋</span><span>' + item.name + '</span><span class="item-id">#' + item.id + '</span></div>'
+      ).join('');
+    } catch(e) { document.getElementById('items-list').innerHTML = '<div class="empty">Error al cargar items</div>'; }
+  }
+
   async function selectItem(id, name) {
-    selectedItem = { id, name };
+    selectedItem = {id, name};
     document.querySelectorAll('.item-row').forEach(el => el.classList.remove('selected'));
     document.getElementById('item-' + id).classList.add('selected');
     checkReady();
@@ -623,39 +596,26 @@
     const panel = document.getElementById('variables-panel');
     const list = document.getElementById('variables-list');
     panel.style.display = 'block';
-    list.innerHTML = '<div class="var-row"><span class="var-value">Cargando variables...</span></div>';
-
+    list.innerHTML = '<div class="var-row"><span class="var-value">Cargando...</span></div>';
     try {
       const res = await fetch(API + '/item-variables', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
-        body: JSON.stringify({ account_id: accountId, board_id: boardId, item_id: itemId })
+        method:'POST', headers:{'Content-Type':'application/json','x-account-id':accountId},
+        body:JSON.stringify({account_id:accountId, board_id:boardId, item_id:itemId})
       });
       const data = await res.json();
-
-      if (!data.variables) { list.innerHTML = '<div class="var-row"><span class="var-value">Error al cargar</span></div>'; return; }
-
-      const typeIcons = { name: '🏷', text: '📝', numbers: '🔢', date: '📅', status: '🔵', location: '📍', mirror: '🪞', board_relation: '🔗', subitems: '📋', formula: '⚡', people: '👤' };
-
-      list.innerHTML = data.variables.map(v => {
-        const icon = typeIcons[v.type] || '•';
-        const isFn = v.type === 'formula' || v.type === 'subitems';
-        const badgeClass = isFn ? 'badge badge-formula' : (v.type === 'subitems' ? 'badge badge-subitem' : 'badge');
-        return '<div class="var-row">' +
-          '<span class="var-name ' + badgeClass + '" onclick="copyVar(\'' + v.variable + '\')" title="Click para copiar">{{' + v.variable + '}}</span>' +
-          '<span class="var-value">' + (v.value || '') + '</span>' +
-          '<span class="var-type">' + icon + ' ' + v.type + '</span>' +
-          '</div>';
-      }).join('');
-
-      // Abrir panel automáticamente
+      if (!data.variables) { list.innerHTML = '<div class="var-row"><span class="var-value">Error</span></div>'; return; }
+      const typeIcons = {name:'🏷',text:'📝',numbers:'🔢',date:'📅',status:'🔵',location:'📍',mirror:'🪞',board_relation:'🔗',subitems:'📋',formula:'⚡',people:'👤'};
+      list.innerHTML = data.variables.map(v =>
+        '<div class="var-row">' +
+        '<span class="var-tag" onclick="copyVar(\'' + v.variable + '\')" title="Click para copiar">{{' + v.variable + '}}</span>' +
+        '<span class="var-value">' + (v.value || '') + '</span>' +
+        '<span class="var-type">' + (typeIcons[v.type]||'•') + ' ' + v.type + '</span>' +
+        '</div>'
+      ).join('');
       variablesOpen = true;
       document.getElementById('variables-table').classList.add('open');
       document.getElementById('toggle-icon').textContent = '▲ ocultar';
-
-    } catch(e) {
-      list.innerHTML = '<div class="var-row"><span class="var-value">Error al cargar variables</span></div>';
-    }
+    } catch(e) { list.innerHTML = '<div class="var-row"><span class="var-value">Error al cargar</span></div>'; }
   }
 
   function toggleVariables() {
@@ -667,39 +627,19 @@
   function copyVar(varName) {
     const text = '{{' + varName + '}}';
     navigator.clipboard.writeText(text).then(() => {
-      const hint = document.querySelector('.copy-hint');
-      if (hint) { hint.textContent = '✓ Copiado: ' + text; setTimeout(() => { hint.textContent = 'Click en una variable para copiarla al portapapeles'; }, 2000); }
+      const hint = document.getElementById('copy-hint');
+      if (hint) { hint.textContent = '✓ Copiado: ' + text; setTimeout(() => { hint.textContent = 'Click en una variable para copiarla'; }, 2000); }
     });
   }
 
   function checkReady() {
-    document.getElementById('generate-btn').disabled = !(selectedTemplate && selectedItem);
-    document.getElementById('generate-pdf-btn').disabled = !(selectedTemplate && selectedItem);
-    document.getElementById('generate-xlsx-btn').disabled = !(selectedTemplate && selectedItem);
+    const ready = !!(selectedTemplate && selectedItem);
+    document.getElementById('generate-btn').disabled = !ready;
+    document.getElementById('generate-pdf-btn').disabled = !ready;
+    document.getElementById('generate-xlsx-btn').disabled = !ready;
   }
 
-  async function handleFileUpload(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const formData = new FormData();
-    formData.append('template', file);
-    formData.append('account_id', accountId);
-    document.getElementById('upload-filename').textContent = 'Subiendo...';
-    document.getElementById('upload-area').classList.add('has-file');
-    try {
-      await fetch(API + '/templates/upload', { method: 'POST', body: formData });
-      document.getElementById('upload-filename').textContent = '✓ ' + file.name;
-      document.getElementById('upload-status').innerHTML = '<div class="status success">✓ Plantilla subida</div>';
-      await loadTemplates();
-    await loadSignatures();
-    await loadTriggers();
-    await loadScheduledAutos();
-      selectTemplate(file.name);
-    } catch(e) {
-      document.getElementById('upload-status').innerHTML = '<div class="status error">✗ Error al subir</div>';
-    }
-  }
-
+  /* ── GENERATE ── */
   async function generateDocument(format = 'docx') {
     if (!selectedTemplate || !selectedItem) return;
     const btn = format === 'pdf' ? document.getElementById('generate-pdf-btn') : document.getElementById('generate-btn');
@@ -712,49 +652,247 @@
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 30000);
       const res = await fetch(API + endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
-        body: JSON.stringify({ account_id: accountId, board_id: boardId, item_id: selectedItem.id, template_name: selectedTemplate }),
-        signal: controller.signal
+        method:'POST', headers:{'Content-Type':'application/json','x-account-id':accountId},
+        body:JSON.stringify({account_id:accountId, board_id:boardId, item_id:selectedItem.id, template_name:selectedTemplate}),
+        signal:controller.signal
       });
       clearTimeout(timeout);
-
       if (format === 'pdf') {
         const job = await res.json();
-        if (!job.job_id) { status.innerHTML = '<div class="status error">✗ Error iniciando PDF</div>'; btn.disabled = false; btn.innerHTML = 'Generar documento'; return; }
-        status.innerHTML = '<div class="status success">⏳ Generando PDF...</div>';
-        btn.disabled = false;
-        btn.innerHTML = 'Generar documento';
+        if (!job.job_id) { status.innerHTML = '<div class="status error">✗ Error iniciando PDF</div>'; btn.disabled = false; btn.innerHTML = '⬇ PDF'; return; }
+        status.innerHTML = '<div class="status info">⏳ Generando PDF...</div>';
+        btn.disabled = false; btn.innerHTML = '⬇ PDF';
         const poll = setInterval(async () => {
           try {
-            const s = await fetch(API + '/pdf-status/' + job.job_id, { headers: { 'x-account-id': accountId } });
+            const s = await fetch(API + '/pdf-status/' + job.job_id, {headers:{'x-account-id':accountId}});
             const jobStatus = await s.json();
             if (jobStatus.status === 'ready') {
               clearInterval(poll);
               await loadHistorial();
               const downloadUrl = API + '/download-pdf/' + jobStatus.filename + '?account_id=' + accountId;
-              status.innerHTML = '<div class="status success"><strong>✓ PDF listo</strong><br><a class="download-btn" href="' + downloadUrl + '" target="_blank">⬇ Descargar PDF</a></div>';
+              status.innerHTML = '<div class="status success">✓ PDF listo<br><a class="download-link" href="' + downloadUrl + '" target="_blank">⬇ Descargar PDF</a></div>';
               window.open(downloadUrl, '_blank');
             } else if (jobStatus.status === 'error') {
               clearInterval(poll);
               status.innerHTML = '<div class="status error">✗ ' + (jobStatus.error || 'Error generando PDF') + '</div>';
             }
-          } catch(e) { clearInterval(poll); status.innerHTML = '<div class="status error">✗ Error de polling</div>'; }
+          } catch(e) { clearInterval(poll); }
         }, 2000);
       } else {
         const data = await res.json();
         if (data.success) {
           await loadHistorial();
-          status.innerHTML = '<div class="status success"><strong>✓ Documento generado</strong><br><span style="font-size:12px">' + selectedItem.name + '</span><br><a class="download-btn" href="' + API + data.download_url + '" target="_blank">⬇ Descargar ' + data.filename + '</a></div>';
+          status.innerHTML = '<div class="status success">✓ Documento generado<br><a class="download-link" href="' + API + data.download_url + '" target="_blank">⬇ Descargar ' + data.filename + '</a></div>';
         } else {
           status.innerHTML = '<div class="status error">✗ ' + (data.error || 'Error') + '</div>';
         }
       }
-    } catch (e) {
-      status.innerHTML = '<div class="status error">✗ ' + (e.name === 'AbortError' ? 'Timeout' : 'Error de conexion') + '</div>';
+    } catch(e) {
+      status.innerHTML = '<div class="status error">✗ ' + (e.name === 'AbortError' ? 'Timeout' : 'Error de conexión') + '</div>';
     } finally {
-      if (format !== 'pdf') { btn.disabled = false; btn.innerHTML = 'Generar documento'; }
+      if (format !== 'pdf') { btn.disabled = false; btn.innerHTML = '⬇ Word'; }
     }
+  }
+
+  async function generateXlsx() {
+    if (!selectedTemplate || !selectedItem) return;
+    const btn = document.getElementById('generate-xlsx-btn');
+    btn.innerHTML = '<div class="spinner"></div>'; btn.disabled = true;
+    try {
+      const res = await fetch(API + '/export-xlsx', {
+        method:'POST', headers:{'Content-Type':'application/json','x-account-id':accountId},
+        body:JSON.stringify({board_id:boardId, item_id:selectedItem.id})
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = selectedItem.name + '.xlsx'; a.click();
+      URL.revokeObjectURL(url);
+    } catch(e) { alert('Error: ' + e.message); }
+    finally { btn.innerHTML = '⬇ Excel'; btn.disabled = false; }
+  }
+
+  /* ── SIGNATURES ── */
+  async function requestSignature() {
+    const signerName = document.getElementById('signerName').value;
+    if (!signerName) { alert('Ingresa el nombre del firmante'); return; }
+    if (!selectedTemplate) { alert('Selecciona una plantilla primero'); return; }
+    const signerEmail = document.getElementById('signerEmail').value;
+    try {
+      const res = await fetch(API + '/signatures/request', {
+        method:'POST', headers:{'Content-Type':'application/json','x-account-id':accountId},
+        body:JSON.stringify({document_filename:selectedTemplate, signer_name:signerName, signer_email:signerEmail, item_id:selectedItem?selectedItem.id:null, board_id:boardId})
+      });
+      const data = await res.json();
+      if (data.success) {
+        document.getElementById('signatureResult').innerHTML =
+          '<div class="status success" style="word-break:break-all">✓ Link generado: <a href="' + data.sign_url + '" target="_blank" style="color:var(--accent)">' + data.sign_url + '</a></div>';
+        await loadSignatures();
+      } else {
+        document.getElementById('signatureResult').innerHTML = '<div class="status error">✗ ' + data.error + '</div>';
+      }
+    } catch(e) { document.getElementById('signatureResult').innerHTML = '<div class="status error">Error: ' + e.message + '</div>'; }
+  }
+
+  async function loadSignatures() {
+    try {
+      const res = await fetch(API + '/signatures', {headers:{'x-account-id':accountId}});
+      const data = await res.json();
+      const list = document.getElementById('signaturesList');
+      if (!data.signatures || !data.signatures.length) { list.innerHTML = '<div class="empty">Sin solicitudes de firma</div>'; return; }
+      list.innerHTML = data.signatures.map(s => {
+        const signed = s.status === 'signed';
+        const expired = s.expires_at && new Date(s.expires_at) < new Date() && !signed;
+        const statusColor = signed ? '#059669' : expired ? 'var(--red)' : '#B45309';
+        const statusBg = signed ? 'var(--green-light)' : expired ? 'var(--red-light)' : 'var(--orange-light)';
+        const statusIcon = signed ? '✅' : expired ? '❌' : '⏳';
+        const statusLabel = signed ? 'Firmado' : expired ? 'Expirado' : 'Pendiente';
+        const signedDate = s.signed_at ? new Date(s.signed_at).toLocaleString('es-MX') : '';
+        const createdDate = s.created_at ? new Date(s.created_at).toLocaleDateString('es-MX') : '';
+        const portalUrl = window.location.origin + '/sign/' + s.token;
+        const actionBtn = signed
+          ? '<a href="' + API + '/sign/' + s.token + '/download" target="_blank" class="action-link action-link-green">⬇ PDF Firmado</a>'
+          : '<button onclick="navigator.clipboard.writeText(\'' + portalUrl + '\')" class="action-link action-link-blue">📋 Copiar link</button>';
+        const emailRow = s.signer_email ? '<span>✉️ ' + s.signer_email + '</span>' : '';
+        const dateRow = signed ? '<span style="color:#059669">🖊 Firmado: ' + signedDate + '</span>' : '<span>📅 Creado: ' + createdDate + '</span>';
+        const ipRow = s.signer_ip ? '<span>🌐 ' + s.signer_ip + '</span>' : '';
+        return '<div class="sig-item">' +
+          '<div class="sig-header">' +
+          '<span class="sig-name">' + (s.signer_name || 'Sin nombre') + '</span>' +
+          '<span class="badge-status" style="background:' + statusBg + ';color:' + statusColor + '">' + statusIcon + ' ' + statusLabel + '</span>' +
+          '</div>' +
+          '<div style="display:flex;justify-content:space-between;align-items:flex-end">' +
+          '<div class="sig-meta">'+
+          '<span>📄 ' + s.document_filename + '</span>' +
+          emailRow + dateRow + ipRow +
+          '</div>' +
+          '<div class="sig-action">' + actionBtn + '</div>' +
+          '</div></div>';
+      }).join('');
+    } catch(e) {}
+  }
+
+  /* ── AUTOMATION ── */
+  async function generateBulk() {
+    if (!selectedTemplate) { alert('Selecciona una plantilla primero'); return; }
+    if (!confirm('¿Generar documentos para todos los items del board?')) return;
+    const btn = event.target; btn.textContent = 'Generando...'; btn.disabled = true;
+    try {
+      const itemsRes = await fetch(API + '/board-items', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({account_id:accountId, board_id:boardId})
+      });
+      const itemsData = await itemsRes.json();
+      const itemIds = (itemsData.items || []).map(i => i.id);
+      if (!itemIds.length) { alert('No hay items en el board'); return; }
+      const res = await fetch(API + '/generate-bulk', {
+        method:'POST', headers:{'Content-Type':'application/json','x-account-id':accountId},
+        body:JSON.stringify({board_id:boardId, item_ids:itemIds, template_name:selectedTemplate})
+      });
+      const data = await res.json();
+      document.getElementById('bulkResult').innerHTML = '<div class="status success">✅ ' + data.generated + '/' + data.total + ' documentos generados</div>';
+      await loadHistorial();
+    } catch(e) { document.getElementById('bulkResult').innerHTML = '<div class="status error">Error: ' + e.message + '</div>'; }
+    btn.textContent = '⚡ Generar para todos los items'; btn.disabled = false;
+  }
+
+  async function saveTrigger() {
+    const columnId = document.getElementById('triggerColumnId').value;
+    const triggerValue = document.getElementById('triggerValue').value;
+    if (!columnId || !triggerValue) { alert('Ingresa columna y valor'); return; }
+    if (!selectedTemplate) { alert('Selecciona una plantilla'); return; }
+    const res = await fetch(API + '/webhooks/triggers', {
+      method:'POST', headers:{'Content-Type':'application/json','x-account-id':accountId},
+      body:JSON.stringify({board_id:boardId, column_id:columnId, trigger_value:triggerValue, template_name:selectedTemplate})
+    });
+    const data = await res.json();
+    if (data.success) { await loadTriggers(); } else alert('Error: ' + data.error);
+  }
+
+  async function loadTriggers() {
+    try {
+      const res = await fetch(API + '/webhooks/triggers', {headers:{'x-account-id':accountId}});
+      const data = await res.json();
+      const list = document.getElementById('triggersList');
+      if (!data.triggers || !data.triggers.length) { list.innerHTML = '<div class="empty">Sin triggers activos</div>'; return; }
+      list.innerHTML = data.triggers.map(t =>
+        '<div class="trigger-item">' +
+        '<div class="trigger-info">' +
+        '<div class="trigger-rule">⚡ ' + t.column_id + ' = <b>' + t.trigger_value + '</b></div>' +
+        '<div class="trigger-meta">📄 ' + t.template_name + '</div>' +
+        '</div>' +
+        '<button onclick="deleteTrigger(' + t.id + ')" class="icon-btn danger">🗑</button>' +
+        '</div>'
+      ).join('');
+    } catch(e) {}
+  }
+
+  async function deleteTrigger(id) {
+    if (!confirm('¿Eliminar trigger?')) return;
+    await fetch(API + '/webhooks/triggers/' + id, {method:'DELETE', headers:{'x-account-id':accountId}});
+    await loadTriggers();
+  }
+
+  async function saveScheduledAuto() {
+    const name = document.getElementById('autoName').value;
+    const cron = document.getElementById('autoCron').value;
+    const condCol = document.getElementById('autoCondCol').value;
+    const condVal = document.getElementById('autoCondVal').value;
+    if (!name) { alert('Ingresa un nombre'); return; }
+    if (!selectedTemplate) { alert('Selecciona una plantilla'); return; }
+    const res = await fetch(API + '/scheduled-automations', {
+      method:'POST', headers:{'Content-Type':'application/json','x-account-id':accountId},
+      body:JSON.stringify({name, cron_expression:cron, board_id:boardId, template_name:selectedTemplate, condition_column:condCol, condition_value:condVal})
+    });
+    const data = await res.json();
+    if (data.success) { await loadScheduledAutos(); } else alert('Error: ' + data.error);
+  }
+
+  async function loadScheduledAutos() {
+    try {
+      const res = await fetch(API + '/scheduled-automations', {headers:{'x-account-id':accountId}});
+      const data = await res.json();
+      const list = document.getElementById('scheduledAutosList');
+      if (!data.automations || !data.automations.length) { list.innerHTML = '<div class="empty">Sin automatizaciones activas</div>'; return; }
+      const cronLabel = {daily:'Diario', weekly:'Semanal', monthly:'Mensual'};
+      list.innerHTML = data.automations.map(a =>
+        '<div class="trigger-item">' +
+        '<div class="trigger-info">' +
+        '<div class="trigger-rule">🕐 ' + a.name + ' — <b>' + (cronLabel[a.cron_expression]||a.cron_expression) + '</b></div>' +
+        '<div class="trigger-meta">📄 ' + a.template_name + (a.condition_column ? ' · si ' + a.condition_column + '=' + a.condition_value : '') + '</div>' +
+        '</div>' +
+        '<button onclick="deleteScheduledAuto(' + a.id + ')" class="icon-btn danger">🗑</button>' +
+        '</div>'
+      ).join('');
+    } catch(e) {}
+  }
+
+  async function deleteScheduledAuto(id) {
+    if (!confirm('¿Eliminar automatización?')) return;
+    await fetch(API + '/scheduled-automations/' + id, {method:'DELETE', headers:{'x-account-id':accountId}});
+    await loadScheduledAutos();
+  }
+
+  /* ── HISTORIAL ── */
+  async function loadHistorial() {
+    try {
+      const res = await fetch(API + '/documents', {headers:{'x-account-id':accountId}});
+      const data = await res.json();
+      const list = document.getElementById('historial-list');
+      if (!data.documents || !data.documents.length) { list.innerHTML = '<div class="empty" style="padding:28px">No hay documentos generados aún</div>'; return; }
+      list.innerHTML = data.documents.map(doc => {
+        const fecha = new Date(doc.created_at).toLocaleDateString('es-MX', {day:'2-digit',month:'short',year:'numeric'});
+        const hora = new Date(doc.created_at).toLocaleTimeString('es-MX', {hour:'2-digit',minute:'2-digit'});
+        return '<div class="doc-row">' +
+          '<span style="font-size:18px">📄</span>' +
+          '<div class="doc-info">' +
+          '<div class="doc-name">' + doc.item_name + '</div>' +
+          '<div class="doc-meta">' + doc.template_name + ' · ' + fecha + ' ' + hora + '</div>' +
+          '</div>' +
+          '<a href="' + API + '/download/' + doc.filename + '" target="_blank" style="font-size:12px;color:var(--accent);text-decoration:none;font-weight:500;white-space:nowrap">⬇ Descargar</a>' +
+          '</div>';
+      }).join('');
+    } catch(e) { document.getElementById('historial-list').innerHTML = '<div class="empty" style="padding:28px">Error al cargar</div>'; }
   }
 
   init();
