@@ -54,6 +54,7 @@ async function initDB() {
     await pool.query(`ALTER TABLE templates ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
     await pool.query(`CREATE TABLE IF NOT EXISTS documents (id SERIAL PRIMARY KEY, account_id TEXT NOT NULL, board_id TEXT, item_id TEXT, item_name TEXT, template_name TEXT, filename TEXT NOT NULL, created_at TIMESTAMP DEFAULT NOW());`);
     await pool.query('ALTER TABLE documents ADD COLUMN IF NOT EXISTS doc_data BYTEA');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS doc_data BYTEA');
     await pool.query('ALTER TABLE documents ADD COLUMN IF NOT EXISTS signed_pdf BYTEA');
     await pool.query(`CREATE TABLE IF NOT EXISTS pdf_jobs (
         job_id TEXT PRIMARY KEY,
