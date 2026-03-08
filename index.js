@@ -1644,43 +1644,38 @@ app.post('/sign/:token', async (req, res) => {
       }
     } catch(embedErr) { console.error('Embed signature error FULL:', embedErr.message, embedErr.stack); }
 
-    // Notificar al firmante y buscar email del solicitante
+    // Email de confirmación al firmante
     const downloadUrl = (process.env.APP_URL || 'https://docugen-monday-production.up.railway.app') + '/sign/' + req.params.token + '/download';
     const finalName = signer_name || sig.signer_name;
-
-    // Email de confirmación al firmante si tiene email
     if (sig.signer_email) {
       try {
-        await resend.emails.send({
-          from: 'DocuGen <onboarding@resend.dev>',
-          to: sig.signer_email,
-          subject: '✅ Documento firmado — ' + sig.document_filename,
-          html: emailSignConfirm(finalName, sig.document_filename, downloadUrl, signerIp)
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + process.env.SMTP_PASS, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from: process.env.SMTP_FROM || 'DocuGen <noreply@velumlaser.com>',
+            to: [sig.signer_email],
+            subject: '✅ Documento firmado — ' + sig.document_filename,
+            html: '<h2>Documento firmado</h2><p>Hola <b>' + finalName + '</b>, has firmado el documento <b>' + sig.document_filename + '</b>.</p><p><a href="' + downloadUrl + '">Descargar documento firmado</a></p>'
+          })
         });
       } catch(e) { console.error('Email confirm error:', e.message); }
     }
 
-    // Sincronizar con monday: actualizar columna si hay item_id
-    let itemId = sig.item_id;
-    try { const p = JSON.parse(itemId); if (p.id) itemId = p.id; } catch(e) {}
+    // Monday update
+    try {
+      const tokenR = await pool.query('SELECT access_token FROM tokens WHERE account_id=$1', [sig.account_id]);
+      if (tokenR.rows.length && sig.item_id) {
+        const accessToken = tokenR.rows[0].access_token;
+        const signedAt = new Date().toLocaleString('es-MX');
+        await fetch('https://api.monday.com/v2', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': accessToken },
+          body: JSON.stringify({ query: 'mutation { create_update(item_id: ' + sig.item_id + ', body: "✅ Firmado por: ' + finalName + '\nFecha: ' + signedAt + '\nIP: ' + signerIp + '") { id } }' })
+        });
+      }
+    } catch(mondayErr) { console.error('Monday update error:', mondayErr.message); }
 
-    if (itemId && sig.board_id) {
-      try {
-        // Buscar access token de la cuenta
-        const accR = await pool.query('SELECT access_token FROM accounts WHERE account_id=$1', [sig.account_id]);
-        if (accR.rows.length && accR.rows[0].access_token) {
-          const token = accR.rows[0].access_token;
-          // Actualizar columna de texto con estado de firma
-          const updateQuery = `mutation {
-            create_update(item_id: ${itemId}, body: "✅ Documento firmado por ${finalName} el ${new Date(sig.signed_at||new Date()).toLocaleDateString('es-MX')} — IP: ${signerIp}") { id }
-          }`;
-          await axios.post('https://api.monday.com/v2', { query: updateQuery }, {
-            headers: { Authorization: token, 'Content-Type': 'application/json' }
-          });
-        }
-      } catch(syncErr) { console.error('Monday sync error:', syncErr.message); }
-    }
-    } catch(bgErr) { console.error('Background PDF error:', bgErr.message); } }); // end setImmediate
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
