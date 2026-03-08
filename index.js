@@ -1411,8 +1411,11 @@ app.post('/sign/:token', async (req, res) => {
       ['signed', signature_data, signer_name || sig.signer_name, signerIp, userAgent, updatedAudit, req.params.token]
     );
 
-    // Generar PDF firmado: PDF real de LibreOffice + certificado de firma con pdf-lib
-    try {
+    // Responder inmediatamente, generar PDF en background
+    res.json({ success: true, message: 'Documento firmado exitosamente', download_url: '/sign/' + req.params.token + '/download' });
+
+    // Generar PDF firmado en background
+    setImmediate(async () => { try {
       const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 
       // Buscar el PDF generado por LibreOffice (el real con formato)
@@ -1678,7 +1681,7 @@ app.post('/sign/:token', async (req, res) => {
       } catch(syncErr) { console.error('Monday sync error:', syncErr.message); }
     }
 
-    res.json({ success: true, message: 'Documento firmado exitosamente', download_url: downloadUrl });
+    } catch(bgErr) { console.error('Background PDF error:', bgErr.message); } });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
