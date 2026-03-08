@@ -205,6 +205,35 @@ function numeroALetras(num) {
   return letras + ' ' + (decimales > 0 ? decimales + '/100 M.N.' : '00/100 M.N.');
 }
 
+// Cargar settings globales de la cuenta y mezclar con data
+async function injectGlobalSettings(data, accountId) {
+  try {
+    const r = await pool.query('SELECT settings FROM account_settings WHERE account_id=$1', [accountId]);
+    if (!r.rows.length) return data;
+    const s = r.rows[0].settings || {};
+    // Campos fiscales
+    if (s.empresa) data.empresa = s.empresa;
+    if (s.rfc) data.rfc = s.rfc;
+    if (s.domicilio) data.domicilio = s.domicilio;
+    if (s.iva) data.iva_pct = s.iva;
+    if (s.moneda) data.moneda = s.moneda;
+    if (s.telefono) data.telefono_empresa = s.telefono;
+    if (s.email_empresa) data.email_empresa = s.email_empresa;
+    // Formato de fecha
+    const locale = s.date_format || 'es-MX';
+    const tz = s.timezone || 'America/Mexico_City';
+    const now = new Date();
+    data.fecha_hoy = now.toLocaleDateString(locale, { timeZone: tz, day:'2-digit', month:'2-digit', year:'numeric' });
+    data.fecha_larga = now.toLocaleDateString(locale, { timeZone: tz, day:'numeric', month:'long', year:'numeric' });
+    data.hora_actual = now.toLocaleTimeString(locale, { timeZone: tz, hour:'2-digit', minute:'2-digit' });
+    // Campos personalizados
+    if (s.custom_fields && Array.isArray(s.custom_fields)) {
+      s.custom_fields.forEach(f => { if (f.key && f.value) data[f.key] = f.value; });
+    }
+  } catch(e) { console.log('Settings inject error:', e.message); }
+  return data;
+}
+
 async function createDocxtemplater(zip, accountId) {
   let logoBuffer = null;
   try {
@@ -508,11 +537,13 @@ app.post('/generate-from-monday', requireAuth, async (req, res) => {
     });
 
     calcularTotales(data, item.subitems, item.column_values);
+    await injectGlobalSettings(data, req.accountId);
 
     console.log('Variables para plantilla:', JSON.stringify(data, null, 2));
 
     const zip = new PizZip(tplResult.rows[0].data);
     const doc = await createDocxtemplater(zip, req.accountId);
+    await injectGlobalSettings(data, req.accountId);
     doc.render(data);
 
     const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
@@ -560,6 +591,7 @@ app.post('/generate-from-monday-pdf', requireAuth, async (req, res) => {
 
     const zip = new PizZip(tplResult.rows[0].data);
     const doc = await createDocxtemplater(zip, req.accountId);
+    await injectGlobalSettings(data, req.accountId);
     doc.render(data);
 
     const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
@@ -647,6 +679,7 @@ app.post('/generate-pdf-async', requireAuth, async (req, res) => {
 
       const zip = new PizZip(tplResult.rows[0].data);
       const doc = await createDocxtemplater(zip, accountId);
+      await injectGlobalSettings(data, accountId);
       doc.render(data);
 
       const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
@@ -2253,6 +2286,7 @@ async function executeAutomation(accountId, itemId, boardId, templateName, acces
 
     const zip = new PizZip(tplResult.rows[0].data);
     const doc = await createDocxtemplater(zip, accountId);
+    await injectGlobalSettings(data, accountId);
     doc.render(data);
     const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
     const outputFilename = item.name.replace(/[^a-zA-Z0-9]/g, '_') + '_auto_' + Date.now() + '.docx';
