@@ -644,6 +644,8 @@
     await loadScheduledAutos();
     if (boardId) await loadBoardItems(boardId);
     await loadHistorial();
+    await loadSettings();
+    await loadLogo();
   }
 
   function startAuth() { window.location.href = API + '/oauth/start'; }
