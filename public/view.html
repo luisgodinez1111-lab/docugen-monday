@@ -237,6 +237,9 @@
       <button class="tab" onclick="switchTab('historial')" id="tab-historial">
         <span class="tab-icon">📁</span> Historial
       </button>
+      <button class="tab" onclick="switchTab('ajustes')" id="tab-ajustes">
+        <span class="tab-icon">⚙️</span> Ajustes
+      </button>
     </div>
 
     <!-- ═══════════════════════════════════════
@@ -434,6 +437,130 @@
         <div id="historial-list"><div class="empty" style="padding:28px">Cargando historial...</div></div>
       </div>
     </div><!-- /panel-historial -->
+
+    <!-- PANEL AJUSTES -->
+    <div class="panel" id="panel-ajustes">
+
+      <!-- Idioma -->
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">🌐 Idioma del sistema</div><div class="card-subtitle">Cambia el idioma de la interfaz</div></div>
+        </div>
+        <div class="card-body">
+          <div class="input-group">
+            <select class="input" id="cfg-language" onchange="saveSettings()">
+              <option value="es">Español</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Fecha y hora -->
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">📅 Fecha y hora</div><div class="card-subtitle">Formato usado en documentos generados</div></div>
+        </div>
+        <div class="card-body">
+          <div class="input-group">
+            <select class="input" id="cfg-date-format" onchange="saveSettings()">
+              <option value="es-MX">DD/MM/AAAA (México)</option>
+              <option value="es-ES">DD/MM/AAAA (España)</option>
+              <option value="en-US">MM/DD/YYYY (EE.UU.)</option>
+              <option value="iso">AAAA-MM-DD (ISO)</option>
+            </select>
+            <select class="input" id="cfg-timezone" onchange="saveSettings()">
+              <option value="America/Mexico_City">Ciudad de México (GMT-6)</option>
+              <option value="America/Monterrey">Monterrey (GMT-6)</option>
+              <option value="America/Tijuana">Tijuana (GMT-8)</option>
+              <option value="America/Bogota">Bogotá (GMT-5)</option>
+              <option value="America/Lima">Lima (GMT-5)</option>
+              <option value="America/Santiago">Santiago (GMT-4)</option>
+              <option value="America/Argentina/Buenos_Aires">Buenos Aires (GMT-3)</option>
+              <option value="Europe/Madrid">Madrid (GMT+1)</option>
+              <option value="America/New_York">Nueva York (GMT-5)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Logo portal de firmas -->
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">🖼 Logo del portal de firmas</div><div class="card-subtitle">Aparece en el link que se comparte para firmar</div></div>
+        </div>
+        <div class="card-body">
+          <div id="logo-preview" style="margin-bottom:12px;display:none">
+            <img id="logo-img" style="max-height:60px;border-radius:8px;border:1px solid var(--border)">
+          </div>
+          <div class="upload-area" id="logo-upload-area">
+            <input type="file" accept="image/*" onchange="handleLogoUpload(event)">
+            <div style="font-size:20px;margin-bottom:4px">🖼</div>
+            <div class="upload-text"><strong>Click para subir</strong> logo (PNG, JPG)</div>
+            <div class="upload-filename" id="logo-filename"></div>
+          </div>
+          <div id="logo-status"></div>
+        </div>
+      </div>
+
+      <!-- Campos personalizados -->
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">🏷 Campos personalizados</div><div class="card-subtitle">Variables globales disponibles en todas las plantillas</div></div>
+          <button class="btn btn-sm btn-ghost" onclick="addCustomField()">+ Agregar</button>
+        </div>
+        <div class="card-body" style="padding:8px">
+          <div id="custom-fields-list"></div>
+        </div>
+        <div class="card-body" style="padding:8px 18px 14px;border-top:1px solid var(--border)">
+          <div class="input-group" id="new-field-form" style="display:none">
+            <input class="input" id="new-field-key" placeholder="Nombre del campo (ej: empresa, rfc, iva)">
+            <input class="input" id="new-field-value" placeholder="Valor por defecto">
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-primary" style="flex:1" onclick="saveCustomField()">Guardar campo</button>
+              <button class="btn btn-ghost" style="flex:1" onclick="cancelCustomField()">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Campos fiscales -->
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">🧾 Datos fiscales y empresa</div><div class="card-subtitle">Aparecen como variables en todas las plantillas</div></div>
+        </div>
+        <div class="card-body">
+          <div class="input-group">
+            <input class="input" id="cfg-empresa" placeholder="Nombre de la empresa" oninput="saveSettings()">
+            <input class="input" id="cfg-rfc" placeholder="RFC / NIT / RUT" oninput="saveSettings()">
+            <input class="input" id="cfg-domicilio" placeholder="Domicilio fiscal" oninput="saveSettings()">
+            <input class="input" id="cfg-iva" placeholder="IVA % (ej: 16)" oninput="saveSettings()">
+            <input class="input" id="cfg-moneda" placeholder="Moneda (ej: MXN, USD, COP)" oninput="saveSettings()">
+            <input class="input" id="cfg-telefono" placeholder="Teléfono de contacto" oninput="saveSettings()">
+            <input class="input" id="cfg-email-empresa" placeholder="Email de la empresa" oninput="saveSettings()">
+          </div>
+          <div id="fiscal-status" style="margin-top:8px"></div>
+        </div>
+      </div>
+
+      <!-- Notificaciones -->
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">🔔 Notificaciones</div><div class="card-subtitle">Email que recibe alertas cuando se firma un documento</div></div>
+        </div>
+        <div class="card-body">
+          <div class="input-group">
+            <input class="input" id="cfg-notify-email" placeholder="Email de notificaciones" oninput="saveSettings()">
+          </div>
+        </div>
+      </div>
+
+      <div style="padding:0 4px 8px">
+        <button class="btn btn-primary" onclick="saveSettingsNow()">💾 Guardar todos los ajustes</button>
+        <div id="settings-status" style="margin-top:8px"></div>
+      </div>
+
+    </div><!-- /panel-ajustes -->
 
   </div><!-- /app -->
 </div><!-- /main-content -->
@@ -926,6 +1053,136 @@
           '</div>';
       }).join('');
     } catch(e) { document.getElementById('historial-list').innerHTML = '<div class="empty" style="padding:28px">Error al cargar</div>'; }
+  }
+
+  /* ── AJUSTES ── */
+  async function loadSettings() {
+    try {
+      const res = await fetch(API + '/settings?account_id=' + accountId);
+      const data = await res.json();
+      if (!data.settings) return;
+      const s = data.settings;
+      if (s.language) document.getElementById('cfg-language').value = s.language;
+      if (s.date_format) document.getElementById('cfg-date-format').value = s.date_format;
+      if (s.timezone) document.getElementById('cfg-timezone').value = s.timezone;
+      if (s.empresa) document.getElementById('cfg-empresa').value = s.empresa;
+      if (s.rfc) document.getElementById('cfg-rfc').value = s.rfc;
+      if (s.domicilio) document.getElementById('cfg-domicilio').value = s.domicilio;
+      if (s.iva) document.getElementById('cfg-iva').value = s.iva;
+      if (s.moneda) document.getElementById('cfg-moneda').value = s.moneda;
+      if (s.telefono) document.getElementById('cfg-telefono').value = s.telefono;
+      if (s.email_empresa) document.getElementById('cfg-email-empresa').value = s.email_empresa;
+      if (s.notify_email) document.getElementById('cfg-notify-email').value = s.notify_email;
+      if (s.custom_fields) renderCustomFields(s.custom_fields);
+    } catch(e) {}
+  }
+
+  let settingsTimer = null;
+  function saveSettings() {
+    clearTimeout(settingsTimer);
+    settingsTimer = setTimeout(saveSettingsNow, 1500);
+  }
+
+  async function saveSettingsNow() {
+    const settings = {
+      language: document.getElementById('cfg-language').value,
+      date_format: document.getElementById('cfg-date-format').value,
+      timezone: document.getElementById('cfg-timezone').value,
+      empresa: document.getElementById('cfg-empresa').value,
+      rfc: document.getElementById('cfg-rfc').value,
+      domicilio: document.getElementById('cfg-domicilio').value,
+      iva: document.getElementById('cfg-iva').value,
+      moneda: document.getElementById('cfg-moneda').value,
+      telefono: document.getElementById('cfg-telefono').value,
+      email_empresa: document.getElementById('cfg-email-empresa').value,
+      notify_email: document.getElementById('cfg-notify-email').value,
+    };
+    try {
+      const res = await fetch(API + '/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'x-account-id': accountId},
+        body: JSON.stringify({settings})
+      });
+      const data = await res.json();
+      const el = document.getElementById('settings-status');
+      if (data.success) {
+        el.innerHTML = '<div class="status success">✓ Ajustes guardados</div>';
+        setTimeout(() => { el.innerHTML = ''; }, 2000);
+      }
+    } catch(e) {}
+  }
+
+  let customFields = [];
+  function renderCustomFields(fields) {
+    customFields = fields || [];
+    const list = document.getElementById('custom-fields-list');
+    if (!customFields.length) { list.innerHTML = '<div class="empty">Sin campos personalizados</div>'; return; }
+    list.innerHTML = customFields.map((f, i) =>
+      '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px">' +
+      '<span style="font-family:monospace;font-size:11px;color:var(--accent);background:var(--accent-light);padding:2px 6px;border-radius:4px">{{' + f.key + '}}</span>' +
+      '<span style="flex:1;font-size:12px;color:var(--muted)">' + f.value + '</span>' +
+      '<button onclick="deleteCustomField(' + i + ')" class="icon-btn danger">🗑</button>' +
+      '</div>'
+    ).join('');
+  }
+
+  function addCustomField() {
+    document.getElementById('new-field-form').style.display = 'flex';
+    document.getElementById('new-field-key').focus();
+  }
+  function cancelCustomField() { document.getElementById('new-field-form').style.display = 'none'; }
+  async function saveCustomField() {
+    const key = document.getElementById('new-field-key').value.trim().replace(/\s+/g,'_').toLowerCase();
+    const value = document.getElementById('new-field-value').value.trim();
+    if (!key) { alert('Ingresa un nombre'); return; }
+    customFields.push({key, value});
+    document.getElementById('new-field-key').value = '';
+    document.getElementById('new-field-value').value = '';
+    document.getElementById('new-field-form').style.display = 'none';
+    renderCustomFields(customFields);
+    await fetch(API + '/settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'x-account-id': accountId},
+      body: JSON.stringify({settings: {custom_fields: customFields}})
+    });
+  }
+  async function deleteCustomField(i) {
+    customFields.splice(i, 1);
+    renderCustomFields(customFields);
+    await fetch(API + '/settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'x-account-id': accountId},
+      body: JSON.stringify({settings: {custom_fields: customFields}})
+    });
+  }
+
+  async function handleLogoUpload(e) {
+    const file = e.target.files[0]; if (!file) return;
+    const formData = new FormData();
+    formData.append('logo', file); formData.append('account_id', accountId);
+    document.getElementById('logo-filename').textContent = 'Subiendo...';
+    document.getElementById('logo-upload-area').classList.add('has-file');
+    try {
+      const res = await fetch(API + '/logo/upload', {method:'POST', body:formData});
+      const data = await res.json();
+      if (data.success) {
+        document.getElementById('logo-filename').textContent = '✓ ' + file.name;
+        document.getElementById('logo-status').innerHTML = '<div class="status success">✓ Logo guardado</div>';
+        await loadLogo();
+      }
+    } catch(e) { document.getElementById('logo-status').innerHTML = '<div class="status error">✗ Error</div>'; }
+  }
+
+  async function loadLogo() {
+    try {
+      const res = await fetch(API + '/logo?account_id=' + accountId);
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        document.getElementById('logo-img').src = url;
+        document.getElementById('logo-preview').style.display = 'block';
+      }
+    } catch(e) {}
   }
 
   init();
