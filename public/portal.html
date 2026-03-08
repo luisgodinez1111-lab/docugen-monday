@@ -236,6 +236,26 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 
 const TOKEN = window.location.pathname.split('/sign/')[1]?.split('/')[0];
 
+// Cargar idioma inmediatamente al abrir el portal
+(async function initPortalLang() {
+  try {
+    const res = await fetch('/sign/' + TOKEN + '/info');
+    const data = await res.json();
+    if (data.account_id) {
+      const settRes = await fetch('/settings?account_id=' + data.account_id);
+      const settData = await settRes.json();
+      if (settData.settings && settData.settings.language) {
+        // Esperar a que DOM esté listo
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', () => applyPortalLang(settData.settings.language));
+        } else {
+          applyPortalLang(settData.settings.language);
+        }
+      }
+    }
+  } catch(e) {}
+})();
+
 // ── i18n PORTAL ──
 const portalI18n = {
   es: {

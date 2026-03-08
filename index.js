@@ -1239,7 +1239,8 @@ app.get('/sign/:token/info', async (req, res) => {
       expires_at: sig.expires_at,
       expired,
       needs_otp: !!(sig.otp_code && !sig.otp_verified),
-      group_id: sig.group_id
+      group_id: sig.group_id,
+      account_id: sig.account_id
     });
   } catch(e) { res.status(500).json({ success: false, error: e.message }); }
 });
