@@ -1274,13 +1274,12 @@ app.get('/sign/:token/info', async (req, res) => {
       document_filename: sig.document_filename,
       signer_name: sig.signer_name,
       signer_email: sig.signer_email ? sig.signer_email.replace(/(.{2}).*(@.*)/, '$1***$2') : null,
-      needs_otp: !!(sig.signer_email),
       status: sig.status || 'pending',
       signed_at: sig.signed_at,
       created_at: sig.created_at,
       expires_at: sig.expires_at,
       expired,
-      needs_otp: !!(sig.otp_code && !sig.otp_verified),
+      needs_otp: !!(sig.signer_email && !sig.otp_verified),
       group_id: sig.group_id,
       account_id: sig.account_id
     });
