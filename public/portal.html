@@ -327,7 +327,8 @@ async function sendOtp() {
     const res = await fetch('/sign/' + TOKEN + '/send-otp', { method: 'POST' });
     const data = await res.json();
     if (data.ok) {
-      document.getElementById('otp-email-display').textContent = data.email;
+      const el = document.getElementById('otp-email-display');
+      if (el) el.textContent = data.email;
       showScreen('otp');
     } else {
       document.getElementById('auth-error').textContent = data.error || 'Error enviando código';
