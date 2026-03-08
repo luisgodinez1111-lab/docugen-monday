@@ -453,7 +453,40 @@
   let selectedItem = null;
   let variablesOpen = false;
 
-  /* ── TAB SWITCHING ── */
+  // Monday SDK: detectar boardId y accountId automaticamente
+  try {
+    if (window.monday) {
+      const mondaySdk = window.monday();
+      mondaySdk.listen('context', function(res) {
+        const ctx = res.data || {};
+        const newBoard = ctx.boardId || (ctx.boardIds && ctx.boardIds[0]);
+        if (newBoard && !boardId) {
+          boardId = String(newBoard);
+          const bb = document.getElementById('board-badge');
+          if (bb) { bb.textContent = '📋 ' + boardId; bb.style.display = 'inline-flex'; }
+          if (document.getElementById('main-content').style.display !== 'none') loadBoardItems(boardId);
+        }
+        if (ctx.account && ctx.account.id && !accountId) {
+          accountId = String(ctx.account.id);
+          const ab = document.getElementById('account-badge');
+          if (ab) ab.textContent = '#' + accountId;
+        }
+      });
+      mondaySdk.get('context').then(function(res) {
+        const ctx = res.data || {};
+        const newBoard = ctx.boardId || (ctx.boardIds && ctx.boardIds[0]);
+        if (newBoard && !boardId) {
+          boardId = String(newBoard);
+          const bb = document.getElementById('board-badge');
+          if (bb) { bb.textContent = '📋 ' + boardId; bb.style.display = 'inline-flex'; }
+        }
+        if (ctx.account && ctx.account.id && !accountId) {
+          accountId = String(ctx.account.id);
+        }
+      }).catch(function() {});
+    }
+  } catch(e) { console.log('Monday SDK:', e.message); }
+
   function switchTab(name) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
