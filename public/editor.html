@@ -279,11 +279,38 @@ header { height: var(--header-h); background: var(--surface); border-bottom: 1px
 <div class="toast" id="toast"></div>
 <input type="file" id="imageInput" accept="image/*" style="display:none" onchange="handleImageUpload(event)">
 
+<script src='https://cdn.jsdelivr.net/npm/monday-sdk-js/dist/main.js'></script>
 <script>
 const API = window.location.origin;
 const params = new URLSearchParams(window.location.search);
-const accountId = params.get('account_id') || '';
-const boardId = params.get('boardId') || '';
+let accountId = params.get('account_id') || '';
+let boardId = params.get('boardId') || '';
+
+// Monday SDK: detectar boardId automaticamente
+try {
+  if (window.monday) {
+    const mondaySdk = window.monday();
+    mondaySdk.get('context').then(function(res) {
+      const ctx = res.data || {};
+      const newBoard = ctx.boardId || (ctx.boardIds && ctx.boardIds[0]);
+      if (newBoard && !boardId) {
+        boardId = String(newBoard);
+        loadVariables();
+      }
+      if (ctx.account && ctx.account.id && !accountId) {
+        accountId = String(ctx.account.id);
+      }
+    }).catch(function() {});
+    mondaySdk.listen('context', function(res) {
+      const ctx = res.data || {};
+      const newBoard = ctx.boardId || (ctx.boardIds && ctx.boardIds[0]);
+      if (newBoard && boardId !== String(newBoard)) {
+        boardId = String(newBoard);
+        loadVariables();
+      }
+    });
+  }
+} catch(e) { console.log('Monday SDK editor:', e.message); }
 const PAGE_W = 794, PAGE_H = 1123;
 
 let canvas, zoom = 1, gridEnabled = false, gridLines = [];
