@@ -1391,290 +1391,144 @@ app.post('/sign/:token', async (req, res) => {
     const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1 AND status=$2', [req.params.token, 'pending']);
     if (!r.rows.length) return res.status(404).json({ error: 'Link no válido o ya firmado' });
     const sig = r.rows[0];
-    if (new Date() > new Date(sig.expires_at)) return res.status(400).json({ error: 'Link expirado' });
+    if (sig.expires_at && new Date() > new Date(sig.expires_at)) return res.status(400).json({ error: 'Link expirado' });
+
     const signerIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
     const userAgent = req.headers['user-agent'] || '';
-    // Audit log del evento de firma
+    const finalName = signer_name || sig.signer_name || '';
+
+    // Audit log
     const existingAudit = sig.audit_log || [];
-    const auditEntry = {
-      event: 'signed',
-      timestamp: new Date().toISOString(),
-      ip: signerIp,
-      user_agent: userAgent,
-      signer_name: signer_name || sig.signer_name,
-      details: 'Documento firmado electronicamente. Consentimiento otorgado.',
-      consent_accepted: true
-    };
+    const auditEntry = { event: 'signed', timestamp: new Date().toISOString(), ip: signerIp, user_agent: userAgent, signer_name: finalName, consent_accepted: true };
     const updatedAudit = JSON.stringify([...existingAudit, auditEntry]);
+
     await pool.query(
       'UPDATE signature_requests SET status=$1, signature_data=$2, signer_name=$3, signed_at=NOW(), signer_ip=$4, user_agent=$5, audit_log=$6 WHERE token=$7',
-      ['signed', signature_data, signer_name || sig.signer_name, signerIp, userAgent, updatedAudit, req.params.token]
+      ['signed', signature_data, finalName, signerIp, userAgent, updatedAudit, req.params.token]
     );
 
-    // Responder inmediatamente, generar PDF en background
-    res.json({ success: true, message: 'Documento firmado exitosamente', download_url: '/sign/' + req.params.token + '/download' });
+    // Responder inmediatamente
+    const downloadUrl = (process.env.APP_URL || 'https://docugen-monday-production.up.railway.app') + '/sign/' + req.params.token + '/download';
+    res.json({ success: true, message: 'Documento firmado exitosamente', download_url: downloadUrl });
 
     // Generar PDF firmado en background
-    setImmediate(async () => { try {
-      const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
+    setImmediate(async () => {
+      try {
+        const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 
-      // Buscar el PDF generado por LibreOffice (el real con formato)
-      let pdfData = null;
-      if (sig.item_id) {
-        const pdfR = await pool.query(
-          "SELECT doc_data, filename FROM documents WHERE item_id=$1 AND filename LIKE '%.pdf' AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1",
-          [String(sig.item_id)]
-        );
-        if (pdfR.rows.length) { pdfData = pdfR.rows[0].doc_data; console.log('PDF found:', pdfR.rows[0].filename); }
-      }
-      if (!pdfData && sig.account_id) {
-        const pdfR2 = await pool.query(
-          "SELECT doc_data, filename FROM documents WHERE account_id=$1 AND filename LIKE '%.pdf' AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1",
-          [sig.account_id]
-        );
-        if (pdfR2.rows.length) { pdfData = pdfR2.rows[0].doc_data; console.log('PDF found by account:', pdfR2.rows[0].filename); }
-      }
-
-      if (pdfData) {
-        // Cargar el PDF original
-        const pdfDoc = await PDFDocument.load(pdfData);
-        const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-        const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
-
-        // Agregar página de certificado
-        const certPage = pdfDoc.addPage([595, 842]); // A4
-        const { width, height } = certPage.getSize();
-        const sigDate = new Date().toLocaleString('es-MX');
-        const sigIpVal = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
-        const finalNameVal = signer_name || sig.signer_name || '';
-
-        // Header azul
-        certPage.drawRectangle({ x: 0, y: height - 80, width, height: 80, color: rgb(0.06, 0.12, 0.24) });
-        certPage.drawText('CERTIFICADO DE FIRMA DIGITAL', { x: 30, y: height - 38, size: 18, font: helveticaBold, color: rgb(1,1,1) });
-        certPage.drawText('Documento firmado electronicamente via DocuGen', { x: 30, y: height - 58, size: 10, font: helvetica, color: rgb(0.8,0.8,0.8) });
-
-        // Badge verde
-        certPage.drawRectangle({ x: 30, y: height - 110, width: 220, height: 22, color: rgb(0.82, 0.97, 0.9), borderColor: rgb(0.2, 0.6, 0.4), borderWidth: 1 });
-        certPage.drawText('DOCUMENTO FIRMADO DIGITALMENTE', { x: 38, y: height - 103, size: 9, font: helveticaBold, color: rgb(0.02, 0.37, 0.25) });
-
-        // Tabla de datos
-        const rows = [
-          ['Documento:', sig.document_filename || ''],
-          ['Firmante:', finalNameVal],
-          ['Fecha y hora:', sigDate],
-          ['Direccion IP:', sigIpVal],
-          ['Metodo:', req.body.signature_type || 'drawn'],
-          ['Token:', req.params.token.substring(0,20) + '...'],
-        ];
-        let rowY = height - 145;
-        for (const [label, value] of rows) {
-          certPage.drawRectangle({ x: 30, y: rowY - 4, width: 160, height: 22, color: rgb(0.96, 0.96, 0.96) });
-          certPage.drawRectangle({ x: 190, y: rowY - 4, width: 375, height: 22, color: rgb(1,1,1), borderColor: rgb(0.88,0.88,0.88), borderWidth: 0.5 });
-          certPage.drawText(label, { x: 36, y: rowY + 4, size: 10, font: helveticaBold, color: rgb(0.3,0.3,0.3) });
-          certPage.drawText(String(value).substring(0, 55), { x: 196, y: rowY + 4, size: 10, font: helvetica, color: rgb(0.1,0.1,0.1) });
-          rowY -= 26;
+        // Buscar PDF de LibreOffice
+        let pdfData = null;
+        if (sig.item_id) {
+          const pdfR = await pool.query(
+            "SELECT doc_data FROM documents WHERE item_id=$1 AND filename LIKE '%.pdf' AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+            [String(sig.item_id)]
+          );
+          if (pdfR.rows.length) pdfData = pdfR.rows[0].doc_data;
+        }
+        if (!pdfData && sig.account_id) {
+          const pdfR2 = await pool.query(
+            "SELECT doc_data FROM documents WHERE account_id=$1 AND filename LIKE '%.pdf' AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+            [sig.account_id]
+          );
+          if (pdfR2.rows.length) pdfData = pdfR2.rows[0].doc_data;
         }
 
-        // Imagen de firma
-        if (signature_data && signature_data.startsWith('data:image')) {
-          try {
-            const b64 = signature_data.replace(/^data:image\/\w+;base64,/, '');
-            const imgBytes = Buffer.from(b64, 'base64');
-            const sigImg = signature_data.includes('image/png')
-              ? await pdfDoc.embedPng(imgBytes)
-              : await pdfDoc.embedJpg(imgBytes);
-            certPage.drawText('FIRMA:', { x: 30, y: rowY - 10, size: 10, font: helveticaBold, color: rgb(0.3,0.3,0.3) });
-            certPage.drawImage(sigImg, { x: 30, y: rowY - 100, width: 200, height: 80 });
-            certPage.drawRectangle({ x: 30, y: rowY - 102, width: 204, height: 84, borderColor: rgb(0.8,0.8,0.8), borderWidth: 0.5 });
-          } catch(imgErr) { console.error('Sig image embed error:', imgErr.message); }
-        }
+        if (pdfData) {
+          const pdfDoc = await PDFDocument.load(pdfData);
+          const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+          const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+          const certPage = pdfDoc.addPage([595, 842]);
+          const { width, height } = certPage.getSize();
+          const sigDate = new Date().toLocaleString('es-MX');
+          const signedHash = require('crypto').createHash('sha256').update(pdfData).digest('hex');
 
-        // Hash del documento firmado
-        const signedHash = generateDocHash(Buffer.from(pdfData));
-        await pool.query('UPDATE signature_requests SET signed_hash=$1, identity_verified=TRUE WHERE token=$2', [signedHash, req.params.token]);
+          // Header
+          certPage.drawRectangle({ x: 0, y: height - 80, width, height: 80, color: rgb(0.06, 0.12, 0.24) });
+          certPage.drawText('CERTIFICADO DE FIRMA DIGITAL', { x: 30, y: height - 38, size: 18, font: helveticaBold, color: rgb(1,1,1) });
+          certPage.drawText('Documento firmado electronicamente via DocuGen', { x: 30, y: height - 58, size: 10, font: helvetica, color: rgb(0.8,0.8,0.8) });
 
-        // Sección legal en certificado
-        rowY -= 20;
-        certPage.drawText('VALIDEZ LEGAL:', { x: 30, y: rowY, size: 10, font: helveticaBold, color: rgb(0.3,0.3,0.3) });
-        rowY -= 14;
-        const legalText = 'Esta firma electronica tiene validez legal conforme al Codigo de Comercio de Mexico (Art. 89-114), NOM-151-SCFI-2016 y demas disposiciones aplicables. La autenticidad puede verificarse mediante el hash SHA-256 del documento.';
-        const legalWords = legalText.match(/.{1,90}/g) || [];
-        for (const line of legalWords) {
-          if (rowY < 120) break;
-          certPage.drawText(line, { x: 30, y: rowY, size: 8, font: helvetica, color: rgb(0.4,0.4,0.4) });
-          rowY -= 12;
-        }
+          // Badge
+          certPage.drawRectangle({ x: 30, y: height - 110, width: 220, height: 22, color: rgb(0.82, 0.97, 0.9) });
+          certPage.drawText('DOCUMENTO FIRMADO DIGITALMENTE', { x: 38, y: height - 103, size: 9, font: helveticaBold, color: rgb(0.02, 0.37, 0.25) });
 
-        // Hash SHA-256
-        rowY -= 8;
-        certPage.drawText('Hash SHA-256 documento original:', { x: 30, y: rowY, size: 9, font: helveticaBold, color: rgb(0.3,0.3,0.3) });
-        rowY -= 12;
-        certPage.drawText(signedHash.substring(0,64), { x: 30, y: rowY, size: 7, font: helvetica, color: rgb(0.5,0.5,0.5) });
-
-        // Footer
-        certPage.drawLine({ start: { x: 30, y: 40 }, end: { x: width - 30, y: 40 }, thickness: 0.5, color: rgb(0.8,0.8,0.8) });
-        certPage.drawText('Generado por DocuGen · docugen-monday-production.up.railway.app · ' + new Date().toISOString(), { x: 30, y: 26, size: 7, font: helvetica, color: rgb(0.6,0.6,0.6) });
-
-        const pdfBuffer = await pdfDoc.save();
-        await pool.query(
-          'UPDATE signature_requests SET signed_pdf=$1 WHERE token=$2',
-          [Buffer.from(pdfBuffer), req.params.token]
-        );
-        console.log('PDF firmado generado:', pdfBuffer.length, 'bytes con', pdfDoc.getPageCount(), 'paginas');
-
-        // Notificación email al creador de la solicitud
-        try {
-          if (process.env.SMTP_HOST && sig.account_id) {
-            const nodemailer = require('nodemailer');
-            const transporter = nodemailer.createTransport({
-              host: process.env.SMTP_HOST,
-              port: parseInt(process.env.SMTP_PORT || '587'),
-              auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-            });
-            const ownerR = await pool.query('SELECT signer_email FROM signature_requests WHERE account_id=$1 AND id != (SELECT id FROM signature_requests WHERE token=$2) ORDER BY created_at DESC LIMIT 1', [sig.account_id, req.params.token]).catch(() => ({ rows: [] }));
-            const notifyEmail = process.env.NOTIFY_EMAIL || sig.signer_email;
-            if (notifyEmail) {
-              await transporter.sendMail({
-                from: process.env.SMTP_FROM || 'noreply@docugen.app',
-                to: notifyEmail,
-                subject: 'Documento firmado: ' + sig.document_filename,
-                html: '<h2>Documento Firmado</h2><p><b>' + (signer_name || sig.signer_name) + '</b> ha firmado el documento <b>' + sig.document_filename + '</b></p><p>Fecha: ' + new Date().toLocaleString('es-MX') + '</p><p>IP: ' + signerIp + '</p>'
-              });
-              console.log('Email notificacion enviado a:', notifyEmail);
-            }
+          // Datos
+          const rows = [
+            ['Documento:', sig.document_filename || ''],
+            ['Firmante:', finalName],
+            ['Fecha y hora:', sigDate],
+            ['Direccion IP:', signerIp],
+            ['Metodo:', req.body.signature_type || 'drawn'],
+            ['Token:', req.params.token.substring(0,20) + '...'],
+          ];
+          let rowY = height - 145;
+          for (const [label, value] of rows) {
+            certPage.drawRectangle({ x: 30, y: rowY - 4, width: 160, height: 22, color: rgb(0.96, 0.96, 0.96) });
+            certPage.drawRectangle({ x: 190, y: rowY - 4, width: 375, height: 22, color: rgb(1,1,1) });
+            certPage.drawText(label, { x: 36, y: rowY + 4, size: 10, font: helveticaBold, color: rgb(0.3,0.3,0.3) });
+            certPage.drawText(String(value).substring(0, 55), { x: 196, y: rowY + 4, size: 10, font: helvetica, color: rgb(0.1,0.1,0.1) });
+            rowY -= 26;
           }
-        } catch(emailErr) { console.error('Email error:', emailErr.message); }
 
-        // Actualizar columna en Monday.com
+          // Firma imagen
+          if (signature_data && signature_data.startsWith('data:image')) {
+            try {
+              const b64 = signature_data.replace(/^data:image\/\w+;base64,/, '');
+              const imgBytes = Buffer.from(b64, 'base64');
+              const sigImg = signature_data.includes('image/png') ? await pdfDoc.embedPng(imgBytes) : await pdfDoc.embedJpg(imgBytes);
+              certPage.drawText('FIRMA:', { x: 30, y: rowY - 10, size: 10, font: helveticaBold, color: rgb(0.3,0.3,0.3) });
+              certPage.drawImage(sigImg, { x: 30, y: rowY - 100, width: 200, height: 80 });
+              certPage.drawRectangle({ x: 30, y: rowY - 102, width: 204, height: 84, borderColor: rgb(0.8,0.8,0.8), borderWidth: 0.5 });
+              rowY -= 120;
+            } catch(imgErr) { console.error('Sig image error:', imgErr.message); }
+          }
+
+          // Legal
+          rowY -= 20;
+          const legalText = 'Firma electronica con validez legal conforme al Codigo de Comercio de Mexico (Art. 89-114) y NOM-151-SCFI-2016.';
+          certPage.drawText(legalText, { x: 30, y: rowY, size: 8, font: helvetica, color: rgb(0.4,0.4,0.4) });
+          rowY -= 16;
+          certPage.drawText('Hash SHA-256: ' + signedHash.substring(0, 48), { x: 30, y: rowY, size: 7, font: helvetica, color: rgb(0.5,0.5,0.5) });
+
+          // Footer
+          certPage.drawLine({ start: { x: 30, y: 40 }, end: { x: width - 30, y: 40 }, thickness: 0.5, color: rgb(0.8,0.8,0.8) });
+          certPage.drawText('Generado por DocuGen · ' + new Date().toISOString(), { x: 30, y: 26, size: 7, font: helvetica, color: rgb(0.6,0.6,0.6) });
+
+          const pdfBuffer = await pdfDoc.save();
+          await pool.query('UPDATE signature_requests SET signed_pdf=$1, signed_hash=$2 WHERE token=$3', [Buffer.from(pdfBuffer), signedHash, req.params.token]);
+          console.log('PDF firmado generado:', pdfBuffer.length, 'bytes con', pdfDoc.getPageCount(), 'paginas');
+        }
+
+        // Email confirmación
+        if (sig.signer_email && process.env.SMTP_PASS) {
+          try {
+            await fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: { 'Authorization': 'Bearer ' + process.env.SMTP_PASS, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                from: process.env.SMTP_FROM || 'DocuGen <noreply@velumlaser.com>',
+                to: [sig.signer_email],
+                subject: 'Documento firmado: ' + sig.document_filename,
+                html: '<h2>Documento firmado exitosamente</h2><p>Hola <b>' + finalName + '</b>, has firmado el documento <b>' + sig.document_filename + '</b>.</p><p><a href="' + downloadUrl + '">Descargar documento firmado</a></p><p style="color:#666;font-size:12px">Fecha: ' + new Date().toLocaleString('es-MX') + ' · IP: ' + signerIp + '</p>'
+              })
+            });
+          } catch(emailErr) { console.error('Email confirm error:', emailErr.message); }
+        }
+
+        // Monday update
         try {
           const tokenR = await pool.query('SELECT access_token FROM tokens WHERE account_id=$1', [sig.account_id]);
-          if (tokenR.rows.length && sig.item_id && sig.board_id) {
+          if (tokenR.rows.length && sig.item_id) {
             const accessToken = tokenR.rows[0].access_token;
-            const signedAt = new Date().toLocaleString('es-MX');
-            const updateNote = (signer_name || sig.signer_name) + ' firmó el ' + signedAt;
             await fetch('https://api.monday.com/v2', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': accessToken },
-              body: JSON.stringify({ query: `mutation { create_update(item_id: ${sig.item_id}, body: "✅ Documento firmado digitalmente\n👤 Firmante: ${signer_name || sig.signer_name}\n📅 Fecha: ${signedAt}\n🌐 IP: ${signerIp}\n🔒 Hash: ${signedHash.substring(0,16)}...") { id } }` })
+              body: JSON.stringify({ query: 'mutation { create_update(item_id: ' + sig.item_id + ', body: "Firmado por: ' + finalName + '\nFecha: ' + new Date().toLocaleString('es-MX') + '\nIP: ' + signerIp + '") { id } }' })
             });
-            console.log('Monday update creado para item:', sig.item_id);
           }
         } catch(mondayErr) { console.error('Monday update error:', mondayErr.message); }
 
-      } else {
-        console.log('No se encontro PDF para firmar, item_id:', sig.item_id);
-      }
-    } catch(embedErr) { console.error('Embed signature error FULL:', embedErr.message, embedErr.stack); }
-
-    // Incrustar firma en el documento (legacy fallback)
-    try {
-      const PDFDocument = require('pdf-lib').PDFDocument;
-      const { rgb } = require('pdf-lib');
-
-      // Buscar el documento original
-      const docR = await pool.query(
-        'SELECT doc_data, filename FROM documents WHERE (filename=$1 OR template_name=$1) AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
-        [sig.document_filename]
-      );
-      const docRow = docR.rows.length ? docR.rows[0] : null;
-      const accDocR = !docRow && sig.account_id ? await pool.query(
-        'SELECT doc_data, filename FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1',
-        [sig.account_id]
-      ) : { rows: [] };
-      const finalDoc = docRow || (accDocR.rows.length ? accDocR.rows[0] : null);
-
-      if (finalDoc && finalDoc.doc_data && signature_data && signature_data.startsWith('data:image')) {
-        // Convertir docx a PDF usando html-pdf-node como fallback
-        // Crear PDF simple con la firma incrustada
-        const pdfDoc = await PDFDocument.create();
-        const page = pdfDoc.addPage([595, 842]); // A4
-        const { width, height } = page.getSize();
-
-        // Título
-        page.drawText('Documento firmado digitalmente', {
-          x: 50, y: height - 60,
-          size: 18, color: rgb(0.1, 0.1, 0.4)
-        });
-        page.drawText('Archivo: ' + (finalDoc.filename || sig.document_filename), {
-          x: 50, y: height - 90, size: 11, color: rgb(0.3,0.3,0.3)
-        });
-        page.drawText('Firmante: ' + (signer_name || sig.signer_name || ''), {
-          x: 50, y: height - 115, size: 11, color: rgb(0.3,0.3,0.3)
-        });
-        page.drawText('Fecha: ' + new Date().toLocaleString('es-MX'), {
-          x: 50, y: height - 135, size: 11, color: rgb(0.3,0.3,0.3)
-        });
-        page.drawText('IP: ' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress || ''), {
-          x: 50, y: height - 155, size: 11, color: rgb(0.3,0.3,0.3)
-        });
-
-        // Línea separadora
-        page.drawLine({ start:{x:50,y:height-170}, end:{x:545,y:height-170}, thickness:1, color:rgb(0.8,0.8,0.8) });
-
-        // Incrustar imagen de firma
-        const base64Data = signature_data.replace(/^data:image\/\w+;base64,/, '');
-        const sigImageBytes = Buffer.from(base64Data, 'base64');
-        let sigImage;
-        try {
-          sigImage = signature_data.includes('image/png')
-            ? await pdfDoc.embedPng(sigImageBytes)
-            : await pdfDoc.embedJpg(sigImageBytes);
-        } catch(e) { sigImage = await pdfDoc.embedPng(sigImageBytes).catch(()=>null); }
-
-        if (sigImage) {
-          const sigDims = sigImage.scale(0.5);
-          page.drawText('Firma:', { x: 50, y: height - 210, size: 12, color: rgb(0.3,0.3,0.3) });
-          page.drawImage(sigImage, {
-            x: 50, y: height - 210 - sigDims.height - 10,
-            width: Math.min(sigDims.width, 300),
-            height: Math.min(sigDims.height, 120)
-          });
-        }
-
-        // Pie de página
-        page.drawText('Documento generado y firmado digitalmente por DocuGen', {
-          x: 50, y: 40, size: 9, color: rgb(0.6,0.6,0.6)
-        });
-
-        const signedPdfBytes = await pdfDoc.save();
-        await pool.query(
-          'UPDATE signature_requests SET signed_pdf=$1 WHERE token=$2',
-          [Buffer.from(signedPdfBytes), req.params.token]
-        );
-      }
-    } catch(embedErr) { console.error('Embed signature error FULL:', embedErr.message, embedErr.stack); }
-
-    // Email de confirmación al firmante
-    const downloadUrl = (process.env.APP_URL || 'https://docugen-monday-production.up.railway.app') + '/sign/' + req.params.token + '/download';
-    const finalName = signer_name || sig.signer_name;
-    if (sig.signer_email) {
-      try {
-        await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { 'Authorization': 'Bearer ' + process.env.SMTP_PASS, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from: process.env.SMTP_FROM || 'DocuGen <noreply@velumlaser.com>',
-            to: [sig.signer_email],
-            subject: '✅ Documento firmado — ' + sig.document_filename,
-            html: '<h2>Documento firmado</h2><p>Hola <b>' + finalName + '</b>, has firmado el documento <b>' + sig.document_filename + '</b>.</p><p><a href="' + downloadUrl + '">Descargar documento firmado</a></p>'
-          })
-        });
-      } catch(e) { console.error('Email confirm error:', e.message); }
-    }
-
-    // Monday update
-    try {
-      const tokenR = await pool.query('SELECT access_token FROM tokens WHERE account_id=$1', [sig.account_id]);
-      if (tokenR.rows.length && sig.item_id) {
-        const accessToken = tokenR.rows[0].access_token;
-        const signedAt = new Date().toLocaleString('es-MX');
-        await fetch('https://api.monday.com/v2', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': accessToken },
-          body: JSON.stringify({ query: 'mutation { create_update(item_id: ' + sig.item_id + ', body: "✅ Firmado por: ' + finalName + '\nFecha: ' + signedAt + '\nIP: ' + signerIp + '") { id } }' })
-        });
-      }
-    } catch(mondayErr) { console.error('Monday update error:', mondayErr.message); }
+      } catch(bgErr) { console.error('Background PDF error:', bgErr.message); }
+    }); // end setImmediate
 
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
