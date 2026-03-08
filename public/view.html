@@ -153,7 +153,10 @@
       </div>
       <div id="signatureResult" style="margin-top:10px"></div>
       <div style="margin-top:14px">
-        <div class="section-title" style="margin-bottom:8px">Firmas pendientes</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div class="section-title">Solicitudes de firma</div>
+          <button onclick="loadSignatures()" style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 10px;font-size:11px;color:var(--text-muted);cursor:pointer">↻ Actualizar</button>
+        </div>
         <div id="signaturesList"><div class="empty">Cargando...</div></div>
       </div>
     </div>
@@ -479,18 +482,34 @@
       const data = await res.json();
       const list = document.getElementById('signaturesList');
       if (!data.signatures || !data.signatures.length) { list.innerHTML = '<div class="empty">Sin solicitudes</div>'; return; }
-      list.innerHTML = data.signatures.slice(0,5).map(s => {
-        const statusColor = s.status === 'signed' ? 'var(--success)' : '#f59e0b';
-        const statusIcon = s.status === 'signed' ? '✅' : '⏳';
-        const downloadBtn = s.status === 'signed' ?
-          '<a href="' + API + '/signatures/' + s.token + '/download" target="_blank" style="padding:2px 8px;background:#059669;color:white;border-radius:4px;font-size:10px;text-decoration:none;font-weight:600">⬇ Descargar</a>' : '';
-        return '<div style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:5px;font-size:12px">' +
-          '<div style="display:flex;justify-content:space-between;align-items:center">' +
-          '<span>' + s.signer_name + '</span>' +
-          '<div style="display:flex;align-items:center;gap:6px"><span style="color:' + statusColor + '">' + statusIcon + ' ' + s.status + '</span>' + downloadBtn + '</div>' +
-          '</div>' +
-          '<div style="color:var(--text-muted);font-size:10px;margin-top:2px">' + s.document_filename + '</div>' +
-          '</div>';
+      list.innerHTML = data.signatures.map(s => {
+        const signed = s.status === 'signed';
+        const expired = s.expires_at && new Date(s.expires_at) < new Date() && !signed;
+        const statusColor = signed ? '#059669' : expired ? '#dc2626' : '#d97706';
+        const statusBg = signed ? '#d1fae5' : expired ? '#fee2e2' : '#fef3c7';
+        const statusIcon = signed ? '✅' : expired ? '❌' : '⏳';
+        const statusLabel = signed ? 'Firmado' : expired ? 'Expirado' : 'Pendiente';
+        const signedDate = s.signed_at ? new Date(s.signed_at).toLocaleString('es-MX') : '';
+        const createdDate = s.created_at ? new Date(s.created_at).toLocaleDateString('es-MX') : '';
+        const portalUrl = (window.location.origin) + '/sign/' + s.token;
+        const downloadBtn = signed
+          ? '<a href="' + API + '/sign/' + s.token + '/download" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:#059669;color:white;border-radius:5px;font-size:11px;text-decoration:none;font-weight:600">⬇ PDF Firmado</a>'
+          : '<button onclick="navigator.clipboard.writeText(\''+portalUrl+'\')" style="padding:4px 10px;background:#3b82f6;color:white;border:none;border-radius:5px;font-size:11px;cursor:pointer;font-weight:600">📋 Copiar link</button>';
+        return \`<div style="padding:12px 14px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--surface)">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                <span style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\${s.signer_name || 'Sin nombre'}</span>
+                <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;background:\${statusBg};color:\${statusColor}">\${statusIcon} \${statusLabel}</span>
+              </div>
+              <div style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📄 \${s.document_filename}</div>
+              \${s.signer_email ? '<div style="font-size:11px;color:var(--text-muted)">✉️ '+s.signer_email+'</div>' : ''}
+              \${signed ? '<div style="font-size:11px;color:#059669;margin-top:3px">🖊 Firmado: '+signedDate+'</div>' : '<div style="font-size:11px;color:var(--text-muted)">📅 Creado: '+createdDate+'</div>'}
+              \${s.signer_ip ? '<div style="font-size:10px;color:var(--text-muted)">🌐 IP: '+s.signer_ip+'</div>' : ''}
+            </div>
+            <div style="flex-shrink:0">\${downloadBtn}</div>
+          </div>
+        </div>\`;
       }).join('');
     } catch(e) {}
   }
