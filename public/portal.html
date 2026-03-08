@@ -94,7 +94,10 @@ canvas#sigCanvas{display:block;width:100%}
 </head>
 <body>
 <header class="header">
-  <div class="logo">Docu<span>Gen</span></div>
+  <div style="display:flex;align-items:center;gap:10px">
+    <img id="portal-logo" src="" style="max-height:40px;border-radius:6px;display:none">
+    <div class="logo" id="portal-logo-text">Docu<span>Gen</span></div>
+  </div>
   <div class="secure">🔒 Enlace seguro y privado</div>
 </header>
 
@@ -244,12 +247,31 @@ const TOKEN = window.location.pathname.split('/sign/')[1]?.split('/')[0];
     if (data.account_id) {
       const settRes = await fetch('/settings?account_id=' + data.account_id);
       const settData = await settRes.json();
-      if (settData.settings && settData.settings.language) {
-        // Esperar a que DOM esté listo
-        if (document.readyState === 'loading') {
-          document.addEventListener('DOMContentLoaded', () => applyPortalLang(settData.settings.language));
-        } else {
-          applyPortalLang(settData.settings.language);
+      const applyAll = () => {
+        if (settData.settings && settData.settings.language) applyPortalLang(settData.settings.language);
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', applyAll);
+      } else {
+        applyAll();
+      }
+      // Cargar logo de la cuenta
+      const logoRes = await fetch('/logo?account_id=' + data.account_id);
+      if (logoRes.ok) {
+        const blob = await logoRes.blob();
+        if (blob.size > 0) {
+          const url = URL.createObjectURL(blob);
+          const applyLogo = () => {
+            const img = document.getElementById('portal-logo');
+            const txt = document.getElementById('portal-logo-text');
+            if (img) { img.src = url; img.style.display = 'block'; }
+            if (txt) txt.style.display = 'none';
+          };
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', applyLogo);
+          } else {
+            applyLogo();
+          }
         }
       }
     }
