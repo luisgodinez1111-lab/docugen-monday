@@ -579,7 +579,7 @@ async function confirmQuoteResponse() {
 async function submitQuoteResponse(response, comment) {
   try {
     const btn = response === 'accepted' 
-      ? document.querySelector('[onclick="submitQuoteResponse('accepted')"]')
+      ? document.querySelector('[onclick="submitQuoteResponse(&quot;accepted&quot;)"]')
       : document.getElementById('quote-confirm-btn');
     if (btn) { btn.textContent = 'Enviando...'; btn.disabled = true; }
 
