@@ -333,6 +333,12 @@
         </div>
         <div class="card-body">
           <div class="input-group">
+            <select class="input" id="docType" style="cursor:pointer">
+              <option value="document">📄 Documento con firma</option>
+              <option value="quote">💰 Cotización (Aceptar/Rechazar)</option>
+              <option value="legal">⚖️ Documento legal</option>
+              <option value="simple">📋 Documento simple (sin firma)</option>
+            </select>
             <input class="input" id="signerName" placeholder="Nombre del firmante">
             <input class="input" id="signerEmail" placeholder="Email para OTP (recomendado)">
             <button class="btn btn-purple" onclick="requestSignature()">✍️ Generar link de firma</button>
@@ -1001,7 +1007,7 @@
     try {
       const res = await fetch(API + '/signatures/request', {
         method:'POST', headers:{'Content-Type':'application/json','x-account-id':accountId},
-        body:JSON.stringify({document_filename:selectedTemplate, signer_name:signerName, signer_email:signerEmail, item_id:selectedItem?selectedItem.id:null, board_id:boardId})
+        body:JSON.stringify({document_filename:selectedTemplate, signer_name:signerName, signer_email:signerEmail, item_id:selectedItem?selectedItem.id:null, board_id:boardId, doc_type:document.getElementById('docType').value})
       });
       const data = await res.json();
       if (data.success) {

@@ -1011,7 +1011,7 @@ app.post('/templates/:filename/rename', requireAuth, async (req, res) => {
 
 // ─── FIRMA DIGITAL ────────────────────────────────────────
 app.post('/signatures/request', requireAuth, async (req, res) => {
-  const { document_filename, signer_name, signer_email, item_id, board_id } = req.body;
+  const { document_filename, signer_name, signer_email, item_id, board_id, doc_type } = req.body;
   if (!document_filename || !signer_name) return res.status(400).json({ error: 'Faltan datos' });
   try {
     const token = require('crypto').randomBytes(32).toString('hex');
@@ -1094,8 +1094,8 @@ app.post('/signatures/request', requireAuth, async (req, res) => {
     } catch(e) {}
 
     await pool.query(
-      'INSERT INTO signature_requests (token, account_id, document_filename, signer_name, signer_email, item_id, board_id, expires_at, doc_hash, audit_log, consent_text, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
-      [token, req.accountId, document_filename, signer_name, signer_email, item_id, board_id, expiresAt, docHashVal, auditInit, consentText, signDocData]
+      'INSERT INTO signature_requests (token, account_id, document_filename, signer_name, signer_email, item_id, board_id, expires_at, doc_hash, audit_log, consent_text, doc_data, doc_type) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',
+      [token, req.accountId, document_filename, signer_name, signer_email, item_id, board_id, expiresAt, docHashVal, auditInit, consentText, signDocData, doc_type || 'document']
     );
     console.log('FIRMA: signDocData guardado:', signDocData ? signDocData.length + ' bytes' : 'NULL');
     const signUrl = process.env.APP_URL + '/sign/' + token;
