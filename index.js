@@ -1622,16 +1622,42 @@ app.post('/sign/:token', async (req, res) => {
           } catch(emailErr) { console.error('Email confirm error:', emailErr.message); }
         }
 
-        // Monday update
+        // Monday: notificaciones al firmar
         try {
           const tokenR = await pool.query('SELECT access_token FROM tokens WHERE account_id=$1', [sig.account_id]);
           if (tokenR.rows.length && sig.item_id) {
             const accessToken = tokenR.rows[0].access_token;
-            await fetch('https://api.monday.com/v2', {
+            const mondayApi = (q) => fetch('https://api.monday.com/v2', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': accessToken },
-              body: JSON.stringify({ query: 'mutation { create_update(item_id: ' + sig.item_id + ', body: "Firmado por: ' + finalName + '\nFecha: ' + new Date().toLocaleString('es-MX') + '\nIP: ' + signerIp + '") { id } }' })
-            });
+              body: JSON.stringify({ query: q })
+            }).then(r => r.json());
+
+            // 1. Crear update con detalles de firma
+            await mondayApi('mutation { create_update(item_id: ' + sig.item_id + ', body: "Documento firmado.\nFirmante: ' + finalName + '\nFecha: ' + new Date().toLocaleString('es-MX') + '\nIP: ' + signerIp + '") { id } }');
+
+            // 2. Cambiar columna de status si existe
+            try {
+              const boardR = await mondayApi('{ items(ids: [' + sig.item_id + ']) { board { id columns { id type title } } } }');
+              const cols = boardR?.data?.items?.[0]?.board?.columns || [];
+              const statusCol = cols.find(c => c.type === 'color' && (c.title.toLowerCase().includes('status') || c.title.toLowerCase().includes('estado') || c.title.toLowerCase().includes('firma')));
+              if (statusCol) {
+                await mondayApi('mutation { change_simple_column_value(item_id: ' + sig.item_id + ', board_id: ' + boardR.data.items[0].board.id + ', column_id: "' + statusCol.id + '", value: "Firmado") { id } }');
+              }
+            } catch(colErr) { console.error('Status col error:', colErr.message); }
+
+            // 3. Notificar al responsable asignado
+            try {
+              const itemR = await mondayApi('{ items(ids: [' + sig.item_id + ']) { column_values(types: [people]) { value } } }');
+              const peopleVal = itemR?.data?.items?.[0]?.column_values?.[0]?.value;
+              if (peopleVal) {
+                const parsed = JSON.parse(peopleVal);
+                const personIds = (parsed.personsAndTeams || []).filter(p => p.kind === 'person').map(p => p.id);
+                for (const pid of personIds) {
+                  await mondayApi('mutation { create_notification(text: "DocuGen: ' + sig.document_filename + ' fue firmado por ' + finalName + '.", user_id: ' + pid + ', target_id: ' + sig.item_id + ', target_type: Project, internal: true) { id } }');
+                }
+              }
+            } catch(notifErr) { console.error('Notif error:', notifErr.message); }
           }
         } catch(mondayErr) { console.error('Monday update error:', mondayErr.message); }
 
