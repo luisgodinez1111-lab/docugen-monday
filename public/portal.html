@@ -129,6 +129,14 @@ canvas#sigCanvas{display:block;width:100%}
 </div>
 
 <!-- PORTAL -->
+<div class="screen" id="screen-blocked">
+  <div class="auth-card" style="text-align:center">
+    <div style="font-size:48px;margin-bottom:16px">🔒</div>
+    <h1 id="blocked-title">Documento no disponible</h1>
+    <p id="blocked-msg" style="color:#666;margin-top:12px;line-height:1.6"></p>
+  </div>
+</div>
+
 <div class="screen" id="screen-portal">
   <div class="portal-layout">
 
@@ -656,6 +664,22 @@ async function init() {
     const data = await res.json();
     if (!data.success) return;
     if (data.document_filename) document.getElementById('auth-docname').textContent = data.document_filename;
+
+    // Documento pendiente de aprobación interna
+    if (data.status === 'pending_approval') {
+      showScreen('blocked');
+      document.getElementById('blocked-title').textContent = 'Documento en revisión';
+      document.getElementById('blocked-msg').textContent = 'Este documento legal está pendiente de aprobación interna. Te notificaremos cuando esté listo para firmar.';
+      return;
+    }
+
+    // Documento rechazado internamente
+    if (data.status === 'rejected') {
+      showScreen('blocked');
+      document.getElementById('blocked-title').textContent = 'Documento no disponible';
+      document.getElementById('blocked-msg').textContent = 'Este documento fue rechazado internamente y no puede ser firmado.';
+      return;
+    }
 
     // Cotización y documento simple → acceso directo sin auth
     if (data.doc_type === 'quote' || data.doc_type === 'simple') {
