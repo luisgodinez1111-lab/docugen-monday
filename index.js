@@ -1100,19 +1100,36 @@ app.post('/signatures/request', requireAuth, async (req, res) => {
     console.log('FIRMA: signDocData guardado:', signDocData ? signDocData.length + ' bytes' : 'NULL');
     const signUrl = process.env.APP_URL + '/sign/' + token;
 
-    // Enviar email al firmante si hay email
-    if (signer_email) {
-      try {
-        await resend.emails.send({
-          from: 'DocuGen <onboarding@resend.dev>',
-          to: signer_email,
-          subject: 'Documento pendiente de tu firma — ' + document_filename,
-          html: emailSignRequest(signer_name, document_filename, signUrl, expiresAt)
-        });
-      } catch(emailErr) { console.error('Email error:', emailErr.message); }
+    // Flujo según doc_type
+    const finalDocType = doc_type || 'document';
+    if (finalDocType === 'legal') {
+      // Crear approval_request y notificar admins
+      await pool.query(`CREATE TABLE IF NOT EXISTS approval_requests (
+        id SERIAL PRIMARY KEY, approval_token TEXT UNIQUE NOT NULL,
+        signature_request_id INTEGER, status TEXT DEFAULT 'pending',
+        comment TEXT, responded_at TIMESTAMP, created_at TIMESTAMP DEFAULT NOW()
+      )`);
+      const approvalToken = require('crypto').randomBytes(32).toString('hex');
+      const sigRow = await pool.query('SELECT id FROM signature_requests WHERE token=', [token]);
+      await pool.query('INSERT INTO approval_requests (approval_token, signature_request_id) VALUES (,)', [approvalToken, sigRow.rows[0].id]);
+      await pool.query('UPDATE signature_requests SET status= WHERE token=', ['pending_approval', token]);
+      const admins = await getAccountAdmins(req.accountId);
+      await sendApprovalEmails(admins, approvalToken, document_filename, signer_name, req.accountId);
+      res.json({ success: true, token, sign_url: signUrl, status: 'pending_approval', admins_notified: admins.length });
+    } else {
+      // Enviar email al firmante si hay email
+      if (signer_email) {
+        try {
+          await resend.emails.send({
+            from: 'DocuGen <onboarding@resend.dev>',
+            to: signer_email,
+            subject: 'Documento pendiente de tu firma — ' + document_filename,
+            html: emailSignRequest(signer_name, document_filename, signUrl, expiresAt)
+          });
+        } catch(emailErr) { console.error('Email error:', emailErr.message); }
+      }
+      res.json({ success: true, token, sign_url: signUrl });
     }
-
-    res.json({ success: true, token, sign_url: signUrl });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3082,4 +3099,21 @@ function generateAuditCertificate(signers) {
     <div style="margin-top:4px">ID de grupo: <span class="hash">${signers[0]?.group_id || '—'}</span></div>
   </div>
   </body></html>`;
+}
+
+// ─── FLUJO LEGAL: APROBACIÓN INTERNA ─────────────────────────────────────────
+
+async function getAccountAdmins(accountId) {
+  try {
+    const tokenRow = await pool.query('SELECT access_token FROM tokens WHERE account_id=$1 LIMIT 1', [accountId]);
+    if (!tokenRow.rows.length) return [];
+    const token = tokenRow.rows[0].access_token;
+    const r = await fetch('https://api.monday.com/v2', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': token },
+      body: JSON.stringify({ query: '{ users(kind: admins) { id name email } }' })
+    });
+    const d = await r.json();
+    return d?.data?.users || [];
+  } catch(e) { return []; }
 }
