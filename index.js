@@ -134,6 +134,12 @@ async function initDB() {
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_code TEXT');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_verified BOOLEAN DEFAULT FALSE');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS doc_hash TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS doc_type TEXT DEFAULT \'document\'');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS quote_response TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS quote_comment TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS quote_responded_at TIMESTAMP');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS opened_at TIMESTAMP');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS time_on_portal INT DEFAULT 0');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signed_hash TEXT');
     await pool.query("ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS audit_log JSONB DEFAULT '[]'");
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS consent_text TEXT');
@@ -1034,6 +1040,12 @@ app.post('/signatures/request', requireAuth, async (req, res) => {
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_code TEXT');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_verified BOOLEAN DEFAULT FALSE');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS doc_hash TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS doc_type TEXT DEFAULT \'document\'');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS quote_response TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS quote_comment TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS quote_responded_at TIMESTAMP');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS opened_at TIMESTAMP');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS time_on_portal INT DEFAULT 0');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signed_hash TEXT');
     await pool.query("ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS audit_log JSONB DEFAULT '[]'");
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS consent_text TEXT');
@@ -1276,6 +1288,8 @@ app.get('/sign/:token/info', async (req, res) => {
       document_filename: sig.document_filename,
       signer_name: sig.signer_name,
       signer_email: sig.signer_email ? sig.signer_email.replace(/(.{2}).*(@.*)/, '$1***$2') : null,
+      doc_type: sig.doc_type || 'document',
+      quote_response: sig.quote_response || null,
       status: sig.status || 'pending',
       signed_at: sig.signed_at,
       created_at: sig.created_at,
@@ -1789,6 +1803,102 @@ app.get('/subscription', requireAuth, async (req, res) => {
     )`);
     const r = await pool.query('SELECT * FROM subscriptions WHERE account_id=$1', [req.accountId]);
     res.json({ subscription: r.rows[0] || null });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── QUOTE RESPONSE ENDPOINT ──
+// Registra la respuesta del cliente a una cotización
+app.post('/sign/:token/quote-response', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { response, comment } = req.body; // response: 'accepted' | 'rejected' | 'changes_requested'
+
+    if (!['accepted', 'rejected', 'changes_requested'].includes(response)) {
+      return res.status(400).json({ error: 'Respuesta inválida' });
+    }
+
+    const sig = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [token]);
+    if (!sig.rows.length) return res.status(404).json({ error: 'No encontrado' });
+    const s = sig.rows[0];
+
+    if (s.doc_type !== 'quote') return res.status(400).json({ error: 'Este documento no es una cotización' });
+    if (s.quote_response) return res.status(400).json({ error: 'Ya respondiste esta cotización' });
+
+    // Registrar respuesta
+    await pool.query(
+      'UPDATE signature_requests SET quote_response=$1, quote_comment=$2, quote_responded_at=NOW(), status=$3 WHERE token=$4',
+      [response, comment || null, response, token]
+    );
+
+    // Actualizar item en Monday si hay item_id y token de cuenta
+    const tokenRow = await pool.query('SELECT access_token FROM tokens WHERE account_id=$1 LIMIT 1', [s.account_id]);
+    if (tokenRow.rows.length && s.item_id) {
+      const statusMap = {
+        'accepted': 'Cotización Aceptada',
+        'rejected': 'Cotización Rechazada',
+        'changes_requested': 'Cambios Solicitados'
+      };
+
+      // Buscar columna de status en el board
+      try {
+        await fetch('https://api.monday.com/v2', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': tokenRow.rows[0].access_token },
+          body: JSON.stringify({ query: `mutation {
+            create_update(item_id: ${s.item_id}, body: "📄 Cotización ${statusMap[response]}${comment ? ': ' + comment : ''}") { id }
+          }` })
+        });
+      } catch(e) { console.error('Monday update error:', e.message); }
+    }
+
+    // Enviar notificación email al owner si hay email registrado
+    try {
+      const ownerRow = await pool.query('SELECT settings FROM account_settings WHERE account_id=$1', [s.account_id]);
+      const ownerEmail = ownerRow.rows[0]?.settings?.email_empresa;
+      if (ownerEmail) {
+        const responseLabels = {
+          'accepted': '✅ Aceptada',
+          'rejected': '❌ Rechazada', 
+          'changes_requested': '💬 Cambios Solicitados'
+        };
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${process.env.SMTP_PASS}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from: process.env.SMTP_FROM,
+            to: ownerEmail,
+            subject: `Cotización ${responseLabels[response]} — ${s.signer_name || 'Cliente'}`,
+            html: `<h2>Respuesta de Cotización</h2>
+              <p><strong>Cliente:</strong> ${s.signer_name || 'N/A'}</p>
+              <p><strong>Email:</strong> ${s.signer_email || 'N/A'}</p>
+              <p><strong>Respuesta:</strong> ${responseLabels[response]}</p>
+              ${comment ? `<p><strong>Comentario:</strong> ${comment}</p>` : ''}
+              <p><strong>Fecha:</strong> ${new Date().toLocaleString('es-MX')}</p>`
+          })
+        });
+      }
+    } catch(e) { console.error('Email notification error:', e.message); }
+
+    res.json({ success: true, response });
+  } catch(e) {
+    console.error('Quote response error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Registrar apertura del portal y tiempo
+app.post('/sign/:token/track', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { event, time_spent } = req.body; // event: 'opened' | 'heartbeat'
+    
+    if (event === 'opened') {
+      await pool.query('UPDATE signature_requests SET opened_at=NOW() WHERE token=$1 AND opened_at IS NULL', [token]);
+    }
+    if (event === 'heartbeat' && time_spent) {
+      await pool.query('UPDATE signature_requests SET time_on_portal=time_on_portal+$1 WHERE token=$2', [time_spent, token]);
+    }
+    res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2836,6 +2946,12 @@ app.post('/signatures/request-multi', requireAuth, async (req, res) => {
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_code TEXT');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_verified BOOLEAN DEFAULT FALSE');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS doc_hash TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS doc_type TEXT DEFAULT \'document\'');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS quote_response TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS quote_comment TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS quote_responded_at TIMESTAMP');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS opened_at TIMESTAMP');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS time_on_portal INT DEFAULT 0');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signed_hash TEXT');
     await pool.query("ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS audit_log JSONB DEFAULT '[]'");
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS consent_text TEXT');

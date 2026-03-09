@@ -490,12 +490,63 @@ function loadPortal(name, data) {
   if (data.account_id) loadPortalLangFromSettings(data.account_id);
   document.getElementById('doc-name').textContent = data.document_filename || 'Documento';
   document.getElementById('viewer-filename').textContent = data.document_filename || 'Documento';
-  document.getElementById('doc-status').textContent = data.status === 'signed' ? 'Firmado' : 'Pendiente de firma';
   document.getElementById('tl-created').textContent = data.created_at ? new Date(data.created_at).toLocaleString('es-MX') : '—';
   document.getElementById('tl-sent').textContent = data.created_at ? new Date(data.created_at).toLocaleString('es-MX') : '—';
   if (name) document.getElementById('signer-name').value = name;
   document.getElementById('download-btn').href = '/sign/' + TOKEN + '/download';
 
+  // Tracking: registrar apertura
+  fetch('/sign/' + TOKEN + '/track', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ event: 'opened' }) }).catch(()=>{});
+  // Heartbeat cada 30s para medir tiempo en portal
+  setInterval(() => {
+    fetch('/sign/' + TOKEN + '/track', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ event: 'heartbeat', time_spent: 30 }) }).catch(()=>{});
+  }, 30000);
+
+  // ── MODO COTIZACIÓN ──
+  if (data.doc_type === 'quote') {
+    document.getElementById('doc-status').textContent = data.quote_response ? {
+      'accepted': '✅ Cotización Aceptada',
+      'rejected': '❌ Cotización Rechazada',
+      'changes_requested': '💬 Cambios Solicitados'
+    }[data.quote_response] : '⏳ Pendiente de respuesta';
+
+    const sigCard = document.getElementById('sig-card');
+    if (data.quote_response) {
+      // Ya respondió
+      const labels = { accepted: '✅ Aceptada', rejected: '❌ Rechazada', changes_requested: '💬 Cambios Solicitados' };
+      sigCard.innerHTML = `<div class="signed-banner"><h3>Cotización ${labels[data.quote_response]}</h3><p>Tu respuesta ha sido registrada.</p></div>`;
+    } else {
+      // Mostrar botones de cotización
+      sigCard.innerHTML = `
+        <div id="quote-actions" style="padding:24px">
+          <h3 style="margin:0 0 8px;font-size:18px">¿Qué deseas hacer con esta cotización?</h3>
+          <p style="color:#666;margin:0 0 24px;font-size:14px">Revisa el documento y selecciona una opción</p>
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <button onclick="submitQuoteResponse('accepted')" style="padding:14px 20px;background:#22c55e;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px">
+              ✅ Aceptar cotización
+            </button>
+            <button onclick="showQuoteComment('changes_requested')" style="padding:14px 20px;background:#f59e0b;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px">
+              💬 Solicitar cambios
+            </button>
+            <button onclick="showQuoteComment('rejected')" style="padding:14px 20px;background:#ef4444;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px">
+              ❌ Rechazar cotización
+            </button>
+          </div>
+          <div id="quote-comment-box" style="display:none;margin-top:20px">
+            <textarea id="quote-comment" placeholder="Escribe tu comentario o motivo..." style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:14px;min-height:100px;box-sizing:border-box;resize:vertical"></textarea>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button id="quote-confirm-btn" onclick="confirmQuoteResponse()" style="flex:1;padding:12px;background:#1a1a2e;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer">Confirmar</button>
+              <button onclick="cancelQuoteComment()" style="padding:12px 20px;background:#f1f5f9;color:#333;border:none;border-radius:8px;font-size:15px;cursor:pointer">Cancelar</button>
+            </div>
+          </div>
+        </div>`;
+    }
+    loadPDF();
+    return;
+  }
+
+  // ── MODO FIRMA (default) ──
+  document.getElementById('doc-status').textContent = data.status === 'signed' ? 'Firmado' : 'Pendiente de firma';
   if (data.status === 'signed') {
     document.getElementById('tl-dot3').className = 'tl-dot done';
     document.getElementById('tl-dot3').textContent = '✓';
@@ -503,8 +554,61 @@ function loadPortal(name, data) {
     document.getElementById('tl-sub3').textContent = data.signed_at ? new Date(data.signed_at).toLocaleString('es-MX') : '—';
     document.getElementById('sig-card').innerHTML = '<div class="signed-banner"><h3>Documento firmado</h3><p>Firma registrada exitosamente</p></div>';
   }
-
   loadPDF();
+}
+
+// ── COTIZACIÓN - FUNCIONES ──
+let pendingQuoteResponse = null;
+function showQuoteComment(response) {
+  pendingQuoteResponse = response;
+  document.getElementById('quote-comment-box').style.display = 'block';
+  const labels = { rejected: 'Rechazar', changes_requested: 'Solicitar cambios' };
+  document.getElementById('quote-confirm-btn').textContent = labels[response] || 'Confirmar';
+  document.getElementById('quote-comment').focus();
+}
+function cancelQuoteComment() {
+  pendingQuoteResponse = null;
+  document.getElementById('quote-comment-box').style.display = 'none';
+  document.getElementById('quote-comment').value = '';
+}
+async function confirmQuoteResponse() {
+  const comment = document.getElementById('quote-comment').value.trim();
+  if (!comment) { alert('Por favor escribe un comentario'); return; }
+  await submitQuoteResponse(pendingQuoteResponse, comment);
+}
+async function submitQuoteResponse(response, comment) {
+  try {
+    const btn = response === 'accepted' 
+      ? document.querySelector('[onclick="submitQuoteResponse('accepted')"]')
+      : document.getElementById('quote-confirm-btn');
+    if (btn) { btn.textContent = 'Enviando...'; btn.disabled = true; }
+
+    const res = await fetch('/sign/' + TOKEN + '/quote-response', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ response, comment: comment || '' })
+    });
+    const data = await res.json();
+    if (data.success) {
+      const labels = { accepted: '✅ Aceptada', rejected: '❌ Rechazada', changes_requested: '💬 Cambios Solicitados' };
+      document.getElementById('sig-card').innerHTML = `
+        <div class="signed-banner">
+          <h3>Cotización ${labels[response]}</h3>
+          <p>Tu respuesta ha sido registrada y notificada.</p>
+          ${comment ? `<p style="margin-top:8px;font-style:italic;color:#666">"${comment}"</p>` : ''}
+        </div>`;
+      document.getElementById('doc-status').textContent = {
+        accepted: '✅ Cotización Aceptada',
+        rejected: '❌ Cotización Rechazada',
+        changes_requested: '💬 Cambios Solicitados'
+      }[response];
+    } else {
+      alert('Error: ' + (data.error || 'Error desconocido'));
+      if (btn) { btn.textContent = 'Confirmar'; btn.disabled = false; }
+    }
+  } catch(e) {
+    alert('Error de conexión');
+  }
 }
 
 // ── FIRMA ──
