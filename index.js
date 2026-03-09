@@ -1652,6 +1652,46 @@ app.delete('/logo/delete', requireAuth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── WORKFLOW PRIMITIVE FIELDS - REMOTE OPTIONS ──
+// Docs: https://developer.monday.com/apps/docs/primitive-fields
+// Devuelve lista de plantillas de la cuenta para dropdown en workflow builder
+app.post('/workflows/fields/templates', async (req, res) => {
+  try {
+    // El account_id viene en el JWT del header
+    const auth = req.headers['authorization'] || '';
+    const token = auth.replace('Bearer ', '');
+    let accountId = null;
+    try {
+      const decoded = jwt.verify(token, process.env.MONDAY_SIGNING_SECRET || process.env.MONDAY_CLIENT_SECRET || '');
+      accountId = decoded.accountId || decoded.account_id;
+    } catch(e) {
+      // Si no hay JWT válido, intentar obtener de payload
+      accountId = req.body?.payload?.credentialsValues?.['docugen-credentials']?.accountId;
+    }
+
+    if (!accountId) return res.status(200).json([{ title: 'No autenticado', value: '' }]);
+
+    const r = await pool.query(
+      'SELECT id, name FROM templates WHERE account_id=$1 AND deleted_at IS NULL ORDER BY name ASC',
+      [accountId]
+    );
+
+    if (!r.rows.length) {
+      return res.status(200).json([{ title: 'No hay plantillas disponibles', value: '' }]);
+    }
+
+    const options = r.rows.map(t => ({
+      title: t.name,
+      value: t.id.toString()
+    }));
+
+    res.status(200).json(options);
+  } catch(e) {
+    console.error('Workflow fields/templates error:', e.message);
+    res.status(200).json([{ title: 'Error al cargar plantillas', value: '' }]);
+  }
+});
+
 // ── APP LIFECYCLE EVENTS (Monday.com) ──
 // Docs: https://developer.monday.com/apps/docs/webhooks-1
 // Eventos soportados: install, uninstall, app_subscription_created, app_subscription_changed,
