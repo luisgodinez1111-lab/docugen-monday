@@ -654,7 +654,22 @@ async function init() {
   try {
     const res = await fetch('/sign/' + TOKEN + '/info');
     const data = await res.json();
+    if (!data.success) return;
     if (data.document_filename) document.getElementById('auth-docname').textContent = data.document_filename;
+
+    // Cotización y documento simple → acceso directo sin auth
+    if (data.doc_type === 'quote' || data.doc_type === 'simple') {
+      loadPortal('', data);
+      return;
+    }
+
+    // Documento ya firmado → acceso directo
+    if (data.status === 'signed') {
+      loadPortal('', data);
+      return;
+    }
+
+    // Resto → pantalla de auth normal
   } catch(e) {}
 }
 init();
