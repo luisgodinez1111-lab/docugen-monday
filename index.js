@@ -778,6 +778,14 @@ app.get('/instructions', (req, res) => {
   res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://*.monday.com");
   res.sendFile(path.join(__dirname, 'public', 'instructions.html'));
 });
+
+// ── NEXLABS LEGAL PAGES ──
+app.get('/privacy', (req, res) => res.sendFile(path.join(__dirname, 'public', 'privacy.html')));
+app.get('/terms', (req, res) => res.sendFile(path.join(__dirname, 'public', 'terms.html')));
+app.get('/.well-known/monday-app-association.json', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.json({ apps: [{ clientID: '10969075' }] });
+});
 app.listen(PORT, async () => {
   console.log('DocuGen servidor corriendo en puerto ' + PORT);
   console.log('App ID: ' + process.env.MONDAY_APP_ID);

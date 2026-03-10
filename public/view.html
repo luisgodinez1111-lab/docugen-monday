@@ -816,13 +816,17 @@
     const isViewOnly = await checkViewOnly();
     if (isViewOnly) { document.getElementById('viewonly-wall').style.display = 'block'; return; }
 
-    // Check welcome page (solo primera vez)
+    // Check welcome page (solo primera vez, solo dentro de monday iframe)
     try {
-      if (window.monday) {
-        const welcomed = await window.monday().storage.instance.getItem('welcomed');
+      if (window.monday && window.self !== window.top) {
+        const sdk = window.monday();
+        const welcomed = await Promise.race([
+          sdk.storage.instance.getItem('welcomed'),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+        ]);
         if (!welcomed.data || !welcomed.data.value) { showWelcomePage(); return; }
       }
-    } catch(e) {}
+    } catch(e) { /* si falla, continuar normalmente */ }
 
     try {
       const check = await fetch(API + '/auth/check?account_id=' + accountId);
