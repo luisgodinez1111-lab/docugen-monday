@@ -3143,3 +3143,96 @@ async function getAccountAdmins(accountId) {
     return d?.data?.users || [];
   } catch(e) { return []; }
 }
+
+// ─── SEND REMINDER ───────────────────────────────────────────────────────────
+
+app.post('/sign/:token/remind', requireAuth, async (req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1 AND account_id=$2', [req.params.token, req.accountId]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Documento no encontrado' });
+    const sig = r.rows[0];
+    if (sig.status === 'signed') return res.status(400).json({ error: 'El documento ya fue firmado' });
+    if (!sig.signer_email) return res.status(400).json({ error: 'El firmante no tiene email registrado' });
+
+    const portalUrl = (process.env.APP_URL || 'https://docugen-monday-production.up.railway.app') + '/sign/' + sig.token;
+    const expiresText = sig.expires_at ? new Date(sig.expires_at).toLocaleDateString('es-MX') : 'pronto';
+
+    // Email al firmante
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + process.env.SMTP_PASS, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: process.env.SMTP_FROM || 'DocuGen <noreply@velumlaser.com>',
+        to: sig.signer_email,
+        subject: 'Recordatorio: documento pendiente de tu firma',
+        html: '<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px"><h2 style="color:#1a1a1a">Tienes un documento pendiente de firma</h2><p>Hola <strong>' + sig.signer_name + '</strong>,</p><p>Te recordamos que el documento <strong>' + sig.document_filename + '</strong> sigue pendiente de tu firma.</p><p style="color:#e55;">Este enlace expira el ' + expiresText + '.</p><div style="margin:32px 0;text-align:center"><a href="' + portalUrl + '" style="background:#1a1a1a;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px">Firmar ahora</a></div></div>'
+      })
+    });
+
+    // Notificación en Monday si hay item_id
+    if (sig.item_id) {
+      try {
+        const tokenRow = await pool.query('SELECT access_token FROM tokens WHERE account_id=$1 LIMIT 1', [req.accountId]);
+        if (tokenRow.rows.length) {
+          await fetch('https://api.monday.com/v2', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': tokenRow.rows[0].access_token },
+            body: JSON.stringify({ query: 'mutation { create_update(item_id: ' + sig.item_id + ', body: "Recordatorio enviado a ' + sig.signer_name + ' (' + sig.signer_email + ') para firmar ' + sig.document_filename + '.") { id } }' })
+          });
+        }
+      } catch(e) { console.error('Monday remind error:', e.message); }
+    }
+
+    // Registrar en audit log
+    try {
+      const existing = JSON.parse(sig.audit_log || '[]');
+      existing.push({ event: 'reminder_sent', timestamp: new Date().toISOString(), to: sig.signer_email });
+      await pool.query('UPDATE signature_requests SET audit_log=$1 WHERE token=$2', [JSON.stringify(existing), sig.token]);
+    } catch(e) {}
+
+    res.json({ success: true, sent_to: sig.signer_email });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Remind desde Workflow Action Block
+app.post('/workflows/send-reminder', async (req, res) => {
+  try {
+    const { inputFields } = req.body;
+    const documentId = inputFields?.documentId;
+    if (!documentId) return res.status(400).json({ error: 'documentId requerido' });
+
+    const r = await pool.query('SELECT * FROM signature_requests WHERE id=$1', [documentId]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Documento no encontrado' });
+    const sig = r.rows[0];
+
+    if (sig.status === 'signed') return res.json({ outputFields: { success: false, reason: 'Ya firmado' } });
+    if (!sig.signer_email) return res.json({ outputFields: { success: false, reason: 'Sin email' } });
+
+    const portalUrl = (process.env.APP_URL || 'https://docugen-monday-production.up.railway.app') + '/sign/' + sig.token;
+    const expiresText = sig.expires_at ? new Date(sig.expires_at).toLocaleDateString('es-MX') : 'pronto';
+
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + process.env.SMTP_PASS, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: process.env.SMTP_FROM || 'DocuGen <noreply@velumlaser.com>',
+        to: sig.signer_email,
+        subject: 'Recordatorio: documento pendiente de tu firma',
+        html: '<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px"><h2>Tienes un documento pendiente de firma</h2><p>Hola <strong>' + sig.signer_name + '</strong>,</p><p>El documento <strong>' + sig.document_filename + '</strong> sigue pendiente de tu firma. Expira el ' + expiresText + '.</p><div style="margin:32px 0;text-align:center"><a href="' + portalUrl + '" style="background:#1a1a1a;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px">Firmar ahora</a></div></div>'
+      })
+    });
+
+    if (sig.item_id && sig.account_id) {
+      const tokenRow = await pool.query('SELECT access_token FROM tokens WHERE account_id=$1 LIMIT 1', [sig.account_id]);
+      if (tokenRow.rows.length) {
+        await fetch('https://api.monday.com/v2', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': tokenRow.rows[0].access_token },
+          body: JSON.stringify({ query: 'mutation { create_update(item_id: ' + sig.item_id + ', body: "Recordatorio de firma enviado a ' + sig.signer_name + '.") { id } }' })
+        });
+      }
+    }
+
+    res.json({ outputFields: { success: true, sentTo: sig.signer_email, documentName: sig.document_filename } });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});

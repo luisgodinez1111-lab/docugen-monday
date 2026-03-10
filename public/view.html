@@ -1020,7 +1020,20 @@
     } catch(e) { document.getElementById('signatureResult').innerHTML = '<div class="status error">Error: ' + e.message + '</div>'; }
   }
 
-  async function loadSignatures() {
+  async function sendReminder(token) {
+  if (!confirm('¿Enviar recordatorio de firma al firmante?')) return;
+  try {
+    const r = await fetch(API + '/sign/' + token + '/remind', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + sessionToken }
+    });
+    const d = await r.json();
+    if (d.success) alert('Recordatorio enviado a ' + d.sent_to);
+    else alert('Error: ' + (d.error || 'No se pudo enviar'));
+  } catch(e) { alert('Error de conexión'); }
+}
+
+async function loadSignatures() {
     try {
       const res = await fetch(API + '/signatures', {headers:{'x-account-id':accountId}});
       const data = await res.json();
@@ -1036,9 +1049,10 @@
         const signedDate = s.signed_at ? new Date(s.signed_at).toLocaleString('es-MX') : '';
         const createdDate = s.created_at ? new Date(s.created_at).toLocaleDateString('es-MX') : '';
         const portalUrl = window.location.origin + '/sign/' + s.token;
+        const remindBtn = (!signed && !expired && s.signer_email) ? '<button onclick="sendReminder(\'' + s.token + '\')" class="action-link" style="background:#f59e0b;color:#fff">🔔 Recordatorio</button> ' : '';
         const actionBtn = signed
           ? '<a href="' + API + '/sign/' + s.token + '/download" target="_blank" class="action-link action-link-green">⬇ PDF Firmado</a>'
-          : '<button onclick="navigator.clipboard.writeText(\'' + portalUrl + '\')" class="action-link action-link-blue">📋 Copiar link</button>';
+          : remindBtn + '<button onclick="navigator.clipboard.writeText(\'' + portalUrl + '\')" class="action-link action-link-blue">📋 Copiar link</button>';
         const emailRow = s.signer_email ? '<span>✉️ ' + s.signer_email + '</span>' : '';
         const dateRow = signed ? '<span style="color:#059669">🖊 Firmado: ' + signedDate + '</span>' : '<span>📅 Creado: ' + createdDate + '</span>';
         const ipRow = s.signer_ip ? '<span>🌐 ' + s.signer_ip + '</span>' : '';
