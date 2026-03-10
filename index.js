@@ -16,6 +16,7 @@ function generateTimestamp() {
 }
 
 const express = require('express');
+const helmet = require('helmet');
 const { Resend } = require('resend');
 const resend = new Resend(process.env.RESEND_API_KEY);
 const cron = require('node-cron');
@@ -35,6 +36,7 @@ const ImageModule = require('docxtemplater-image-module-free');
 dotenv.config();
 
 const app = express();
+app.use(helmet.hsts({ maxAge: 31536000, includeSubDomains: true, preload: true }));
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
@@ -769,6 +771,13 @@ app.get('/view', (req, res) => { res.sendFile(path.join(__dirname, 'public', 'vi
 app.get('/editor', (req, res) => { res.sendFile(path.join(__dirname, 'public', 'editor.html')); });
 app.get('/dashboard', (req, res) => { res.sendFile(path.join(__dirname, 'public', 'dashboard.html')); });
 
+
+// Instructions page (iframe-embeddable para Monday Marketplace)
+app.get('/instructions', (req, res) => {
+  res.setHeader('X-Frame-Options', 'ALLOW-FROM https://monday.com');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://*.monday.com");
+  res.sendFile(path.join(__dirname, 'public', 'instructions.html'));
+});
 app.listen(PORT, async () => {
   console.log('DocuGen servidor corriendo en puerto ' + PORT);
   console.log('App ID: ' + process.env.MONDAY_APP_ID);

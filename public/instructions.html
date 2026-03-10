@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DocuGen Pro - Instructions</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fff; color: #323338; padding: 32px; max-width: 720px; margin: 0 auto; }
+    .logo { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+    .logo-icon { width: 40px; height: 40px; background: #007AFF; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 14px; }
+    h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+    .subtitle { font-size: 14px; color: #676879; margin-bottom: 32px; }
+    .step { display: flex; gap: 16px; margin-bottom: 24px; align-items: flex-start; }
+    .step-num { min-width: 32px; height: 32px; border-radius: 50%; background: #E6F0FF; color: #007AFF; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; }
+    .step-content h3 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .step-content p { font-size: 13px; color: #676879; line-height: 1.5; }
+    .prereq { background: #F5F6F8; border-radius: 8px; padding: 16px; margin-bottom: 28px; }
+    .prereq h3 { font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #676879; text-transform: uppercase; letter-spacing: 0.5px; }
+    .prereq ul { padding-left: 18px; }
+    .prereq li { font-size: 13px; color: #323338; margin-bottom: 4px; }
+    .divider { border: none; border-top: 1px solid #E6E9EF; margin: 24px 0; }
+    code { background: #F0F4FF; color: #007AFF; padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="logo">
+    <div class="logo-icon">DP</div>
+    <div>
+      <div style="font-weight:700;font-size:16px;">DocuGen Pro</div>
+      <div style="font-size:12px;color:#676879;">by Nexlabs</div>
+    </div>
+  </div>
+  <h1>Getting Started</h1>
+  <p class="subtitle">Generate, sign &amp; send documents directly from any monday.com board.</p>
+  <div class="prereq">
+    <h3>Prerequisites</h3>
+    <ul>
+      <li>A monday.com account (any plan)</li>
+      <li>At least one board with items to test document generation</li>
+      <li>A .docx template file (or use our built-in designer)</li>
+    </ul>
+  </div>
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-content">
+      <h3>Add DocuGen Pro to your board</h3>
+      <p>Open any board → click <strong>Views</strong> → select <strong>DocuGen Pro</strong>. The app opens as a new board view.</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-content">
+      <h3>Upload or design a template</h3>
+      <p>Upload a <code>.docx</code> file or click <strong>✏️ Design</strong> to use the built-in editor. Use <code>{{column_name}}</code> placeholders to pull live data from your board columns.</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-content">
+      <h3>Select an item and generate</h3>
+      <p>Pick any board item → click <strong>⬇ Word</strong>, <strong>⬇ PDF</strong>, or <strong>⬇ Excel</strong>. Your document is generated instantly with that item's data.</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-content">
+      <h3>Send for e-signature (optional)</h3>
+      <p>Go to the <strong>✍️ Signatures</strong> tab → enter the signer's name and email → click <strong>Generate signature link</strong>. The signer receives a secure link and you get notified when they sign.</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">5</div>
+    <div class="step-content">
+      <h3>Automate with triggers</h3>
+      <p>In the <strong>🤖 Automation</strong> tab, set a column value trigger (e.g. Status = "Approved") and DocuGen Pro will auto-generate documents without manual intervention.</p>
+    </div>
+  </div>
+  <hr class="divider">
+  <p style="font-size:12px;color:#676879;text-align:center;">Need help? Contact us at <strong>support@nexlabs.dev</strong></p>
+</body>
+</html>

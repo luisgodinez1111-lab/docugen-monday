@@ -197,6 +197,33 @@
 </head>
 <body>
 
+
+<!-- WELCOME PAGE -->
+<div id="welcome-page" style="display:none">
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:40px;text-align:center;background:#F2F2F7">
+    <div style="width:72px;height:72px;background:#007AFF;border-radius:20px;display:flex;align-items:center;justify-content:center;margin:0 auto 24px;box-shadow:0 8px 24px rgba(0,122,255,0.3)">
+      <svg viewBox="0 0 24 24" style="width:36px;height:36px;fill:white"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM6 20V4h5v7h7v9H6z"/></svg>
+    </div>
+    <h2 style="font-size:26px;font-weight:700;margin-bottom:8px;color:#1C1C1E">Welcome to DocuGen Pro</h2>
+    <p style="font-size:15px;color:rgba(60,60,67,0.6);margin-bottom:8px;max-width:400px">Generate documents, collect e-signatures, and automate your workflow — all from your monday.com board.</p>
+    <div style="background:white;border-radius:16px;padding:24px;max-width:400px;width:100%;margin:24px 0;box-shadow:0 2px 12px rgba(0,0,0,0.08);text-align:left">
+      <div style="display:flex;gap:12px;margin-bottom:16px"><span style="font-size:20px">⚡</span><div><strong style="font-size:14px">Generate</strong><p style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:2px">Pick a template + board item, get Word, PDF or Excel instantly</p></div></div>
+      <div style="display:flex;gap:12px;margin-bottom:16px"><span style="font-size:20px">✍️</span><div><strong style="font-size:14px">E-Signatures</strong><p style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:2px">Send secure signing links, track status in real time</p></div></div>
+      <div style="display:flex;gap:12px"><span style="font-size:20px">🤖</span><div><strong style="font-size:14px">Automation</strong><p style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:2px">Auto-generate docs when column values change</p></div></div>
+    </div>
+    <button onclick="dismissWelcome()" style="background:#007AFF;color:white;border:none;border-radius:14px;padding:14px 32px;font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 4px 16px rgba(0,122,255,0.3)">Get Started →</button>
+  </div>
+</div>
+
+<!-- VIEW ONLY WALL -->
+<div id="viewonly-wall" style="display:none">
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:40px;text-align:center;background:#F2F2F7">
+    <div style="font-size:48px;margin-bottom:16px">👁</div>
+    <h2 style="font-size:22px;font-weight:600;margin-bottom:8px;color:#1C1C1E">View-only mode</h2>
+    <p style="font-size:14px;color:rgba(60,60,67,0.6);max-width:320px">As a viewer, you are unable to generate or manage documents. Ask a board member to grant you edit access.</p>
+  </div>
+</div>
+
 <!-- AUTH WALL -->
 <div class="auth-wall" id="auth-wall" style="display:none">
   <div class="auth-icon">
@@ -574,6 +601,42 @@
 </div><!-- /main-content -->
 
 <script>
+  // ── WELCOME PAGE ──
+  function showWelcomePage() {
+    document.getElementById('welcome-page').style.display = 'block';
+    document.getElementById('auth-wall').style.display = 'none';
+    document.getElementById('main-content').style.display = 'none';
+  }
+  function dismissWelcome() {
+    try {
+      if (window.monday) { window.monday().storage.instance.setItem('welcomed', 'true'); }
+    } catch(e) {}
+    document.getElementById('welcome-page').style.display = 'none';
+    document.getElementById('main-content').style.display = 'block';
+  }
+
+  // ── VIEWONLY CHECK ──
+  function checkViewOnly() {
+    return new Promise(function(resolve) {
+      try {
+        if (!window.monday) { resolve(false); return; }
+        window.monday().get('sessionToken').then(function(res) {
+          try {
+            const b64 = res.data.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');
+            const payload = JSON.parse(atob(b64));
+            resolve(payload.dat && payload.dat.is_view_only === true);
+          } catch(e) { resolve(false); }
+        }).catch(function() { resolve(false); });
+      } catch(e) { resolve(false); }
+    });
+  }
+
+  // ── VALUE CREATED FOR USER ──
+  function trackValueCreated() {
+    try { if (window.monday) { window.monday().execute('valueCreatedForUser'); } } catch(e) {}
+  }
+
+
   const API = 'https://docugen-monday-production.up.railway.app';
   const params = new URLSearchParams(window.location.search);
   let accountId = params.get('account_id');
@@ -748,6 +811,19 @@
   /* ── INIT ── */
   async function init() {
     if (!accountId) { document.getElementById('auth-wall').style.display = 'flex'; return; }
+
+    // Check view-only
+    const isViewOnly = await checkViewOnly();
+    if (isViewOnly) { document.getElementById('viewonly-wall').style.display = 'block'; return; }
+
+    // Check welcome page (solo primera vez)
+    try {
+      if (window.monday) {
+        const welcomed = await window.monday().storage.instance.getItem('welcomed');
+        if (!welcomed.data || !welcomed.data.value) { showWelcomePage(); return; }
+      }
+    } catch(e) {}
+
     try {
       const check = await fetch(API + '/auth/check?account_id=' + accountId);
       const auth = await check.json();
