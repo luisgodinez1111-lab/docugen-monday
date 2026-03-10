@@ -532,6 +532,20 @@ app.get('/logo', async (req, res) => {
   }
 });
 app.post('/generate-from-monday', requireAuth, checkDocLimit, async (req, res) => {
+  // -- SUBSCRIPTION CHECK --
+  const _accountId = req.body.account_id || req.query.account_id;
+  if (_accountId) {
+    const _subCheck = await checkSubscription(_accountId);
+    if (!_subCheck.allowed) {
+      const msg = _subCheck.reason === "trial_expired"
+        ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
+        : _subCheck.reason === "docs_limit_reached"
+          ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
+          : "Suscripcion inactiva. Actualiza tu plan.";
+      return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
+    }
+  }
+
   const { board_id, item_id, template_name } = req.body;
   try {
     const tplResult = await pool.query('SELECT data FROM templates WHERE account_id = $1 AND filename = $2', [req.accountId, template_name]);
@@ -582,6 +596,20 @@ app.get('/documents', requireAuth, async (req, res) => {
 
 // Generar documento desde monday en formato PDF o DOCX
 app.post('/generate-from-monday-pdf', requireAuth, checkDocLimit, async (req, res) => {
+  // -- SUBSCRIPTION CHECK --
+  const _accountId = req.body.account_id || req.query.account_id;
+  if (_accountId) {
+    const _subCheck = await checkSubscription(_accountId);
+    if (!_subCheck.allowed) {
+      const msg = _subCheck.reason === "trial_expired"
+        ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
+        : _subCheck.reason === "docs_limit_reached"
+          ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
+          : "Suscripcion inactiva. Actualiza tu plan.";
+      return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
+    }
+  }
+
   const { board_id, item_id, template_name } = req.body;
   const { exec } = require('child_process');
 
@@ -644,6 +672,20 @@ app.post('/generate-from-monday-pdf', requireAuth, checkDocLimit, async (req, re
 console.log('PDF async endpoint registrado');
 
 app.post('/generate-pdf-async', requireAuth, checkDocLimit, async (req, res) => {
+  // -- SUBSCRIPTION CHECK --
+  const _accountId = req.body.account_id || req.query.account_id;
+  if (_accountId) {
+    const _subCheck = await checkSubscription(_accountId);
+    if (!_subCheck.allowed) {
+      const msg = _subCheck.reason === "trial_expired"
+        ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
+        : _subCheck.reason === "docs_limit_reached"
+          ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
+          : "Suscripcion inactiva. Actualiza tu plan.";
+      return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
+    }
+  }
+
   const { exec } = require('child_process');
   const { board_id, item_id, template_name } = req.body;
   const jobId = Date.now().toString();
@@ -786,6 +828,66 @@ app.get('/.well-known/monday-app-association.json', (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.json({ apps: [{ clientID: '10969075' }] });
 });
+
+// ── CHECK SUBSCRIPTION (valida plan activo antes de cada operación) ──
+async function checkSubscription(accountId) {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM subscriptions WHERE account_id=$1 AND status IN ($2,$3) ORDER BY created_at DESC LIMIT 1',
+      [accountId, 'active', 'trial']
+    );
+
+    if (result.rows.length === 0) {
+      // No hay suscripción — crear trial automáticamente al primer uso
+      const trialEnds = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 días
+      await pool.query(
+        'INSERT INTO subscriptions (account_id, plan_id, status, docs_used, docs_limit, trial_ends_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (account_id) DO NOTHING',
+        [accountId, 'trial', 'trial', 0, 10, trialEnds]
+      );
+      return { allowed: true, plan: 'trial', docs_used: 0, docs_limit: 10, trial_ends_at: trialEnds };
+    }
+
+    const sub = result.rows[0];
+
+    // Verificar si el trial expiró
+    if (sub.status === 'trial' && sub.trial_ends_at && new Date(sub.trial_ends_at) < new Date()) {
+      await pool.query('UPDATE subscriptions SET status=$1 WHERE account_id=$2', ['expired', accountId]);
+      return { allowed: false, reason: 'trial_expired', plan: 'trial' };
+    }
+
+    // Verificar límite de documentos
+    if (sub.docs_used >= sub.docs_limit) {
+      return { allowed: false, reason: 'docs_limit_reached', plan: sub.plan_id, docs_used: sub.docs_used, docs_limit: sub.docs_limit };
+    }
+
+    return { allowed: true, plan: sub.plan_id, status: sub.status, docs_used: sub.docs_used, docs_limit: sub.docs_limit };
+  } catch(e) {
+    console.error('checkSubscription error:', e.message);
+    return { allowed: true, plan: 'unknown' }; // fail open para no bloquear en error de DB
+  }
+}
+
+// ── INCREMENT DOCS USED ──
+async function incrementDocsUsed(accountId) {
+  try {
+    await pool.query(
+      'UPDATE subscriptions SET docs_used = docs_used + 1, updated_at = NOW() WHERE account_id = $1',
+      [accountId]
+    );
+  } catch(e) {
+    console.error('incrementDocsUsed error:', e.message);
+  }
+}
+
+
+// ── SUBSCRIPTION STATUS ──
+app.get('/subscription/status', async (req, res) => {
+  const accountId = req.query.account_id;
+  if (!accountId) return res.status(400).json({ error: 'account_id requerido' });
+  const status = await checkSubscription(accountId);
+  res.json(status);
+});
+
 app.listen(PORT, async () => {
   console.log('DocuGen servidor corriendo en puerto ' + PORT);
   console.log('App ID: ' + process.env.MONDAY_APP_ID);
@@ -1977,6 +2079,20 @@ function verifyWorkflowJWT(req) {
 // ACTION BLOCK 1: Generar documento desde workflow
 // Run URL: https://docugen-monday-production.up.railway.app/workflows/generate-document
 app.post('/workflows/generate-document', async (req, res) => {
+  // -- SUBSCRIPTION CHECK --
+  const _accountId = req.body.account_id || req.query.account_id;
+  if (_accountId) {
+    const _subCheck = await checkSubscription(_accountId);
+    if (!_subCheck.allowed) {
+      const msg = _subCheck.reason === "trial_expired"
+        ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
+        : _subCheck.reason === "docs_limit_reached"
+          ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
+          : "Suscripcion inactiva. Actualiza tu plan.";
+      return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
+    }
+  }
+
   const verified = verifyWorkflowJWT(req);
   if (!verified) return res.status(401).json(severityError(4000, 'Auth error', 'Invalid token', 'JWT verification failed'));
 
@@ -2898,6 +3014,20 @@ cron.schedule('* * * * *', processPendingTriggers);
 
 // ─── GENERACIÓN MASIVA ────────────────────────────────────
 app.post('/generate-bulk', requireAuth, checkDocLimit, async (req, res) => {
+  // -- SUBSCRIPTION CHECK --
+  const _accountId = req.body.account_id || req.query.account_id;
+  if (_accountId) {
+    const _subCheck = await checkSubscription(_accountId);
+    if (!_subCheck.allowed) {
+      const msg = _subCheck.reason === "trial_expired"
+        ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
+        : _subCheck.reason === "docs_limit_reached"
+          ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
+          : "Suscripcion inactiva. Actualiza tu plan.";
+      return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
+    }
+  }
+
   const { board_id, item_ids, template_name } = req.body;
   if (!item_ids || !item_ids.length || !template_name) return res.status(400).json({ error: 'Faltan parámetros' });
   if (item_ids.length > 50) return res.status(400).json({ error: 'Máximo 50 items a la vez' });
