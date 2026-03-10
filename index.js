@@ -529,7 +529,7 @@ app.get('/logo', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-app.post('/generate-from-monday', requireAuth, async (req, res) => {
+app.post('/generate-from-monday', requireAuth, checkDocLimit, async (req, res) => {
   const { board_id, item_id, template_name } = req.body;
   try {
     const tplResult = await pool.query('SELECT data FROM templates WHERE account_id = $1 AND filename = $2', [req.accountId, template_name]);
@@ -579,7 +579,7 @@ app.get('/documents', requireAuth, async (req, res) => {
 
 
 // Generar documento desde monday en formato PDF o DOCX
-app.post('/generate-from-monday-pdf', requireAuth, async (req, res) => {
+app.post('/generate-from-monday-pdf', requireAuth, checkDocLimit, async (req, res) => {
   const { board_id, item_id, template_name } = req.body;
   const { exec } = require('child_process');
 
@@ -641,7 +641,7 @@ app.post('/generate-from-monday-pdf', requireAuth, async (req, res) => {
 // Jobs PDF en PostgreSQL
 console.log('PDF async endpoint registrado');
 
-app.post('/generate-pdf-async', requireAuth, async (req, res) => {
+app.post('/generate-pdf-async', requireAuth, checkDocLimit, async (req, res) => {
   const { exec } = require('child_process');
   const { board_id, item_id, template_name } = req.body;
   const jobId = Date.now().toString();
@@ -1010,7 +1010,7 @@ app.post('/templates/:filename/rename', requireAuth, async (req, res) => {
 });
 
 // ─── FIRMA DIGITAL ────────────────────────────────────────
-app.post('/signatures/request', requireAuth, async (req, res) => {
+app.post('/signatures/request', requireAuth, checkSigLimit, async (req, res) => {
   const { document_filename, signer_name, signer_email, item_id, board_id, doc_type } = req.body;
   if (!document_filename || !signer_name) return res.status(400).json({ error: 'Faltan datos' });
   try {
@@ -2880,7 +2880,7 @@ async function processPendingTriggers() {
 cron.schedule('* * * * *', processPendingTriggers);
 
 // ─── GENERACIÓN MASIVA ────────────────────────────────────
-app.post('/generate-bulk', requireAuth, async (req, res) => {
+app.post('/generate-bulk', requireAuth, checkDocLimit, async (req, res) => {
   const { board_id, item_ids, template_name } = req.body;
   if (!item_ids || !item_ids.length || !template_name) return res.status(400).json({ error: 'Faltan parámetros' });
   if (item_ids.length > 50) return res.status(400).json({ error: 'Máximo 50 items a la vez' });
@@ -2979,7 +2979,7 @@ cron.schedule('0 * * * *', async () => {
 
 // ─── SISTEMA DE FIRMA AVANZADO ────────────────────────────
 // Múltiples firmantes con orden
-app.post('/signatures/request-multi', requireAuth, async (req, res) => {
+app.post('/signatures/request-multi', requireAuth, checkSigLimit, async (req, res) => {
   const { document_filename, signers, item_id, board_id } = req.body;
   // signers = [{name, email, order}, ...]
   if (!signers || !signers.length) return res.status(400).json({ error: 'Se requieren firmantes' });
@@ -3234,5 +3234,124 @@ app.post('/workflows/send-reminder', async (req, res) => {
     }
 
     res.json({ outputFields: { success: true, sentTo: sig.signer_email, documentName: sig.document_filename } });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+
+// ─── BILLING / PLAN ENFORCEMENT ──────────────────────────────────────────────
+
+const PLAN_LIMITS = {
+  trial:        { docs: 10,    sigs: 5,    templates: 2,   doc_types: ['document'],                              branding: false, workflows: false, legal: false, multisign: false },
+  starter:      { docs: 50,    sigs: 25,   templates: 5,   doc_types: ['document','simple'],                     branding: false, workflows: false, legal: false, multisign: false },
+  professional: { docs: 200,   sigs: 100,  templates: 20,  doc_types: ['document','simple','quote','legal'],     branding: true,  workflows: true,  legal: true,  multisign: false },
+  business:     { docs: 1000,  sigs: 500,  templates: -1,  doc_types: ['document','simple','quote','legal'],     branding: true,  workflows: true,  legal: true,  multisign: true  },
+  enterprise:   { docs: -1,    sigs: -1,   templates: -1,  doc_types: ['document','simple','quote','legal'],     branding: true,  workflows: true,  legal: true,  multisign: true  },
+};
+
+// Obtener límites del plan activo para una cuenta
+async function getAccountPlanLimits(accountId) {
+  try {
+    const r = await pool.query('SELECT * FROM subscriptions WHERE account_id=$1 AND status IN ($2,$3) ORDER BY created_at DESC LIMIT 1', [accountId, 'active', 'trial']);
+    if (!r.rows.length) return null; // Sin suscripción
+    const sub = r.rows[0];
+    const planId = sub.plan_id || 'trial';
+    // Normalizar plan_id a clave de PLAN_LIMITS
+    const key = planId.toLowerCase().replace(/[^a-z]/g, '');
+    return PLAN_LIMITS[key] || PLAN_LIMITS['trial'];
+  } catch(e) { return PLAN_LIMITS['trial']; }
+}
+
+// Obtener uso mensual actual de una cuenta
+async function getMonthlyUsage(accountId) {
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+  try {
+    const docs = await pool.query("SELECT COUNT(*) FROM documents WHERE account_id=$1 AND created_at >= $2", [accountId, startOfMonth]);
+    const sigs = await pool.query("SELECT COUNT(*) FROM signature_requests WHERE account_id=$1 AND created_at >= $2", [accountId, startOfMonth]);
+    return {
+      docs: parseInt(docs.rows[0].count),
+      sigs: parseInt(sigs.rows[0].count)
+    };
+  } catch(e) { return { docs: 0, sigs: 0 }; }
+}
+
+// Middleware: verificar suscripción activa
+async function requireSubscription(req, res, next) {
+  try {
+    const accountId = req.accountId;
+    if (!accountId) return next(); // Sin accountId, dejar pasar (manejado por requireAuth)
+    const r = await pool.query("SELECT * FROM subscriptions WHERE account_id=$1 AND status IN ('active','trial') ORDER BY created_at DESC LIMIT 1", [accountId]);
+    if (!r.rows.length) {
+      return res.status(402).json({
+        error: 'subscription_required',
+        message: 'Se requiere una suscripción activa para usar DocuGen.',
+        upgrade_url: 'https://monday.com/marketplace'
+      });
+    }
+    req.subscription = r.rows[0];
+    next();
+  } catch(e) { next(); }
+}
+
+// Middleware: verificar límite de documentos
+async function checkDocLimit(req, res, next) {
+  try {
+    const limits = await getAccountPlanLimits(req.accountId);
+    if (!limits) return next(); // Sin plan configurado, dejar pasar
+    if (limits.docs === -1) return next(); // Ilimitado
+    const usage = await getMonthlyUsage(req.accountId);
+    if (usage.docs >= limits.docs) {
+      return res.status(402).json({
+        error: 'doc_limit_reached',
+        message: 'Has alcanzado el límite de documentos de tu plan (' + limits.docs + '/mes). Actualiza tu plan para continuar.',
+        current_usage: usage.docs,
+        limit: limits.docs
+      });
+    }
+    next();
+  } catch(e) { next(); }
+}
+
+// Middleware: verificar límite de firmas
+async function checkSigLimit(req, res, next) {
+  try {
+    const limits = await getAccountPlanLimits(req.accountId);
+    if (!limits) return next();
+    if (limits.sigs === -1) return next();
+    const usage = await getMonthlyUsage(req.accountId);
+    if (usage.sigs >= limits.sigs) {
+      return res.status(402).json({
+        error: 'sig_limit_reached',
+        message: 'Has alcanzado el límite de firmas de tu plan (' + limits.sigs + '/mes). Actualiza tu plan para continuar.',
+        current_usage: usage.sigs,
+        limit: limits.sigs
+      });
+    }
+    next();
+  } catch(e) { next(); }
+}
+
+// Endpoint: obtener uso y plan actual
+app.get('/billing/usage', requireAuth, async (req, res) => {
+  try {
+    const sub = await pool.query("SELECT * FROM subscriptions WHERE account_id=$1 AND status IN ('active','trial') ORDER BY created_at DESC LIMIT 1", [req.accountId]);
+    const limits = await getAccountPlanLimits(req.accountId);
+    const usage = await getMonthlyUsage(req.accountId);
+    const planId = sub.rows[0]?.plan_id || 'none';
+
+    res.json({
+      success: true,
+      plan: planId,
+      status: sub.rows[0]?.status || 'inactive',
+      is_trial: sub.rows[0]?.is_trial || false,
+      renewal_date: sub.rows[0]?.renewal_date || null,
+      billing_period: sub.rows[0]?.billing_period || null,
+      usage: {
+        docs: { used: usage.docs, limit: limits?.docs ?? 0, unlimited: limits?.docs === -1 },
+        sigs: { used: usage.sigs, limit: limits?.sigs ?? 0, unlimited: limits?.sigs === -1 },
+      },
+      features: limits || {}
+    });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
