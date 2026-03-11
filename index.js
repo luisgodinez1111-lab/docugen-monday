@@ -979,6 +979,19 @@ async function processDeletionQueue() {
 setInterval(processDeletionQueue, 60 * 60 * 1000);
 processDeletionQueue();
 
+
+// ── PLAN LIMITS MAP ──
+function getPlanLimits(planId) {
+  const plans = {
+    'trial':        { docs_limit: 10,     label: 'Trial' },
+    'starter':      { docs_limit: 50,     label: 'Starter' },
+    'professional': { docs_limit: 150,    label: 'Professional' },
+    'business':     { docs_limit: 500,    label: 'Business' },
+    'enterprise':   { docs_limit: 999999, label: 'Enterprise' },
+  };
+  return plans[planId?.toLowerCase()] || { docs_limit: 10, label: 'Trial' };
+}
+
 app.listen(PORT, async () => {
   console.log('DocuGen servidor corriendo en puerto ' + PORT);
   console.log('App ID: ' + process.env.MONDAY_APP_ID);
@@ -2019,9 +2032,14 @@ app.post('/monday/lifecycle', async (req, res) => {
     }
 
     if (['app_subscription_created', 'app_subscription_changed', 'app_subscription_renewed', 'app_trial_subscription_started'].includes(type)) {
+      const _limits = getPlanLimits(planId);
       await pool.query(
-        'INSERT INTO subscriptions (account_id, plan_id, status, is_trial, renewal_date) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (account_id) DO UPDATE SET plan_id=$2, status=$3, is_trial=$4, renewal_date=$5, updated_at=NOW()',
-        [accountId, planId, 'active', isTrial || false, renewalDate]
+        `INSERT INTO subscriptions (account_id, plan_id, status, is_trial, renewal_date, docs_limit, docs_used)
+         VALUES ($1,$2,$3,$4,$5,$6,0)
+         ON CONFLICT (account_id) DO UPDATE SET
+           plan_id=$2, status=$3, is_trial=$4, renewal_date=$5,
+           docs_limit=$6, docs_used=0, updated_at=NOW()`,
+        [accountId, planId, 'active', isTrial || false, renewalDate, _limits.docs_limit]
       );
     }
 
