@@ -247,6 +247,7 @@
       <div class="topbar-badges">
         <span class="pill pill-gray" id="account-badge"></span>
         <span class="pill pill-blue" id="board-badge" style="display:none"></span>
+        <span class="pill pill-green" id="usage-badge" style="display:none" title="Documentos usados este período"></span>
       </div>
     </div>
 
@@ -850,6 +851,7 @@
     await loadHistorial();
     await loadSettings();
     await loadLogo();
+    await loadUsageBadge();
   }
 
   function startAuth() { window.location.href = API + '/oauth/start'; }
@@ -1422,6 +1424,41 @@ async function loadSignatures() {
   // Aplicar idioma guardado en localStorage al inicio
   try { const savedLang = localStorage.getItem('docugen_lang'); if (savedLang) applyLanguage(savedLang); } catch(e) {}
   init();
+
+  // ── USAGE BADGE ──
+  async function loadUsageBadge() {
+    if (!accountId) return;
+    try {
+      const r = await fetch(API + '/subscription/status?account_id=' + accountId);
+      const sub = await r.json();
+      const badge = document.getElementById('usage-badge');
+      if (!badge) return;
+
+      const used = sub.docs_used || 0;
+      const limit = sub.docs_limit || 10;
+      const plan = sub.plan || 'trial';
+      const pct = limit >= 999999 ? 0 : Math.round((used / limit) * 100);
+
+      badge.textContent = limit >= 999999
+        ? '∞ docs · ' + plan
+        : used + ' / ' + limit + ' docs';
+
+      // Color según uso
+      badge.className = 'pill';
+      if (limit >= 999999 || pct < 70) badge.classList.add('pill-green');
+      else if (pct < 90) badge.classList.add('pill-yellow');
+      else badge.classList.add('pill-red');
+
+      badge.style.display = 'inline-flex';
+
+      if (!sub.allowed && sub.reason) {
+        badge.title = sub.reason === 'trial_expired'
+          ? 'Trial expirado — actualiza tu plan'
+          : 'Limite alcanzado — actualiza tu plan';
+      }
+    } catch(e) { /* silencioso */ }
+  }
+
 </script>
 </body>
 </html>
