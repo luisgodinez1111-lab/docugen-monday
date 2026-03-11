@@ -35,6 +35,35 @@ const ImageModule = require('docxtemplater-image-module-free');
 
 dotenv.config();
 
+
+// ── TOKEN ENCRYPTION (AES-256-CBC) ──
+const crypto = require('crypto');
+const ENC_KEY = process.env.TOKEN_ENCRYPTION_KEY
+  ? Buffer.from(process.env.TOKEN_ENCRYPTION_KEY, 'hex')
+  : null;
+
+function encryptToken(token) {
+  if (!ENC_KEY || !token) return token;
+  try {
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv('aes-256-cbc', ENC_KEY, iv);
+    const encrypted = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
+    return iv.toString('hex') + ':' + encrypted.toString('hex');
+  } catch(e) { console.error('encryptToken error:', e.message); return token; }
+}
+
+function decryptToken(encrypted) {
+  if (!ENC_KEY || !encrypted) return encrypted;
+  if (!encrypted.includes(':')) return encrypted; // ya no encriptado
+  try {
+    const [ivHex, encHex] = encrypted.split(':');
+    const iv = Buffer.from(ivHex, 'hex');
+    const encBuf = Buffer.from(encHex, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-cbc', ENC_KEY, iv);
+    return Buffer.concat([decipher.update(encBuf), decipher.final()]).toString('utf8');
+  } catch(e) { console.error('decryptToken error:', e.message); return encrypted; }
+}
+
 const app = express();
 app.use(helmet.hsts({ maxAge: 31536000, includeSubDomains: true, preload: true }));
 const PORT = process.env.PORT || 3000;
@@ -160,7 +189,7 @@ if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir);
 const upload = multer({ storage: multer.memoryStorage() });
 
 async function saveToken(accountId, userId, token) {
-  await pool.query(`INSERT INTO tokens (account_id, user_id, access_token, updated_at) VALUES ($1, $2, $3, NOW()) ON CONFLICT (account_id) DO UPDATE SET access_token = $3, user_id = $2, updated_at = NOW()`, [accountId, userId, token]);
+  await pool.query(`INSERT INTO tokens (account_id, user_id, access_token, updated_at) VALUES ($1, $2, $3, NOW()) ON CONFLICT (account_id) DO UPDATE SET access_token = $3, user_id = $2, updated_at = NOW()`, [accountId, userId, encryptToken(token)]);
 }
 
 async function getToken(accountId) {
@@ -577,6 +606,7 @@ app.post('/generate-from-monday', requireAuth, checkDocLimit, async (req, res) =
 
     await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)', [req.accountId, board_id, item_id, item.name, template_name, outputFilename, outputBuffer]);
 
+        if (_accountId) await incrementDocsUsed(_accountId); // billing
     res.json({ success: true, filename: outputFilename, data_used: data, download_url: '/download/' + outputFilename });
   } catch (error) {
     console.error('Error:', error);
@@ -657,7 +687,9 @@ app.post('/generate-from-monday-pdf', requireAuth, checkDocLimit, async (req, re
         [accountId, board_id, item_id, item.name, template_name, baseName + '.pdf', pdfData]
       );
 
-      res.download(pdfPath, baseName + '.pdf', () => {
+      
+    if (_accountId) await incrementDocsUsed(_accountId); // billing
+res.download(pdfPath, baseName + '.pdf', () => {
         try { fs.unlinkSync(pdfPath); } catch(e) {}
       });
     });
@@ -2157,7 +2189,9 @@ app.post('/workflows/generate-document', async (req, res) => {
 
     console.log('Workflow generate-document: doc', docId, 'item', itemId, 'account', accountId);
 
-    res.status(200).json({
+    
+    if (_accountId) await incrementDocsUsed(_accountId); // billing
+res.status(200).json({
       outputFields: {
         documentId: docId.toString(),
         itemName: item.name,
@@ -3057,7 +3091,9 @@ app.post('/scheduled-automations', requireAuth, async (req, res) => {
       'INSERT INTO scheduled_automations (account_id, name, cron_expression, board_id, template_name, condition_column, condition_value) VALUES ($1,$2,$3,$4,$5,$6,$7)',
       [req.accountId, name, cron_expression, board_id, template_name, condition_column, condition_value]
     );
-    res.json({ success: true });
+    
+    if (_accountId) await incrementDocsUsed(_accountId); // billing
+res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
