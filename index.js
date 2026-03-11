@@ -784,6 +784,7 @@ app.post('/generate-pdf-async', requireAuth, checkDocLimit, async (req, res) => 
         console.log('PDF async - PDF listo:', pdfPath);
         const pdfData = fs.readFileSync(pdfPath);
         await pool.query('UPDATE pdf_jobs SET status=$1, filename=$2, item_name=$3, pdf_data=$4 WHERE job_id=$5', ['ready', baseName + '.pdf', item.name, pdfData, jobId]);
+        if (accountId) await incrementDocsUsed(accountId); // billing async
         await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)', [accountId, board_id, item_id, item.name, template_name, baseName + '.pdf', pdfData]);
       });
 
