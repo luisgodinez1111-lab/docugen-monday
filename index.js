@@ -64,6 +64,51 @@ function decryptToken(encrypted) {
   } catch(e) { console.error('decryptToken error:', e.message); return encrypted; }
 }
 
+// ── RATE LIMIT POR ACCOUNT_ID ──
+const accountRateLimits = new Map();
+
+function accountRateLimit(maxRequests, windowMs) {
+  return (req, res, next) => {
+    const accountId = req.body?.accountId || req.query?.account_id || 'unknown';
+    const now = Date.now();
+    const key = accountId;
+
+    if (!accountRateLimits.has(key)) {
+      accountRateLimits.set(key, { count: 1, windowStart: now });
+      return next();
+    }
+
+    const entry = accountRateLimits.get(key);
+
+    // Reset si venció la ventana
+    if (now - entry.windowStart > windowMs) {
+      entry.count = 1;
+      entry.windowStart = now;
+      return next();
+    }
+
+    // Incrementar
+    entry.count++;
+    if (entry.count > maxRequests) {
+      return res.status(429).json({
+        error: 'Too many requests',
+        message: 'Rate limit exceeded. Please wait before generating more documents.',
+        retryAfter: Math.ceil((entry.windowStart + windowMs - now) / 1000)
+      });
+    }
+    next();
+  };
+}
+
+// Limpiar entradas viejas cada 10 minutos
+setInterval(() => {
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  for (const [key, entry] of accountRateLimits.entries()) {
+    if (entry.windowStart < cutoff) accountRateLimits.delete(key);
+  }
+}, 10 * 60 * 1000);
+
+
 const app = express();
 app.use(helmet.hsts({ maxAge: 31536000, includeSubDomains: true, preload: true }));
 const PORT = process.env.PORT || 3000;
@@ -560,7 +605,7 @@ app.get('/logo', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-app.post('/generate-from-monday', requireAuth, checkDocLimit, async (req, res) => {
+app.post('/generate-from-monday', requireAuth, checkDocLimit, accountRateLimit(20, 60 * 1000), async (req, res) => {
   // -- SUBSCRIPTION CHECK --
   const _accountId = req.body.account_id || req.query.account_id;
   if (_accountId) {
@@ -625,7 +670,7 @@ app.get('/documents', requireAuth, async (req, res) => {
 
 
 // Generar documento desde monday en formato PDF o DOCX
-app.post('/generate-from-monday-pdf', requireAuth, checkDocLimit, async (req, res) => {
+app.post('/generate-from-monday-pdf', requireAuth, checkDocLimit, accountRateLimit(20, 60 * 1000), async (req, res) => {
   // -- SUBSCRIPTION CHECK --
   const _accountId = req.body.account_id || req.query.account_id;
   if (_accountId) {
@@ -703,7 +748,7 @@ res.download(pdfPath, baseName + '.pdf', () => {
 // Jobs PDF en PostgreSQL
 console.log('PDF async endpoint registrado');
 
-app.post('/generate-pdf-async', requireAuth, checkDocLimit, async (req, res) => {
+app.post('/generate-pdf-async', requireAuth, checkDocLimit, accountRateLimit(20, 60 * 1000), async (req, res) => {
   // -- SUBSCRIPTION CHECK --
   const _accountId = req.body.account_id || req.query.account_id;
   if (_accountId) {
@@ -2187,7 +2232,7 @@ function verifyWorkflowJWT(req) {
 
 // ACTION BLOCK 1: Generar documento desde workflow
 // Run URL: https://docugen-monday-production.up.railway.app/workflows/generate-document
-app.post('/workflows/generate-document', async (req, res) => {
+app.post('/workflows/generate-document', accountRateLimit(20, 60 * 1000), async (req, res) => {
   // -- SUBSCRIPTION CHECK --
   const _accountId = req.body.account_id || req.query.account_id;
   if (_accountId) {
@@ -3124,7 +3169,7 @@ async function processPendingTriggers() {
 cron.schedule('* * * * *', processPendingTriggers);
 
 // ─── GENERACIÓN MASIVA ────────────────────────────────────
-app.post('/generate-bulk', requireAuth, checkDocLimit, async (req, res) => {
+app.post('/generate-bulk', requireAuth, checkDocLimit, accountRateLimit(20, 60 * 1000), async (req, res) => {
   // -- SUBSCRIPTION CHECK --
   const _accountId = req.body.account_id || req.query.account_id;
   if (_accountId) {
