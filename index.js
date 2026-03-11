@@ -2024,6 +2024,25 @@ app.post('/workflows/fields/templates', async (req, res) => {
 // app_subscription_cancellation_revoked_by_user, app_subscription_renewal_attempt_failed,
 // app_subscription_renewal_failed, app_trial_subscription_started, app_trial_subscription_ended
 app.post('/monday/lifecycle', async (req, res) => {
+  // ── Verificar HMAC signature de Monday ──
+  try {
+    const signingSecret = process.env.MONDAY_SIGNING_SECRET || process.env.MONDAY_CLIENT_SECRET || '';
+    const authHeader = req.headers['authorization'] || '';
+    if (signingSecret && authHeader) {
+      const rawBody = JSON.stringify(req.body);
+      const expectedSig = require('crypto')
+        .createHmac('sha256', signingSecret)
+        .update(rawBody)
+        .digest('hex');
+      if (authHeader !== expectedSig) {
+        console.warn('Lifecycle webhook signature mismatch — rejecting');
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
+    }
+  } catch(sigErr) {
+    console.error('Signature verification error:', sigErr.message);
+  }
+
   // Responder 200 inmediatamente según docs
   res.sendStatus(200);
 
