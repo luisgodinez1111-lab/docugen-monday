@@ -3618,7 +3618,7 @@ async function requireSubscription(req, res, next) {
 }
 
 // Middleware: verificar límite de documentos
-async function checkDocLimit(req, res, next) {
+async async function checkDocLimit(req, res, next) {
   try {
     const limits = await getAccountPlanLimits(req.accountId);
     if (!limits) return next(); // Sin plan configurado, dejar pasar
