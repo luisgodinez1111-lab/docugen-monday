@@ -920,6 +920,64 @@ app.get('/subscription/status', async (req, res) => {
   res.json(status);
 });
 
+
+// ── UNINSTALL + DELETION QUEUE ──
+app.post('/lifecycle/uninstall', async (req, res) => {
+  try {
+    const { accountId } = req.body;
+    if (!accountId) return res.status(400).json({ error: 'accountId required' });
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS deletion_queue (
+        id SERIAL PRIMARY KEY,
+        account_id TEXT NOT NULL UNIQUE,
+        scheduled_for TIMESTAMPTZ NOT NULL,
+        executed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await pool.query(
+      `INSERT INTO deletion_queue (account_id, scheduled_for)
+       VALUES ($1, NOW() + INTERVAL '10 days')
+       ON CONFLICT (account_id) DO UPDATE SET scheduled_for = NOW() + INTERVAL '10 days', executed_at = NULL`,
+      [accountId]
+    );
+
+    console.log('Uninstall queued for account:', accountId);
+    res.status(200).json({ success: true });
+  } catch(e) {
+    console.error('Uninstall webhook error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── CRON: Ejecutar deletions pendientes cada hora ──
+async function processDeletionQueue() {
+  try {
+    const result = await pool.query(`
+      SELECT account_id FROM deletion_queue
+      WHERE scheduled_for <= NOW() AND executed_at IS NULL
+    `);
+    for (const row of result.rows) {
+      const accountId = row.account_id;
+      try {
+        const tables = ['tokens','templates','documents','signature_requests','subscriptions',
+          'account_settings','accounts','webhook_triggers','scheduled_automations','logos',
+          'pdf_jobs','webhook_events','error_logs'];
+        for (const table of tables) {
+          await pool.query('DELETE FROM ' + table + ' WHERE account_id = $1', [accountId]).catch(() => {});
+        }
+        await pool.query('UPDATE deletion_queue SET executed_at = NOW() WHERE account_id = $1', [accountId]);
+        console.log('Data deleted for uninstalled account:', accountId);
+      } catch(e) { console.error('Error deleting account:', accountId, e.message); }
+    }
+  } catch(e) { console.error('processDeletionQueue error:', e.message); }
+}
+
+setInterval(processDeletionQueue, 60 * 60 * 1000);
+processDeletionQueue();
+
 app.listen(PORT, async () => {
   console.log('DocuGen servidor corriendo en puerto ' + PORT);
   console.log('App ID: ' + process.env.MONDAY_APP_ID);
