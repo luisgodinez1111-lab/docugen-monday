@@ -37,7 +37,6 @@ dotenv.config();
 
 
 // ── TOKEN ENCRYPTION (AES-256-CBC) ──
-const crypto = require('crypto');
 const ENC_KEY = process.env.TOKEN_ENCRYPTION_KEY
   ? Buffer.from(process.env.TOKEN_ENCRYPTION_KEY, 'hex')
   : null;
