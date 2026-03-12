@@ -193,7 +193,52 @@
     ::-webkit-scrollbar { width:4px; }
     ::-webkit-scrollbar-track { background:transparent; }
     ::-webkit-scrollbar-thumb { background:rgba(0,0,0,0.15); border-radius:2px; }
-  </style>
+  
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1C1C1E;
+        --surface: #2C2C2E;
+        --surface2: #3A3A3C;
+        --border: rgba(255,255,255,0.1);
+        --border2: rgba(255,255,255,0.15);
+        --text: #FFFFFF;
+        --text2: #EBEBF5;
+        --muted: rgba(235,235,245,0.6);
+        --accent: #0A84FF;
+        --accent-light: rgba(10,132,255,0.15);
+        --accent-mid: rgba(10,132,255,0.25);
+        --green: #30D158;
+        --green-light: rgba(48,209,88,0.15);
+        --orange: #FF9F0A;
+        --orange-light: rgba(255,159,10,0.15);
+        --red: #FF453A;
+        --red-light: rgba(255,69,58,0.15);
+        --purple: #BF5AF2;
+        --purple-light: rgba(191,90,242,0.15);
+      }
+    }
+    [data-theme="dark"] {
+      --bg: #1C1C1E;
+      --surface: #2C2C2E;
+      --surface2: #3A3A3C;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.15);
+      --text: #FFFFFF;
+      --text2: #EBEBF5;
+      --muted: rgba(235,235,245,0.6);
+      --accent: #0A84FF;
+      --accent-light: rgba(10,132,255,0.15);
+      --accent-mid: rgba(10,132,255,0.25);
+      --green: #30D158;
+      --green-light: rgba(48,209,88,0.15);
+      --orange: #FF9F0A;
+      --orange-light: rgba(255,159,10,0.15);
+      --red: #FF453A;
+      --red-light: rgba(255,69,58,0.15);
+      --purple: #BF5AF2;
+      --purple-light: rgba(191,90,242,0.15);
+    }
+    </style>
 </head>
 <body>
 
@@ -637,6 +682,19 @@
     try { if (window.monday) { window.monday().execute('valueCreatedForUser'); } } catch(e) {}
   }
 
+
+  
+  // ── MONDAY THEME LISTENER ──
+  try {
+    window.monday().listen('context', function(res) {
+      const theme = res.data && res.data.theme;
+      if (theme === 'dark' || theme === 'black') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+      }
+    });
+  } catch(e) {}
 
   const API = 'https://docugen-monday-production.up.railway.app';
   const params = new URLSearchParams(window.location.search);
