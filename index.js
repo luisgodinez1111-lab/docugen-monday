@@ -3620,20 +3620,22 @@ async function requireSubscription(req, res, next) {
 // Middleware: verificar límite de documentos
 async function checkDocLimit(req, res, next) {
   try {
-    const limits = await getAccountPlanLimits(req.accountId);
-    if (!limits) return next(); // Sin plan configurado, dejar pasar
-    if (limits.docs === -1) return next(); // Ilimitado
-    const usage = await getMonthlyUsage(req.accountId);
-    if (usage.docs >= limits.docs) {
-      return res.status(402).json({
-        error: 'doc_limit_reached',
-        message: 'Has alcanzado el límite de documentos de tu plan (' + limits.docs + '/mes). Actualiza tu plan para continuar.',
-        current_usage: usage.docs,
-        limit: limits.docs
-      });
+    const accountId = req.accountId || req.body?.account_id || req.query?.account_id;
+    if (!accountId) return next(); // Sin accountId, dejar pasar
+    const sub = await checkSubscription(accountId);
+    if (!sub.allowed) {
+      const msg = sub.reason === 'trial_expired'
+        ? 'Tu periodo de prueba ha expirado. Actualiza tu plan.'
+        : sub.reason === 'docs_limit_reached'
+          ? 'Limite de documentos alcanzado (' + sub.docs_used + '/' + sub.docs_limit + '). Actualiza tu plan.'
+          : 'Suscripcion inactiva. Actualiza tu plan.';
+      return res.status(402).json({ error: sub.reason, message: msg, upgrade_url: 'https://nexlabs.online/upgrade' });
     }
     next();
-  } catch(e) { next(); }
+  } catch(e) {
+    console.error('checkDocLimit error:', e.message);
+    next(); // fail open
+  }
 }
 
 // Middleware: verificar límite de firmas
