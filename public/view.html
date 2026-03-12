@@ -871,6 +871,25 @@
   async function init() {
     if (!accountId) { document.getElementById('auth-wall').style.display = 'flex'; return; }
 
+    // ── Obtener boardId desde el SDK de Monday si no viene en URL ──
+    if (!boardId && window.monday) {
+      try {
+        const ctx = await Promise.race([
+          window.monday().get('context'),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+        ]);
+        if (ctx && ctx.data && ctx.data.boardId) {
+          boardId = String(ctx.data.boardId);
+        } else if (ctx && ctx.data && ctx.data.boardIds && ctx.data.boardIds.length > 0) {
+          boardId = String(ctx.data.boardIds[0]);
+        }
+        // También obtener accountId desde contexto si no está
+        if (!accountId && ctx && ctx.data && ctx.data.account && ctx.data.account.id) {
+          accountId = String(ctx.data.account.id);
+        }
+      } catch(e) { console.warn('No se pudo obtener contexto de Monday:', e.message); }
+    }
+
     // Check view-only
     const isViewOnly = await checkViewOnly();
     if (isViewOnly) { document.getElementById('viewonly-wall').style.display = 'block'; return; }
