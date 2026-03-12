@@ -124,6 +124,21 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   next();
 });
+
+// ── SANITIZE REQ.BODY MIDDLEWARE ──
+app.use((req, res, next) => {
+  if (req.body && typeof req.body === 'object') {
+    // Sanitizar strings en body, excepto campos que son JSON legítimo
+    const skipKeys = ['settings', 'event', 'data'];
+    for (const [key, val] of Object.entries(req.body)) {
+      if (!skipKeys.includes(key) && typeof val === 'string') {
+        req.body[key] = sanitizeStr(val);
+      }
+    }
+  }
+  next();
+});
+
 ;
 
 const pool = new Pool({
@@ -1045,6 +1060,32 @@ function getPlanLimits(planId) {
     'enterprise':   { docs_limit: 999999, label: 'Enterprise' },
   };
   return plans[planId?.toLowerCase()] || { docs_limit: 10, label: 'Trial' };
+}
+
+
+// ── INPUT SANITIZATION ──
+function sanitizeStr(val) {
+  if (val === null || val === undefined) return val;
+  if (typeof val === 'number') return val;
+  if (typeof val !== 'string') return val;
+  return val
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+    .replace(/\/g, '&#x2F;');
+}
+
+function sanitizeInput(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const clean = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (typeof val === 'string') clean[key] = sanitizeStr(val);
+    else if (typeof val === 'object' && val !== null) clean[key] = sanitizeInput(val);
+    else clean[key] = val;
+  }
+  return clean;
 }
 
 app.listen(PORT, async () => {
