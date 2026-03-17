@@ -6,6 +6,75 @@ const { getMondayItem, getMondayBoard, createMondayUpdate, mondayQuery } = requi
 const { generateOtp, hashOtp, verifyOtp } = require('./src/utils/otp');
 const { getTimestamp } = require('./src/utils/tsa');
 
+// ── OBSERVABILITY ──
+// Pino logger (structured JSON in prod, pretty in dev)
+// Loaded lazily so index.js doesn't crash if pino isn't installed yet
+let logger;
+try {
+  const pino = require('pino');
+  const isDev = process.env.NODE_ENV !== 'production';
+  logger = pino(
+    {
+      level: process.env.LOG_LEVEL || (isDev ? 'debug' : 'info'),
+      base: { service: 'docugen-backend' },
+      timestamp: pino.stdTimeFunctions.isoTime,
+      redact: { paths: ['accessToken', 'req.headers.authorization'], censor: '[REDACTED]' },
+    },
+    isDev
+      ? pino.transport({ target: 'pino-pretty', options: { colorize: true, translateTime: 'SYS:HH:MM:ss.l', ignore: 'pid,hostname,service' } })
+      : process.stdout
+  );
+} catch {
+  // Fallback to console if pino not yet installed
+  logger = {
+    info:  (...args) => console.log('[INFO]',  ...args),
+    warn:  (...args) => console.warn('[WARN]',  ...args),
+    error: (...args) => console.error('[ERROR]', ...args),
+    debug: (...args) => process.env.NODE_ENV !== 'production' && console.log('[DEBUG]', ...args),
+    child: () => logger,
+  };
+}
+
+// ── PDF CONVERSION (libreoffice-convert — no shell, no exec) ──
+const { promisify } = require('util');
+let _loConvert = null;
+try {
+  _loConvert = promisify(require('libreoffice-convert').convert);
+} catch {
+  logger.warn('libreoffice-convert not found — falling back to execFile');
+}
+
+/**
+ * Convert a DOCX Buffer → PDF Buffer using libreoffice-convert.
+ * Falls back to execFile('libreoffice') when the library is unavailable.
+ * @param {Buffer} docxBuffer
+ * @param {number} [timeoutMs=60000]
+ * @returns {Promise<Buffer>}
+ */
+async function convertDocxToPdf(docxBuffer, timeoutMs = 60000) {
+  if (_loConvert) {
+    const timeoutP = new Promise((_, rej) =>
+      setTimeout(() => rej(new Error(`libreoffice-convert timed out (${timeoutMs}ms)`)), timeoutMs)
+    );
+    return Promise.race([_loConvert(docxBuffer, '.pdf', undefined), timeoutP]);
+  }
+  // Fallback: write tmp file, execFile, read back
+  const { execFile } = require('child_process');
+  const tmpDocx = path.join(outputsDir, `tmp_${Date.now()}.docx`);
+  fs.writeFileSync(tmpDocx, docxBuffer);
+  return new Promise((resolve, reject) => {
+    execFile('libreoffice', ['--headless', '--convert-to', 'pdf', '--outdir', outputsDir, tmpDocx],
+      { timeout: timeoutMs },
+      (err) => {
+        try { fs.unlinkSync(tmpDocx); } catch(_) {}
+        const pdfPath = tmpDocx.replace('.docx', '.pdf');
+        if (err || !fs.existsSync(pdfPath)) return reject(err || new Error('PDF not created'));
+        resolve(fs.readFileSync(pdfPath));
+        try { fs.unlinkSync(pdfPath); } catch(_) {}
+      });
+  });
+}
+
 // Generar hash SHA-256 del documento
 function generateDocHash(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex');
@@ -777,8 +846,6 @@ app.post('/generate-from-monday-pdf', requireAuth, checkDocLimit, accountRateLim
   }
 
   const { board_id, item_id, template_name } = req.body;
-  // P1-6: execFile no invoca /bin/sh — evita command injection
-  const { execFile } = require('child_process');
 
   try {
     const tplResult = await pool.query(
@@ -802,38 +869,32 @@ app.post('/generate-from-monday-pdf', requireAuth, checkDocLimit, accountRateLim
 
     const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
     const baseName = item.name.replace(/[^a-zA-Z0-9]/g, '_') + '_' + Date.now();
-    const docxPath = path.join(outputsDir, baseName + '.docx');
-    const pdfPath = path.join(outputsDir, baseName + '.pdf');
-    fs.writeFileSync(docxPath, outputBuffer);
 
-    // P1-6 + P3-5: execFile (sin shell) + timeout 60s
-    execFile('libreoffice', ['--headless', '--convert-to', 'pdf', '--outdir', outputsDir, docxPath],
-      { timeout: 60000 },
-      async (err) => {
-        try { fs.unlinkSync(docxPath); } catch(e) {}
-        if (err || !fs.existsSync(pdfPath)) {
-          return res.status(500).json({ error: 'Error convirtiendo a PDF', details: err?.message });
-        }
-        const pdfData = fs.readFileSync(pdfPath);
-        await pool.query(
-          'INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-          [req.accountId, board_id, item_id, item.name, template_name, baseName + '.pdf', pdfData]
-        );
-        if (_accountId) await incrementDocsUsed(_accountId);
-        res.download(pdfPath, baseName + '.pdf', () => {
-          try { fs.unlinkSync(pdfPath); } catch(e) {}
-        });
-      }
+    logger.info({ accountId: req.accountId, itemId: item_id, baseName }, 'Converting DOCX→PDF');
+    // convertDocxToPdf: in-process, no shell, no temp file
+    const pdfData = await convertDocxToPdf(outputBuffer);
+
+    await pool.query(
+      'INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [req.accountId, board_id, item_id, item.name, template_name, baseName + '.pdf', pdfData]
     );
+    if (_accountId) await incrementDocsUsed(_accountId);
+
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${baseName}.pdf"`,
+      'Content-Length': pdfData.length,
+    });
+    res.send(pdfData);
   } catch (error) {
-    console.error('Error PDF:', error);
+    logger.error({ err: error.message, accountId: req.accountId }, 'Error generating PDF');
     res.status(500).json({ error: 'Error al generar PDF', details: error.message });
   }
 });
 
 
 // Jobs PDF en PostgreSQL
-console.log('PDF async endpoint registrado');
+logger.debug('PDF async endpoint registered');
 
 app.post('/generate-pdf-async', requireAuth, checkDocLimit, accountRateLimit(20, 60 * 1000), async (req, res) => {
   // -- SUBSCRIPTION CHECK --
@@ -850,13 +911,12 @@ app.post('/generate-pdf-async', requireAuth, checkDocLimit, accountRateLimit(20,
     }
   }
 
-  const { exec } = require('child_process');
   const { board_id, item_id, template_name } = req.body;
   const jobId = Date.now().toString();
   const accountId = req.accountId;
   const accessToken = req.accessToken;
 
-  console.log('PDF async - inicio, job:', jobId, 'token:', accessToken ? 'ok' : 'missing');
+  logger.info({ jobId, accountId, itemId: item_id }, 'PDF async job started');
 
   try {
     await pool.query('INSERT INTO pdf_jobs (job_id, account_id, status) VALUES ($1,$2,$3)', [jobId, accountId, 'processing']);
@@ -868,21 +928,18 @@ app.post('/generate-pdf-async', requireAuth, checkDocLimit, accountRateLimit(20,
   // Usar setImmediate para ejecutar fuera del ciclo del request
   setImmediate(async () => {
     try {
-      console.log('PDF async - obteniendo plantilla...');
       const tplResult = await pool.query('SELECT data FROM templates WHERE account_id = $1 AND filename = $2', [accountId, template_name]);
       if (!tplResult.rows.length) {
         await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', 'Plantilla no encontrada', jobId]);
         return;
       }
 
-      console.log('PDF async - consultando monday...');
       // P1-3: variables GraphQL — sin concatenación
       const item = await getMondayItem(accessToken, item_id, GRAPHQL_COLUMN_FRAGMENT).catch(() => null);
       if (!item) {
         await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', 'Item no encontrado', jobId]);
         return;
       }
-      console.log('PDF async - item obtenido:', item.name);
 
       const data = { nombre: item.name };
       item.column_values.forEach(col => { data[toVarName(col.column.title)] = extractColumnValue(col); });
@@ -895,32 +952,17 @@ app.post('/generate-pdf-async', requireAuth, checkDocLimit, accountRateLimit(20,
 
       const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
       const baseName = item.name.replace(/[^a-zA-Z0-9]/g, '_') + '_' + Date.now();
-      const docxPath = path.join(outputsDir, baseName + '.docx');
-      const pdfPath = path.join(outputsDir, baseName + '.pdf');
-      fs.writeFileSync(docxPath, outputBuffer);
 
-      // P1-6: execFile (sin shell) + P3-5: timeout 60s
-      const { execFile } = require('child_process');
-      console.log('PDF async - convirtiendo con LibreOffice...');
-      execFile('libreoffice', ['--headless', '--convert-to', 'pdf', '--outdir', outputsDir, docxPath],
-        { timeout: 60000 },
-        async (err) => {
-        try { fs.unlinkSync(docxPath); } catch(e) {}
-        if (err || !fs.existsSync(pdfPath)) {
-          console.error('PDF async - error LibreOffice:', err?.message);
-          await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', 'Error convirtiendo a PDF: ' + (err?.message || 'unknown'), jobId]);
-          return;
-        }
-        console.log('PDF async - PDF listo:', pdfPath);
-        const pdfData = fs.readFileSync(pdfPath);
-        await pool.query('UPDATE pdf_jobs SET status=$1, filename=$2, item_name=$3, pdf_data=$4 WHERE job_id=$5', ['ready', baseName + '.pdf', item.name, pdfData, jobId]);
-        if (accountId) await incrementDocsUsed(accountId); // billing async
-        await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)', [accountId, board_id, item_id, item.name, template_name, baseName + '.pdf', pdfData]);
-        try { fs.unlinkSync(pdfPath); } catch(e) {}
-      });
+      logger.debug({ jobId, baseName }, 'PDF async - converting DOCX→PDF');
+      const pdfData = await convertDocxToPdf(outputBuffer);
+
+      await pool.query('UPDATE pdf_jobs SET status=$1, filename=$2, item_name=$3, pdf_data=$4 WHERE job_id=$5', ['ready', baseName + '.pdf', item.name, pdfData, jobId]);
+      if (accountId) await incrementDocsUsed(accountId);
+      await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)', [accountId, board_id, item_id, item.name, template_name, baseName + '.pdf', pdfData]);
+      logger.info({ jobId, accountId, filename: baseName + '.pdf' }, 'PDF async job complete');
 
     } catch(err) {
-      console.error('PDF async - error:', err.message);
+      logger.error({ jobId, err: err.message }, 'PDF async job failed');
       await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', err.message, jobId]).catch(()=>{});
     }
   });
@@ -1155,9 +1197,7 @@ function sanitizeInput(obj) {
 }
 
 app.listen(PORT, async () => {
-  console.log('DocuGen servidor corriendo en puerto ' + PORT);
-  console.log('App ID: ' + process.env.MONDAY_APP_ID);
-  console.log('Ambiente: ' + (process.env.NODE_ENV || 'development'));
+  logger.info({ port: PORT, appId: process.env.MONDAY_APP_ID, env: process.env.NODE_ENV || 'development' }, 'DocuGen server started');
   await initDB();
 });
 

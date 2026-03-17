@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ────────────────────────────────────────────
+  # 1. Type-check + lint
+  # ────────────────────────────────────────────
+  typecheck:
+    name: TypeScript typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci --ignore-scripts
+
+      - name: TypeScript strict check
+        run: npx tsc --noEmit
+
+  # ────────────────────────────────────────────
+  # 2. Unit tests
+  # ────────────────────────────────────────────
+  test:
+    name: Unit tests (vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      NODE_ENV: test
+      # Minimal env vars so env.ts Zod schema passes in tests
+      MONDAY_CLIENT_ID: ci-test-client-id
+      MONDAY_CLIENT_SECRET: ci-test-client-secret
+      MONDAY_SIGNING_SECRET: ci-test-signing-secret-32-chars!
+      MONDAY_APP_ID: '12345678'
+      REDIRECT_URI: https://ci.example.com/auth/callback
+      APP_URL: https://ci.example.com
+      DATABASE_URL: postgresql://ci:ci@localhost/ci_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci --ignore-scripts
+
+      - name: Run unit tests with coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: backend/coverage/
+          retention-days: 7
+
+  # ────────────────────────────────────────────
+  # 3. Syntax check (index.js CommonJS)
+  # ────────────────────────────────────────────
+  syntax:
+    name: Syntax check (index.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Check index.js syntax
+        run: node --check index.js
+
+      - name: Check src/*.js syntax
+        run: |
+          for f in src/middleware/hmac.js src/utils/graphql.js src/utils/otp.js src/utils/tsa.js; do
+            echo "Checking $f..."
+            node --check "$f"
+          done
+
+  # ────────────────────────────────────────────
+  # 4. Docker build validation (no push)
+  # ────────────────────────────────────────────
+  docker:
+    name: Docker build check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image (no push)
+        run: docker build -t docugen-backend:ci ./backend
