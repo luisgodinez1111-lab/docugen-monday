@@ -4,6 +4,8 @@ const helmet = require('helmet');
 const cors = require('cors');
 const path = require('path');
 const Sentry = require('@sentry/node');
+const swaggerUi = require('swagger-ui-express');
+const openApiSpec = require('./docs/openapi');
 
 module.exports = function createApp(deps) {
   const { logger, sanitizeStr, requireAuth, pool } = deps;
@@ -53,6 +55,12 @@ module.exports = function createApp(deps) {
     }
     next();
   });
+
+  // ── SWAGGER / API DOCS ──
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: 'DocuGen API Docs',
+  }));
 
   // ── STATIC FILES ──
   app.use(express.static(path.join(__dirname, '..', 'public')));

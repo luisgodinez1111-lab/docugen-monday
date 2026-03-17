@@ -14,5 +14,10 @@ module.exports = function makeStaticRouter(deps) {
     res.json({ apps: [{ clientID: '10969075' }] });
   });
 
+  // Convenience redirect: GET /docs → /api-docs
+  router.get('/docs', (req, res) => {
+    res.redirect(301, '/api-docs');
+  });
+
   return router;
 };
