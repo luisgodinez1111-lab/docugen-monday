@@ -28,6 +28,8 @@ const schema = z.object({
     .string()
     .regex(/^[0-9a-fA-F]{64}$/, 'TOKEN_ENCRYPTION_KEY must be 64 hex characters (32 bytes)')
     .optional(),
+  ENCRYPTION_KEYS: z.string().optional(),         // JSON {"1":"hex64...","2":"hex64..."} for key rotation
+  ENCRYPTION_KEY_VERSION: z.string().optional(),  // which version to use for new encryptions
 
   // Email (Resend)
   RESEND_API_KEY: z.string().startsWith('re_').optional(),
