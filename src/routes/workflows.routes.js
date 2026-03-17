@@ -100,7 +100,7 @@ module.exports = function makeWorkflowsRouter(deps) {
       // FIX-23: templateId is the numeric DB id (from fields/templates dropdown which returns t.id.toString())
       // Use WHERE id=$1 — not WHERE filename=$1
       const tmplRow = await pool.query('SELECT * FROM templates WHERE id=$1 AND account_id=$2', [parseInt(templateId, 10), accountId]);
-      if (!tmplRow.rows.length) return res.status(404).json(severityError(4000, 'Template no encontrado', 'El template no existe', 'Template not found'));
+      if (!tmplRow.rows.length) return res.status(404).json(severityError(6000, 'Template no encontrado', 'El template fue eliminado. Reconfigura la automatización.', 'Template not found in DB'));
 
       // Construir rowData desde column_values
       const rowData = { item_name: item.name, nombre: item.name };

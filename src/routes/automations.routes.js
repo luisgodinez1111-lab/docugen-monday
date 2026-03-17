@@ -1,5 +1,10 @@
 'use strict';
+const crypto     = require('crypto');
 const { Router } = require('express');
+const { makeError } = require('../utils/error-codes');
+
+let enqueueBulkItem = null;
+try { enqueueBulkItem = require('../queues/bulk.queue').enqueueBulkItem; } catch {}
 
 module.exports = function makeAutomationsRouter(deps) {
   const {
@@ -114,17 +119,55 @@ module.exports = function makeAutomationsRouter(deps) {
     }
 
     const { board_id, item_ids, template_name } = req.body;
-    if (!item_ids || !item_ids.length || !template_name) return res.status(400).json({ error: 'Faltan parámetros' });
-    if (item_ids.length > 50) return res.status(400).json({ error: 'Máximo 50 items a la vez' });
+    if (!item_ids || !item_ids.length || !template_name) return res.status(400).json(makeError('VALIDATION_ERROR', 'Faltan parámetros: item_ids, template_name'));
+    if (item_ids.length > 100) return res.status(400).json(makeError('VALIDATION_ERROR', 'Máximo 100 items a la vez'));
 
-    const results = [];
-    for (const itemId of item_ids) {
-      const r = await executeAutomation(req.accountId, itemId, board_id, template_name, req.accessToken);
-      results.push({ item_id: itemId, ...r });
-      await new Promise(resolve => setTimeout(resolve, 300)); // rate limit
+    // ── Async path: BullMQ queue (returns immediately with job ID) ──
+    if (typeof enqueueBulkItem === 'function') {
+      const bulkJobId = crypto.randomBytes(8).toString('hex');
+      await pool.query(
+        'INSERT INTO bulk_jobs (id, account_id, total) VALUES ($1,$2,$3)',
+        [bulkJobId, req.accountId, item_ids.length]
+      );
+      await Promise.all(
+        item_ids.map(itemId =>
+          enqueueBulkItem({
+            bulkJobId, accountId: req.accountId, itemId,
+            boardId: board_id, templateName: template_name,
+            accessToken: req.accessToken,
+          })
+        )
+      );
+      return res.json({ success: true, async: true, bulk_job_id: bulkJobId, total: item_ids.length, status: 'processing' });
     }
-    const success = results.filter(r => r.success).length;
-    res.json({ success: true, total: item_ids.length, generated: success, failed: item_ids.length - success, results });
+
+    // ── Sync fallback: concurrent batches, no sleep ──
+    const CONCURRENCY = 5;
+    const allResults = [];
+    for (let i = 0; i < item_ids.length; i += CONCURRENCY) {
+      const batch = item_ids.slice(i, i + CONCURRENCY);
+      const settled = await Promise.allSettled(
+        batch.map(itemId => executeAutomation(req.accountId, itemId, board_id, template_name, req.accessToken)
+          .then(r => ({ item_id: itemId, ...r })))
+      );
+      settled.forEach((s, j) => {
+        allResults.push(s.status === 'fulfilled' ? s.value : { item_id: batch[j], success: false, error: s.reason?.message });
+      });
+    }
+    const generated = allResults.filter(r => r.success).length;
+    res.json({ success: true, async: false, total: item_ids.length, generated, failed: item_ids.length - generated, results: allResults });
+  });
+
+  // ─── BULK JOB STATUS ──────────────────────────────────────
+  router.get('/bulk-status/:bulkJobId', requireAuth, async (req, res) => {
+    try {
+      const r = await pool.query(
+        'SELECT id, total, completed, failed, status, results, created_at, updated_at FROM bulk_jobs WHERE id=$1 AND account_id=$2',
+        [req.params.bulkJobId, req.accountId]
+      );
+      if (!r.rows.length) return res.status(404).json(makeError('ITEM_NOT_FOUND', 'Bulk job not found'));
+      res.json(r.rows[0]);
+    } catch (e) { res.status(500).json(makeError('INTERNAL_ERROR', e.message)); }
   });
 
   // ─── AUTOMATIZACIONES PROGRAMADAS ─────────────────────────

@@ -1,14 +1,20 @@
 'use strict';
 
-const { pool } = require('./db.service');
-const { escapeHtml } = require('../utils/strings');
+const { pool }                         = require('./db.service');
+const { cacheGet, cacheSet }           = require('./cache.service');
+const { escapeHtml }                   = require('../utils/strings');
 
 // Cargar settings globales de la cuenta y mezclar con data
 async function injectGlobalSettings(data, accountId) {
   try {
-    const r = await pool.query('SELECT settings FROM account_settings WHERE account_id=$1', [accountId]);
-    if (!r.rows.length) return data;
-    const s = r.rows[0].settings || {};
+    const cacheKey = `settings:${accountId}`;
+    let s = await cacheGet(cacheKey);
+    if (!s) {
+      const r = await pool.query('SELECT settings FROM account_settings WHERE account_id=$1', [accountId]);
+      s = r.rows[0]?.settings || {};
+      await cacheSet(cacheKey, s, 60);
+    }
+    if (!Object.keys(s).length) return data;
     // Campos fiscales
     if (s.empresa) data.empresa = s.empresa;
     if (s.rfc) data.rfc = s.rfc;

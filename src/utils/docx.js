@@ -82,7 +82,7 @@ function numeroALetras(num) {
   return letras + ' ' + (decimales > 0 ? decimales + '/100 M.N.' : '00/100 M.N.');
 }
 
-function calcularTotales(data, subitems, columnValues) {
+function calcularTotales(data, subitems, columnValues, ivaRate = 0.16) {
   // Calcular desde subitems
   if (subitems && subitems.length > 0) {
     let subtotalGeneral = 0;
@@ -114,7 +114,7 @@ function calcularTotales(data, subitems, columnValues) {
       }
       return subData;
     });
-    const iva = subtotalGeneral * 0.16;
+    const iva = subtotalGeneral * ivaRate;
     const total = subtotalGeneral + iva;
     data.subtotal = subtotalGeneral.toFixed(2);
     data.subtotal_fmt = subtotalGeneral.toLocaleString('es-MX', { minimumFractionDigits: 2 });
@@ -123,11 +123,13 @@ function calcularTotales(data, subitems, columnValues) {
     data.total = total.toFixed(2);
     data.total_fmt = total.toLocaleString('es-MX', { minimumFractionDigits: 2 });
     data.total_letras = numeroALetras(total);
-  data.tiene_iva = parseFloat(data.iva || 0) > 0;
-  data.tiene_subelementos = (data.subelementos || []).length > 0;
-  data.es_grande = total > 100000;
-  data.es_aprobado = (data.status || '').toLowerCase().includes('approv') || (data.status || '').toLowerCase().includes('aprobad');
-  data.es_pendiente = !data.es_aprobado;
+    data.iva_rate = ivaRate;
+    data.iva_pct_display = (ivaRate * 100).toFixed(0) + '%';
+    data.tiene_iva = iva > 0;
+    data.tiene_subelementos = (data.subelementos || []).length > 0;
+    data.es_grande = total > 100000;
+    data.es_aprobado = (data.status || '').toLowerCase().includes('approv') || (data.status || '').toLowerCase().includes('aprobad');
+    data.es_pendiente = !data.es_aprobado;
   } else {
     // Calcular desde columnas numéricas del item principal
     const montoCol = columnValues.find(col => {
@@ -136,18 +138,20 @@ function calcularTotales(data, subitems, columnValues) {
     });
     if (montoCol) {
       const monto = parseFloat(extractColumnValue(montoCol)) || 0;
-      const iva = monto * 0.16;
+      const iva = monto * ivaRate;
       const total = monto + iva;
       data.iva = iva.toFixed(2);
       data.iva_fmt = iva.toLocaleString('es-MX', { minimumFractionDigits: 2 });
       data.total_con_iva = total.toFixed(2);
       data.total_con_iva_fmt = total.toLocaleString('es-MX', { minimumFractionDigits: 2 });
       data.total_letras = numeroALetras(total);
-  data.tiene_iva = parseFloat(data.iva || 0) > 0;
-  data.tiene_subelementos = (data.subelementos || []).length > 0;
-  data.es_grande = total > 100000;
-  data.es_aprobado = (data.status || '').toLowerCase().includes('approv') || (data.status || '').toLowerCase().includes('aprobad');
-  data.es_pendiente = !data.es_aprobado;
+      data.iva_rate = ivaRate;
+      data.iva_pct_display = (ivaRate * 100).toFixed(0) + '%';
+      data.tiene_iva = iva > 0;
+      data.tiene_subelementos = (data.subelementos || []).length > 0;
+      data.es_grande = total > 100000;
+      data.es_aprobado = (data.status || '').toLowerCase().includes('approv') || (data.status || '').toLowerCase().includes('aprobad');
+      data.es_pendiente = !data.es_aprobado;
     }
   }
 }

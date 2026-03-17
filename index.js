@@ -152,6 +152,9 @@ initDB(logger).then(() => {
       try { require('./src/workers/email.worker'); }
       catch (workerErr) { logger.warn({ err: workerErr.message }, 'Email worker failed to start'); }
 
+      try { require('./src/workers/bulk.worker'); }
+      catch (workerErr) { logger.warn({ err: workerErr.message }, 'Bulk worker failed to start'); }
+
       try {
         require('./src/workers/cron.worker');
         const { registerCronJobs } = require('./src/queues/cron.queue');

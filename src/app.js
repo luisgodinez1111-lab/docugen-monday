@@ -43,12 +43,13 @@ module.exports = function createApp(deps) {
   // ── SANITIZE REQ.BODY MIDDLEWARE ──
   app.use((req, res, next) => {
     // P2-3: Recursively sanitize all string leaves, including nested objects like 'settings'
-    function sanitizeDeep(obj) {
+    function sanitizeDeep(obj, depth = 0) {
+      if (depth > 10) return typeof obj === 'string' ? '[TRUNCATED]' : obj;
       if (typeof obj === 'string') return sanitizeStr(obj);
-      if (Array.isArray(obj)) return obj.map(sanitizeDeep);
+      if (Array.isArray(obj)) return obj.map(item => sanitizeDeep(item, depth + 1));
       if (obj && typeof obj === 'object') {
         const out = {};
-        for (const [k, v] of Object.entries(obj)) out[k] = sanitizeDeep(v);
+        for (const [k, v] of Object.entries(obj)) out[k] = sanitizeDeep(v, depth + 1);
         return out;
       }
       return obj;
