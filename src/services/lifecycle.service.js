@@ -13,6 +13,11 @@ async function processDeletionQueue() {
       const accountId = row.account_id;
       try {
         // Delete S3 objects for documents and pdf_jobs belonging to this account
+        // Hard-delete soft-deleted docs older than 30 days (grace period)
+        await pool.query(
+          `DELETE FROM documents WHERE account_id = $1 AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '30 days'`,
+          [accountId]
+        ).catch(() => {});
         const [docsResult, pdfJobsResult] = await Promise.all([
           pool.query('SELECT filename FROM documents WHERE account_id = $1', [accountId]).catch(() => ({ rows: [] })),
           pool.query('SELECT filename FROM pdf_jobs WHERE account_id = $1 AND filename IS NOT NULL', [accountId]).catch(() => ({ rows: [] })),

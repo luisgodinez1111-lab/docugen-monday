@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const PizZip = require('pizzip');
 const storageService = require('../services/storage.service');
+const { logDocumentEvent } = require('../services/audit.service');
 
 module.exports = function makeDocumentsRouter(deps) {
   const {
@@ -59,7 +60,8 @@ module.exports = function makeDocumentsRouter(deps) {
       const storageKey = 'outputs/' + outputFilename;
       await storageService.uploadFile(storageKey, outputBuffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
 
-      await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)', [req.accountId, board_id, item_id, item.name, template_name, outputFilename, outputBuffer]);
+      const insertResult = await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id', [req.accountId, board_id, item_id, item.name, template_name, outputFilename, outputBuffer]);
+      logDocumentEvent(pool, { documentId: insertResult.rows[0].id, eventType: 'created', actorId: req.accountId }).catch(() => {});
 
           if (_accountId) await incrementDocsUsed(_accountId); // billing
       res.json({ success: true, filename: outputFilename, data_used: data, download_url: '/download/' + outputFilename });
@@ -72,12 +74,14 @@ module.exports = function makeDocumentsRouter(deps) {
   router.get('/documents', requireAuth, async (req, res) => {
     try {
       const { page, limit, offset } = parsePagination(req.query);
+      const includeDeleted = req.query.include_deleted === 'true';
+      const deletedFilter = includeDeleted ? '' : 'AND deleted_at IS NULL';
       const [result, countResult] = await Promise.all([
         pool.query(
-          'SELECT id, item_name, template_name, filename, created_at FROM documents WHERE account_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+          `SELECT id, item_name, template_name, filename, created_at, deleted_at FROM documents WHERE account_id = $1 ${deletedFilter} ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
           [req.accountId, limit, offset]
         ),
-        pool.query('SELECT COUNT(*)::int AS total FROM documents WHERE account_id = $1', [req.accountId]),
+        pool.query(`SELECT COUNT(*)::int AS total FROM documents WHERE account_id = $1 ${deletedFilter}`, [req.accountId]),
       ]);
       const total = countResult.rows[0].total;
       res.json({
@@ -86,6 +90,36 @@ module.exports = function makeDocumentsRouter(deps) {
       });
     } catch (err) {
       res.status(500).json({ error: 'Error al obtener historial' });
+    }
+  });
+
+  router.delete('/documents/:id', requireAuth, async (req, res) => {
+    const { id } = req.params;
+    try {
+      const result = await pool.query(
+        'UPDATE documents SET deleted_at = NOW() WHERE id = $1 AND account_id = $2 AND deleted_at IS NULL RETURNING id',
+        [id, req.accountId]
+      );
+      if (!result.rows.length) return res.status(404).json({ error: 'Documento no encontrado' });
+      logDocumentEvent(pool, { documentId: id, eventType: 'deleted', actorId: req.accountId }).catch(() => {});
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Error al eliminar documento' });
+    }
+  });
+
+  router.get('/documents/:id/events', requireAuth, async (req, res) => {
+    const { id } = req.params;
+    try {
+      const doc = await pool.query('SELECT id FROM documents WHERE id=$1 AND account_id=$2', [id, req.accountId]);
+      if (!doc.rows.length) return res.status(404).json({ error: 'Documento no encontrado' });
+      const events = await pool.query(
+        'SELECT * FROM document_events WHERE document_id=$1 ORDER BY created_at DESC',
+        [id]
+      );
+      res.json({ events: events.rows });
+    } catch (err) {
+      res.status(500).json({ error: 'Error al obtener eventos' });
     }
   });
 
@@ -134,10 +168,11 @@ module.exports = function makeDocumentsRouter(deps) {
       // convertDocxToPdf: in-process, no shell, no temp file
       const pdfData = await convertDocxToPdf(outputBuffer);
 
-      await pool.query(
-        'INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      const pdfInsertResult = await pool.query(
+        'INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
         [req.accountId, board_id, item_id, item.name, template_name, baseName + '.pdf', pdfData]
       );
+      logDocumentEvent(pool, { documentId: pdfInsertResult.rows[0].id, eventType: 'created', actorId: req.accountId }).catch(() => {});
       if (_accountId) await incrementDocsUsed(_accountId);
 
       res.set({
@@ -217,7 +252,8 @@ module.exports = function makeDocumentsRouter(deps) {
 
         await pool.query('UPDATE pdf_jobs SET status=$1, filename=$2, item_name=$3, pdf_data=$4 WHERE job_id=$5', ['ready', baseName + '.pdf', item.name, pdfData, jobId]);
         if (accountId) await incrementDocsUsed(accountId);
-        await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)', [accountId, board_id, item_id, item.name, template_name, baseName + '.pdf', pdfData]);
+        const asyncInsertResult = await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id', [accountId, board_id, item_id, item.name, template_name, baseName + '.pdf', pdfData]);
+        logDocumentEvent(pool, { documentId: asyncInsertResult.rows[0].id, eventType: 'created', actorId: accountId }).catch(() => {});
         logger.info({ jobId, accountId, filename: baseName + '.pdf' }, 'PDF async job complete');
 
       } catch(err) {
@@ -251,6 +287,9 @@ module.exports = function makeDocumentsRouter(deps) {
       if (result.rows.length && result.rows[0].pdf_data) {
         res.setHeader('Content-Disposition', 'attachment; filename="' + filename.replace(/"/g, '\\"') + '"');
         res.setHeader('Content-Type', 'application/pdf');
+        pool.query('SELECT id FROM documents WHERE filename=$1 AND account_id=$2 LIMIT 1', [filename, accountId])
+          .then(dr => { if (dr.rows.length) logDocumentEvent(pool, { documentId: dr.rows[0].id, eventType: 'downloaded', actorId: accountId }).catch(() => {}); })
+          .catch(() => {});
         return res.send(result.rows[0].pdf_data);
       }
       // Try S3 presigned URL
