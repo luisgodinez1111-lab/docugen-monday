@@ -32,12 +32,10 @@ module.exports = function createApp(deps) {
   }));
   app.use(express.json());
 
-  // ── SECURITY HEADERS (HSTS + XSS + etc) ──
+  // FIX-33: X-Frame-Options ALLOW-FROM removed (deprecated) — CSP frame-ancestors handles this
+  // FIX-34: Duplicate HSTS and X-XSS-Protection removed — helmet already sets them
   app.use((req, res, next) => {
-    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'ALLOW-FROM https://monday.com');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     next();
   });
@@ -83,8 +81,8 @@ module.exports = function createApp(deps) {
   app.get('/dashboard', (req, res) => { res.sendFile(path.join(__dirname, '..', 'public', 'dashboard.html')); });
 
   // Instructions page (iframe-embeddable para Monday Marketplace)
+  // FIX-33: X-Frame-Options ALLOW-FROM removed (deprecated) — use CSP frame-ancestors only
   app.get('/instructions', (req, res) => {
-    res.setHeader('X-Frame-Options', 'ALLOW-FROM https://monday.com');
     res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://*.monday.com");
     res.sendFile(path.join(__dirname, '..', 'public', 'instructions.html'));
   });

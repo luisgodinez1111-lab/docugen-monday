@@ -67,14 +67,10 @@ module.exports = function makeAutomationsRouter(deps) {
   });
 
   // Configurar triggers de webhooks
+  // FIX-25: CREATE TABLE removed — webhook_triggers table created in initDB()
   router.post('/webhooks/triggers', requireAuth, async (req, res) => {
     const { board_id, column_id, trigger_value, template_name, action } = req.body;
     try {
-      await pool.query(`CREATE TABLE IF NOT EXISTS webhook_triggers (
-        id SERIAL PRIMARY KEY, account_id TEXT, board_id TEXT, column_id TEXT,
-        trigger_value TEXT, template_name TEXT, action TEXT DEFAULT 'generate_doc',
-        created_at TIMESTAMP DEFAULT NOW()
-      )`);
       await pool.query(
         'INSERT INTO webhook_triggers (account_id, board_id, column_id, trigger_value, template_name, action) VALUES ($1,$2,$3,$4,$5,$6)',
         [req.accountId, board_id, column_id, trigger_value, template_name, action || 'generate_doc']
@@ -134,16 +130,11 @@ module.exports = function makeAutomationsRouter(deps) {
   });
 
   // ─── AUTOMATIZACIONES PROGRAMADAS ─────────────────────────
+  // FIX-25: CREATE TABLE removed — scheduled_automations table created in initDB()
   router.post('/scheduled-automations', requireAuth, async (req, res) => {
     const { name, cron_expression, board_id, template_name, condition_column, condition_value } = req.body;
     if (!cron_expression || !board_id || !template_name) return res.status(400).json({ error: 'Faltan parámetros' });
     try {
-      await pool.query(`CREATE TABLE IF NOT EXISTS scheduled_automations (
-        id SERIAL PRIMARY KEY, account_id TEXT, name TEXT, cron_expression TEXT,
-        board_id TEXT, template_name TEXT, condition_column TEXT, condition_value TEXT,
-        last_run TIMESTAMP, next_run TIMESTAMP, status TEXT DEFAULT 'active',
-        created_at TIMESTAMP DEFAULT NOW()
-      )`);
       await pool.query(
         'INSERT INTO scheduled_automations (account_id, name, cron_expression, board_id, template_name, condition_column, condition_value) VALUES ($1,$2,$3,$4,$5,$6,$7)',
         [req.accountId, name, cron_expression, board_id, template_name, condition_column, condition_value]

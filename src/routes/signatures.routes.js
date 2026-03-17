@@ -17,34 +17,19 @@ module.exports = function makeSignaturesRouter(deps) {
   } = deps;
   const router = Router();
 
+  // FIX-9: XML escape helper for OOXML injection prevention
+  function xmlEscape(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+  }
+
   // ─── FIRMA DIGITAL ────────────────────────────────────────
+  // FIX-11: All ALTER TABLE statements removed — they are in initDB()
   router.post('/signatures/request', requireAuth, checkSigLimit, async (req, res) => {
     const { document_filename, signer_name, signer_email, item_id, board_id, doc_type } = req.body;
     if (!document_filename || !signer_name) return res.status(400).json({ error: 'Faltan datos' });
     try {
       const token = crypto.randomBytes(32).toString('hex');
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 días
-      // Tables created in initDB() — no inline CREATE TABLE needed here
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS user_agent TEXT');
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signed_pdf BYTEA');
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signature_type TEXT');
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signer_order INT DEFAULT 1');
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS group_id TEXT');
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_code TEXT');
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_verified BOOLEAN DEFAULT FALSE');
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS doc_hash TEXT');
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS doc_type TEXT DEFAULT \'document\'');
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS quote_response TEXT');
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS quote_comment TEXT');
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS quote_responded_at TIMESTAMP');
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS opened_at TIMESTAMP');
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS time_on_portal INT DEFAULT 0');
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signed_hash TEXT');
-      await pool.query("ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS audit_log JSONB DEFAULT '[]'");
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS consent_text TEXT');
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS identity_verified BOOLEAN DEFAULT FALSE');
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_attempts INT DEFAULT 0');
-      await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP');
       // Hash del PDF para cadena de custodia legal
       let docHashVal = null;
       try {
@@ -663,24 +648,23 @@ module.exports = function makeSignaturesRouter(deps) {
   const multer = require('multer');
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-  router.post('/portal-logo/upload', upload.single('logo'), async (req, res) => {
+  // FIX-5: requireAuth added — use req.accountId from auth middleware
+  router.post('/portal-logo/upload', requireAuth, upload.single('logo'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No se recibio imagen' });
-    const accountId = req.body.account_id || req.headers['x-account-id'];
-    if (!accountId) return res.status(400).json({ error: 'account_id required' });
     try {
       await pool.query(
         'INSERT INTO portal_logos (account_id, filename, data, mimetype) VALUES ($1,$2,$3,$4) ON CONFLICT (account_id) DO UPDATE SET filename=$2, data=$3, mimetype=$4, updated_at=NOW()',
-        [accountId, req.file.originalname, req.file.buffer, req.file.mimetype]
+        [req.accountId, req.file.originalname, req.file.buffer, req.file.mimetype]
       );
       res.json({ success: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
   });
 
+  // FIX-25: CREATE TABLE removed — portal_logos table created in initDB()
   router.get('/portal-logo', async (req, res) => {
     const accountId = req.query.account_id || req.headers['x-account-id'];
     if (!accountId) return res.status(400).json({ error: 'account_id required' });
     try {
-      await pool.query('CREATE TABLE IF NOT EXISTS portal_logos (account_id TEXT PRIMARY KEY, filename TEXT, data BYTEA, mimetype TEXT, updated_at TIMESTAMP DEFAULT NOW())');
       const r = await pool.query('SELECT data, mimetype FROM portal_logos WHERE account_id=$1', [accountId]);
       if (!r.rows.length) return res.status(404).json({ error: 'No hay logo' });
       res.set('Content-Type', r.rows[0].mimetype);
@@ -695,14 +679,9 @@ module.exports = function makeSignaturesRouter(deps) {
     } catch(e) { res.status(500).json({ error: e.message }); }
   });
 
+  // FIX-25: CREATE TABLE removed — signature_requests table created in initDB()
   router.get('/signatures', requireAuth, async (req, res) => {
     try {
-      await pool.query(`CREATE TABLE IF NOT EXISTS signature_requests (
-        id SERIAL PRIMARY KEY, token TEXT UNIQUE NOT NULL, account_id TEXT NOT NULL,
-        document_filename TEXT NOT NULL, signer_name TEXT, signer_email TEXT,
-        item_id TEXT, board_id TEXT, status TEXT DEFAULT 'pending',
-        signature_data TEXT, signed_at TIMESTAMP, expires_at TIMESTAMP, created_at TIMESTAMP DEFAULT NOW()
-      )`);
       const { page, limit, offset } = parsePagination(req.query, 20, 100);
       const [r, countResult] = await Promise.all([
         pool.query(
@@ -738,6 +717,8 @@ module.exports = function makeSignaturesRouter(deps) {
       if (!docR.rows.length || !docR.rows[0].doc_data) return res.status(404).json({ error: 'Documento no encontrado' });
 
       const docBuffer = docR.rows[0].doc_data;
+      // FIX-19: null check before calling .replace() on signature_data
+      if (!sig.signature_data) return res.status(400).json({ error: 'No hay datos de firma' });
       const sigImgBase64 = sig.signature_data.replace(/^data:image\/png;base64,/, '');
       const sigImgBuffer = Buffer.from(sigImgBase64, 'base64');
 
@@ -753,7 +734,7 @@ module.exports = function makeSignaturesRouter(deps) {
       zip2.file('word/_rels/document.xml.rels', updatedRels);
       zip2.file('word/media/signature.png', sigImgBuffer);
 
-      // Construir XML de la sección de firma
+      // FIX-9: XML-escape all user-supplied values before OOXML injection
       const sigXml = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>' +
         '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="28"/><w:color w:val="1a1a2e"/></w:rPr><w:t>FIRMA DIGITAL</w:t></w:r></w:p>' +
         '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r>' +
@@ -770,9 +751,9 @@ module.exports = function makeSignaturesRouter(deps) {
         '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>' +
         '</pic:pic></a:graphicData></a:graphic>' +
         '</wp:inline></w:drawing></w:r></w:p>' +
-        '<w:p><w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:t>Firmante: ' + (sig.signer_name||'') + '</w:t></w:r></w:p>' +
-        '<w:p><w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:t>Fecha: ' + new Date(sig.signed_at).toLocaleString('es-MX') + '</w:t></w:r></w:p>' +
-        '<w:p><w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:t>IP: ' + (sig.signer_ip||'N/A') + '</w:t></w:r></w:p>';
+        '<w:p><w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:t>Firmante: ' + xmlEscape(sig.signer_name) + '</w:t></w:r></w:p>' +
+        '<w:p><w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:t>Fecha: ' + xmlEscape(new Date(sig.signed_at).toLocaleString('es-MX')) + '</w:t></w:r></w:p>' +
+        '<w:p><w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:t>IP: ' + xmlEscape(sig.signer_ip||'N/A') + '</w:t></w:r></w:p>';
 
       documentXml = documentXml.replace('</w:body>', sigXml + '</w:body>');
       zip2.file('word/document.xml', documentXml);
@@ -798,9 +779,10 @@ module.exports = function makeSignaturesRouter(deps) {
   });
 
   // Ver estado de firma por token
+  // FIX-20: signer_ip removed from public endpoint — it's PII and should not be exposed without auth
   router.get('/signatures/:token/status', async (req, res) => {
     try {
-      const r = await pool.query('SELECT status, signer_name, signed_at, signer_ip FROM signature_requests WHERE token=$1', [req.params.token]);
+      const r = await pool.query('SELECT status, signer_name, signed_at FROM signature_requests WHERE token=$1', [req.params.token]);
       if (!r.rows.length) return res.status(404).json({ error: 'No encontrada' });
       res.json(r.rows[0]);
     } catch(e) { res.status(500).json({ error: e.message }); }
@@ -862,7 +844,7 @@ module.exports = function makeSignaturesRouter(deps) {
                 <p><strong>Cliente:</strong> ${s.signer_name || 'N/A'}</p>
                 <p><strong>Email:</strong> ${s.signer_email || 'N/A'}</p>
                 <p><strong>Respuesta:</strong> ${responseLabels[response]}</p>
-                ${comment ? `<p><strong>Comentario:</strong> ${comment}</p>` : ''}
+                ${comment ? `<p><strong>Comentario:</strong> ${escapeHtml(comment)}</p>` : ''}
                 <p><strong>Fecha:</strong> ${new Date().toLocaleString('es-MX')}</p>`,
             type: 'generic',
           });
@@ -880,12 +862,17 @@ module.exports = function makeSignaturesRouter(deps) {
   router.post('/sign/:token/track', async (req, res) => {
     try {
       const { token } = req.params;
-      const { event, time_spent } = req.body; // event: 'opened' | 'heartbeat'
+      const { event } = req.body; // event: 'opened' | 'heartbeat'
 
       if (event === 'opened') {
         await pool.query('UPDATE signature_requests SET opened_at=NOW() WHERE token=$1 AND opened_at IS NULL', [token]);
       }
-      if (event === 'heartbeat' && time_spent) {
+      if (event === 'heartbeat') {
+        // FIX-30: Validate time_spent before using in DB update
+        const time_spent = parseInt(req.body.time_spent);
+        if (!Number.isInteger(time_spent) || time_spent < 0 || time_spent > 3600) {
+          return res.status(400).json({ error: 'Invalid time_spent' });
+        }
         await pool.query('UPDATE signature_requests SET time_on_portal=time_on_portal+$1 WHERE token=$2', [time_spent, token]);
       }
       res.json({ success: true });
@@ -933,10 +920,10 @@ module.exports = function makeSignaturesRouter(deps) {
     } catch(e) { res.status(500).json({ error: e.message }); }
   });
 
-  // Certificado de auditoría
-  router.get('/signatures/group/:groupId/certificate', async (req, res) => {
+  // FIX-12: requireAuth + account scoping to protect audit certificate PII
+  router.get('/signatures/group/:groupId/certificate', requireAuth, async (req, res) => {
     try {
-      const r = await pool.query('SELECT * FROM signature_requests WHERE group_id=$1 ORDER BY signer_order ASC', [req.params.groupId]);
+      const r = await pool.query('SELECT * FROM signature_requests WHERE group_id=$1 AND account_id=$2 ORDER BY signer_order ASC', [req.params.groupId, req.accountId]);
       if (!r.rows.length) return res.status(404).json({ error: 'Grupo no encontrado' });
 
       const htmlPdf = require('html-pdf-node');

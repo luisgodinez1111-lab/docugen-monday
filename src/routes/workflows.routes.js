@@ -58,26 +58,26 @@ module.exports = function makeWorkflowsRouter(deps) {
 
   // ACTION BLOCK 1: Generar documento desde workflow
   router.post('/workflows/generate-document', docGenRateLimit, async (req, res) => {
-    // -- SUBSCRIPTION CHECK --
-    const _accountId = req.body.account_id || req.query.account_id;
-    if (_accountId) {
-      const _subCheck = await checkSubscription(_accountId);
-      if (!_subCheck.allowed) {
-        const msg = _subCheck.reason === "trial_expired"
-          ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
-          : _subCheck.reason === "docs_limit_reached"
-            ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
-            : "Suscripcion inactiva. Actualiza tu plan.";
-        return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
-      }
-    }
-
+    // FIX-6: verifyWorkflowJWT runs FIRST — before any business logic
     const verified = verifyWorkflowJWT(req);
     if (!verified) return res.status(401).json(severityError(4000, 'Auth error', 'Invalid token', 'JWT verification failed'));
 
+    // FIX-6: accountId derived from JWT, not from req.body
+    const accountId = verified.accountId || verified.account_id;
+
+    // Subscription check using accountId from JWT
+    const _subCheck = await checkSubscription(accountId);
+    if (!_subCheck.allowed) {
+      const msg = _subCheck.reason === "trial_expired"
+        ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
+        : _subCheck.reason === "docs_limit_reached"
+          ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
+          : "Suscripcion inactiva. Actualiza tu plan.";
+      return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
+    }
+
     const { payload } = req.body;
     const fields = payload?.inboundFieldValues || payload?.inputFields || {};
-    const accountId = verified.accountId || verified.account_id;
 
     const itemId    = fields.itemId    || fields.item_id;
     const boardId   = fields.boardId   || fields.board_id;
@@ -97,8 +97,9 @@ module.exports = function makeWorkflowsRouter(deps) {
       const item = await getMondayItem(accessToken, itemId, 'id text value').catch(() => null);
       if (!item) return res.status(404).json(severityError(4000, 'Item no encontrado', 'El item no existe o no es accesible', 'Item not found'));
 
-      // Obtener template
-      const tmplRow = await pool.query('SELECT * FROM templates WHERE filename=$1 AND account_id=$2', [templateId, accountId]);
+      // FIX-23: templateId is the numeric DB id (from fields/templates dropdown which returns t.id.toString())
+      // Use WHERE id=$1 — not WHERE filename=$1
+      const tmplRow = await pool.query('SELECT * FROM templates WHERE id=$1 AND account_id=$2', [parseInt(templateId, 10), accountId]);
       if (!tmplRow.rows.length) return res.status(404).json(severityError(4000, 'Template no encontrado', 'El template no existe', 'Template not found'));
 
       // Construir rowData desde column_values
@@ -123,7 +124,7 @@ module.exports = function makeWorkflowsRouter(deps) {
 
       logger.info('Workflow generate-document: doc', docId, 'item', itemId, 'account', accountId);
 
-      if (_accountId) await incrementDocsUsed(_accountId); // billing
+      await incrementDocsUsed(accountId); // billing
       res.status(200).json({
         outputFields: {
           documentId: docId.toString(),
@@ -146,6 +147,20 @@ module.exports = function makeWorkflowsRouter(deps) {
     const { payload } = req.body;
     const fields = payload?.inboundFieldValues || payload?.inputFields || {};
     const accountId = verified.accountId || verified.account_id;
+
+    // FIX-7: Check signature limit before creating signature request
+    try {
+      const { getAccountPlanLimits, getMonthlyUsage } = require('../services/billing.service');
+      const limits = await getAccountPlanLimits(accountId);
+      if (limits && limits.sigs !== -1) {
+        const usage = await getMonthlyUsage(accountId);
+        if (usage.sigs >= limits.sigs) {
+          return res.status(402).json(severityError(4000, 'Límite de firmas alcanzado', 'Has alcanzado el límite de firmas de tu plan. Actualiza tu plan para continuar.', 'sig_limit_reached'));
+        }
+      }
+    } catch(e) {
+      return res.status(500).json(severityError(4000, 'Error verificando límite', 'Error verificando suscripción.', e.message));
+    }
 
     const documentId   = fields.documentId || fields.document_id;
     const signerName   = fields.signerName  || fields.signer_name  || '';
@@ -194,13 +209,19 @@ module.exports = function makeWorkflowsRouter(deps) {
   });
 
   // Remind desde Workflow Action Block
+  // FIX-8: verifyWorkflowJWT added — unauthenticated reminder endpoint allows email spam
   router.post('/workflows/send-reminder', async (req, res) => {
     try {
+      const verified = verifyWorkflowJWT(req);
+      if (!verified) return res.status(401).json(severityError(4000, 'Auth error', 'Invalid token', 'JWT verification failed'));
+      const verifiedAccountId = verified.accountId || verified.account_id;
+
       const { inputFields } = req.body;
       const documentId = inputFields?.documentId;
       if (!documentId) return res.status(400).json({ error: 'documentId requerido' });
 
-      const r = await pool.query('SELECT * FROM signature_requests WHERE id=$1', [documentId]);
+      // FIX-8: scope query to verified account to prevent cross-account access
+      const r = await pool.query('SELECT * FROM signature_requests WHERE id=$1 AND account_id=$2', [documentId, verifiedAccountId]);
       if (!r.rows.length) return res.status(404).json({ error: 'Documento no encontrado' });
       const sig = r.rows[0];
 

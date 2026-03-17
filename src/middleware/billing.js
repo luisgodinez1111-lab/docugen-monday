@@ -18,7 +18,8 @@ async function requireSubscription(req, res, next) {
     }
     req.subscription = r.rows[0];
     next();
-  } catch(e) { next(); }
+  // FIX-17: fail CLOSED — DB errors must not grant access
+  } catch(e) { return res.status(500).json({ error: 'Error verificando suscripción.' }); }
 }
 
 // Middleware: verificar límite de documentos
@@ -61,7 +62,8 @@ async function checkSigLimit(req, res, next) {
       });
     }
     next();
-  } catch(e) { next(); }
+  // FIX-17: fail CLOSED — DB errors must not grant access
+  } catch(e) { return res.status(500).json({ error: 'Error verificando suscripción.' }); }
 }
 
 module.exports = { checkDocLimit, checkSigLimit, requireSubscription };

@@ -17,18 +17,16 @@ module.exports = function makeDocumentsRouter(deps) {
   const router = Router();
 
   router.post('/generate-from-monday', requireAuth, checkDocLimit, docGenRateLimit, async (req, res) => {
-    // -- SUBSCRIPTION CHECK --
-    const _accountId = req.body.account_id || req.query.account_id;
-    if (_accountId) {
-      const _subCheck = await checkSubscription(_accountId);
-      if (!_subCheck.allowed) {
-        const msg = _subCheck.reason === "trial_expired"
-          ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
-          : _subCheck.reason === "docs_limit_reached"
-            ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
-            : "Suscripcion inactiva. Actualiza tu plan.";
-        return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
-      }
+    // FIX-14: Use req.accountId from auth — not req.body.account_id (prevents billing bypass)
+    const _accountId = req.accountId;
+    const _subCheck = await checkSubscription(_accountId);
+    if (!_subCheck.allowed) {
+      const msg = _subCheck.reason === "trial_expired"
+        ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
+        : _subCheck.reason === "docs_limit_reached"
+          ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
+          : "Suscripcion inactiva. Actualiza tu plan.";
+      return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
     }
 
     const { board_id, item_id, template_name } = req.body;
@@ -46,13 +44,13 @@ module.exports = function makeDocumentsRouter(deps) {
       });
 
       calcularTotales(data, item.subitems, item.column_values);
+      // FIX-32: Remove duplicate injectGlobalSettings call — only call once before render
       await injectGlobalSettings(data, req.accountId);
 
       logger.debug('Variables para plantilla:', JSON.stringify(data, null, 2));
 
       const zip = new PizZip(tplResult.rows[0].data);
       const doc = await createDocxtemplater(zip, req.accountId);
-      await injectGlobalSettings(data, req.accountId);
       doc.render(data);
 
       const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
@@ -63,7 +61,7 @@ module.exports = function makeDocumentsRouter(deps) {
       const insertResult = await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id', [req.accountId, board_id, item_id, item.name, template_name, outputFilename, outputBuffer]);
       logDocumentEvent(pool, { documentId: insertResult.rows[0].id, eventType: 'created', actorId: req.accountId }).catch(() => {});
 
-          if (_accountId) await incrementDocsUsed(_accountId); // billing
+      await incrementDocsUsed(_accountId); // billing
       res.json({ success: true, filename: outputFilename, data_used: data, download_url: '/download/' + outputFilename });
     } catch (error) {
       logger.error('Error:', error);
@@ -125,18 +123,16 @@ module.exports = function makeDocumentsRouter(deps) {
 
   // Generar documento desde monday en formato PDF o DOCX
   router.post('/generate-from-monday-pdf', requireAuth, checkDocLimit, docGenRateLimit, async (req, res) => {
-    // -- SUBSCRIPTION CHECK --
-    const _accountId = req.body.account_id || req.query.account_id;
-    if (_accountId) {
-      const _subCheck = await checkSubscription(_accountId);
-      if (!_subCheck.allowed) {
-        const msg = _subCheck.reason === "trial_expired"
-          ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
-          : _subCheck.reason === "docs_limit_reached"
-            ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
-            : "Suscripcion inactiva. Actualiza tu plan.";
-        return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
-      }
+    // FIX-14: Use req.accountId from auth — not req.body.account_id (prevents billing bypass)
+    const _accountId = req.accountId;
+    const _subCheck = await checkSubscription(_accountId);
+    if (!_subCheck.allowed) {
+      const msg = _subCheck.reason === "trial_expired"
+        ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
+        : _subCheck.reason === "docs_limit_reached"
+          ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
+          : "Suscripcion inactiva. Actualiza tu plan.";
+      return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
     }
 
     const { board_id, item_id, template_name } = req.body;
@@ -173,7 +169,7 @@ module.exports = function makeDocumentsRouter(deps) {
         [req.accountId, board_id, item_id, item.name, template_name, baseName + '.pdf', pdfData]
       );
       logDocumentEvent(pool, { documentId: pdfInsertResult.rows[0].id, eventType: 'created', actorId: req.accountId }).catch(() => {});
-      if (_accountId) await incrementDocsUsed(_accountId);
+      await incrementDocsUsed(_accountId);
 
       res.set({
         'Content-Type': 'application/pdf',
@@ -191,22 +187,21 @@ module.exports = function makeDocumentsRouter(deps) {
   logger.debug('PDF async endpoint registered');
 
   router.post('/generate-pdf-async', requireAuth, checkDocLimit, docGenRateLimit, async (req, res) => {
-    // -- SUBSCRIPTION CHECK --
-    const _accountId = req.body.account_id || req.query.account_id;
-    if (_accountId) {
-      const _subCheck = await checkSubscription(_accountId);
-      if (!_subCheck.allowed) {
-        const msg = _subCheck.reason === "trial_expired"
-          ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
-          : _subCheck.reason === "docs_limit_reached"
-            ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
-            : "Suscripcion inactiva. Actualiza tu plan.";
-        return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
-      }
+    // FIX-14: Use req.accountId from auth — not req.body.account_id (prevents billing bypass)
+    const _accountId = req.accountId;
+    const _subCheck = await checkSubscription(_accountId);
+    if (!_subCheck.allowed) {
+      const msg = _subCheck.reason === "trial_expired"
+        ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
+        : _subCheck.reason === "docs_limit_reached"
+          ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
+          : "Suscripcion inactiva. Actualiza tu plan.";
+      return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
     }
 
     const { board_id, item_id, template_name } = req.body;
-    const jobId = Date.now().toString();
+    // FIX-15: Use crypto.randomBytes for unique jobId — Date.now() is not unique under concurrency
+    const jobId = require('crypto').randomBytes(8).toString('hex');
     const accountId = req.accountId;
     const accessToken = req.accessToken;
 
@@ -263,9 +258,10 @@ module.exports = function makeDocumentsRouter(deps) {
     });
   });
 
-  router.get('/pdf-status/:jobId', async (req, res) => {
+  // FIX-3: requireAuth + account scoping to prevent cross-account access
+  router.get('/pdf-status/:jobId', requireAuth, async (req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM pdf_jobs WHERE job_id = $1', [req.params.jobId]);
+      const result = await pool.query('SELECT * FROM pdf_jobs WHERE job_id = $1 AND account_id = $2', [req.params.jobId, req.accountId]);
       if (!result.rows.length) return res.status(404).json({ error: 'Job no encontrado' });
       res.json(result.rows[0]);
     } catch(err) {
@@ -304,7 +300,8 @@ module.exports = function makeDocumentsRouter(deps) {
     } catch(err) { res.status(500).json({ error: err.message }); }
   });
 
-  router.get('/download/:filename', async (req, res) => {
+  // FIX-4: requireAuth + account scoping to prevent unauthorized file downloads
+  router.get('/download/:filename', requireAuth, async (req, res) => {
     // P1-8: sanitize to prevent path traversal
     const raw = req.params.filename;
     const filename = path.basename(raw);
@@ -312,6 +309,13 @@ module.exports = function makeDocumentsRouter(deps) {
       return res.status(400).json({ error: 'Nombre de archivo inválido' });
     }
     try {
+      // Verify this file belongs to the authenticated account
+      const docCheck = await pool.query(
+        'SELECT id FROM documents WHERE filename=$1 AND account_id=$2 LIMIT 1',
+        [filename, req.accountId]
+      );
+      if (!docCheck.rows.length) return res.status(404).json({ error: 'Archivo no encontrado' });
+
       const storageKey = 'outputs/' + filename;
       const presignedUrl = await storageService.getDownloadUrl(storageKey);
       if (presignedUrl) return res.redirect(presignedUrl);

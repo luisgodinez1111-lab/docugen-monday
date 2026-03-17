@@ -56,10 +56,17 @@ function resetKeyRegistry() {
 }
 
 // ── ENC_KEY (backward compat export) ─────────────────────────────────────────
-// Some callers use ENC_KEY directly for one-off crypto (document hash). Keep it.
-const ENC_KEY = process.env.TOKEN_ENCRYPTION_KEY
-  ? Buffer.from(process.env.TOKEN_ENCRYPTION_KEY, 'hex')
-  : null;
+// FIX-27: Derive from registry so it works when ENCRYPTION_KEYS is set instead of
+// TOKEN_ENCRYPTION_KEY. Lazy getter so env vars are set before first access.
+const ENC_KEY = (() => {
+  try {
+    const reg = loadKeyRegistry();
+    const firstKey = Object.values(reg)[0];
+    return Buffer.from(firstKey, 'hex');
+  } catch {
+    return null;
+  }
+})();
 
 // ── Core crypto ──────────────────────────────────────────────────────────────
 function encryptToken(plaintext) {

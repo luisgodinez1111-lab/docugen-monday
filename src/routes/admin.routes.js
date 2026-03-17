@@ -1,7 +1,18 @@
 'use strict';
 const { Router } = require('express');
+const crypto = require('crypto');
 const storageService = require('../services/storage.service');
 const { mondayBreaker, resendBreaker, tsaBreaker } = require('../utils/circuit-breaker');
+
+// FIX-1: Module-level Redis singleton — not created per-request
+let _redisClient = null;
+function getRedisClient() {
+  if (!_redisClient && process.env.REDIS_URL) {
+    const Redis = require('ioredis');
+    _redisClient = new Redis(process.env.REDIS_URL, { maxRetriesPerRequest: null, lazyConnect: false });
+  }
+  return _redisClient;
+}
 
 module.exports = function makeAdminRouter(deps) {
   const { pool, requireAuth, logger, runBackup } = deps;
@@ -21,16 +32,13 @@ module.exports = function makeAdminRouter(deps) {
       checks.database = { status: 'down', error: e.message };
     }
 
-    // Redis ping
+    // Redis ping — use singleton client
     if (process.env.REDIS_URL) {
       try {
-        const Redis = require('ioredis');
-        const redis = new Redis(process.env.REDIS_URL, { lazyConnect: true, enableOfflineQueue: false, connectTimeout: 3000 });
-        await redis.connect();
+        const redisClient = getRedisClient();
         const t0 = Date.now();
-        await redis.ping();
+        await redisClient.ping();
         checks.redis = { status: 'ok', latencyMs: Date.now() - t0 };
-        redis.disconnect();
       } catch (e) {
         checks.redis = { status: 'down', error: e.message };
       }
@@ -43,20 +51,22 @@ module.exports = function makeAdminRouter(deps) {
       tsa:    { state: tsaBreaker.state,    failures: tsaBreaker.failureCount },
     };
 
-    // BullMQ queue stats
+    // BullMQ queue stats — always close in finally to prevent leak
     if (process.env.REDIS_URL) {
+      let emailQueue = null;
       try {
         const { Queue } = require('bullmq');
-        const emailQueue = new Queue('email', { connection: { url: process.env.REDIS_URL } });
+        emailQueue = new Queue('email', { connection: { url: process.env.REDIS_URL } });
         const [waiting, active, failed] = await Promise.all([
           emailQueue.getWaitingCount(),
           emailQueue.getActiveCount(),
           emailQueue.getFailedCount(),
         ]);
-        await emailQueue.close();
         checks.emailQueue = { status: 'ok', waiting, active, failed };
       } catch (e) {
         checks.emailQueue = { status: 'down', error: e.message };
+      } finally {
+        if (emailQueue) await emailQueue.close().catch(() => {});
       }
     }
 
@@ -80,12 +90,9 @@ module.exports = function makeAdminRouter(deps) {
   });
 
   // ─── MÉTRICAS ─────────────────────────────────────────────
+  // FIX-16: DDL removed from handler — error_logs table created in initDB()
   router.get('/metrics', requireAuth, async (req, res) => {
     try {
-      await pool.query(`CREATE TABLE IF NOT EXISTS error_logs (
-        id SERIAL PRIMARY KEY, account_id TEXT, error_type TEXT, message TEXT,
-        stack TEXT, created_at TIMESTAMP DEFAULT NOW()
-      )`);
       const [docs, sigs, tpls, errors, docsToday, sigsToday] = await Promise.all([
         pool.query('SELECT COUNT(*) FROM documents WHERE account_id=$1', [req.accountId]),
         pool.query('SELECT COUNT(*) FROM signature_requests WHERE account_id=$1', [req.accountId]),
@@ -127,8 +134,17 @@ module.exports = function makeAdminRouter(deps) {
   });
 
   // ─── BACKUP AUTOMÁTICO ────────────────────────────────────
+  // FIX-18: Admin secret required for backup endpoints
+  function requireAdminSecret(req, res, next) {
+    const adminSecret = process.env.ADMIN_SECRET;
+    if (!adminSecret || req.headers['x-admin-secret'] !== adminSecret) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    next();
+  }
+
   // Endpoint para ver historial de backups
-  router.get('/backups', requireAuth, async (req, res) => {
+  router.get('/backups', requireAuth, requireAdminSecret, async (req, res) => {
     try {
       const r = await pool.query('SELECT id, created_at, tables_backed_up, total_rows, status, error FROM backups ORDER BY created_at DESC LIMIT 10');
       res.json({ backups: r.rows });
@@ -136,7 +152,7 @@ module.exports = function makeAdminRouter(deps) {
   });
 
   // Endpoint para descargar último backup
-  router.get('/backups/latest', requireAuth, async (req, res) => {
+  router.get('/backups/latest', requireAuth, requireAdminSecret, async (req, res) => {
     try {
       const r = await pool.query('SELECT data, created_at FROM backup_data ORDER BY created_at DESC LIMIT 1');
       if (!r.rows.length) return res.status(404).json({ error: 'Sin backups' });
@@ -147,11 +163,14 @@ module.exports = function makeAdminRouter(deps) {
   });
 
   router.post('/migrate', async (req, res) => {
-    // Secret desde env — nunca hardcodeado en el código
+    // FIX-24: Timing-safe comparison to prevent timing attacks
     const adminSecret = process.env.ADMIN_MIGRATE_SECRET;
-    if (!adminSecret || req.body.secret !== adminSecret) {
-      return res.status(403).json({ error: 'No autorizado' });
-    }
+    if (!adminSecret) return res.status(403).json({ error: 'No autorizado' });
+    const inputBuf = Buffer.from(req.body.secret || '');
+    const secretBuf = Buffer.from(adminSecret);
+    const valid = inputBuf.length === secretBuf.length &&
+      crypto.timingSafeEqual(inputBuf, secretBuf);
+    if (!valid) return res.status(403).json({ error: 'Forbidden' });
     try {
       await pool.query('ALTER TABLE tokens ADD COLUMN IF NOT EXISTS user_id TEXT');
       res.json({ success: true, message: 'Migracion completada' });

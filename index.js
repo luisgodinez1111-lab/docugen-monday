@@ -17,6 +17,9 @@ Sentry.init({
 const dotenv = require('dotenv');
 dotenv.config();
 
+// FIX-29: Validate env vars at startup — must come after dotenv.config()
+require('./src/config/env');
+
 const path = require('path');
 const fs = require('fs');
 
@@ -138,28 +141,30 @@ if (!process.env.REDIS_URL) {
   logger.info('Local cron jobs started (Redis not configured)');
 }
 
+// FIX-21: initDB() before app.listen() — prevents serving requests before schema is ready
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, async () => {
-  logger.info({ port: PORT, appId: process.env.MONDAY_APP_ID, env: process.env.NODE_ENV || 'development' }, 'DocuGen server started');
-  await initDB();
+initDB(logger).then(() => {
+  app.listen(PORT, () => {
+    logger.info({ port: PORT, appId: process.env.MONDAY_APP_ID, env: process.env.NODE_ENV || 'development' }, 'DocuGen server started');
 
-  // ── #6 EMAIL WORKER ── register after server starts (Redis-conditional)
-  if (process.env.REDIS_URL) {
-    try { require('./src/workers/email.worker'); }
-    catch (workerErr) { logger.warn({ err: workerErr.message }, 'Email worker failed to start'); }
+    // ── #6 EMAIL WORKER ── register after server starts (Redis-conditional)
+    if (process.env.REDIS_URL) {
+      try { require('./src/workers/email.worker'); }
+      catch (workerErr) { logger.warn({ err: workerErr.message }, 'Email worker failed to start'); }
 
-    try {
-      require('./src/workers/cron.worker');
-      const { registerCronJobs } = require('./src/queues/cron.queue');
-      registerCronJobs().then(() => {
-        logger.info('Cron jobs registered');
-      }).catch(err => {
-        logger.warn({ err: err.message }, 'Failed to register cron jobs');
-      });
-    } catch (workerErr) {
-      logger.warn({ err: workerErr.message }, 'Cron worker failed to start');
+      try {
+        require('./src/workers/cron.worker');
+        const { registerCronJobs } = require('./src/queues/cron.queue');
+        registerCronJobs().then(() => {
+          logger.info('Cron jobs registered');
+        }).catch(err => {
+          logger.warn({ err: err.message }, 'Failed to register cron jobs');
+        });
+      } catch (workerErr) {
+        logger.warn({ err: workerErr.message }, 'Cron worker failed to start');
+      }
     }
-  }
-});
+  });
+}).catch(err => { logger.error(err); process.exit(1); });
 
 module.exports = app;

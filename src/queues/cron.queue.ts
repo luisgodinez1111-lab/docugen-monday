@@ -34,12 +34,21 @@ if (redisAvailable && REDIS_URL) {
 
 /**
  * Register all repeatable cron jobs.
- * Safe to call on startup — BullMQ deduplicates by jobId.
+ * FIX-28: Remove existing repeatable jobs first to prevent duplicates on restart.
+ * jobId as top-level option doesn't deduplicate repeatables in BullMQ — must use
+ * getRepeatableJobs() + removeRepeatableByKey() before re-adding.
  */
 export async function registerCronJobs(): Promise<void> {
   if (!cronQueue) {
     logger.warn('Cron queue not initialised — Redis not configured');
     return;
+  }
+
+  // Remove existing repeatable jobs to prevent duplicates on restart
+  const existing = await (cronQueue as any).getRepeatableJobs();
+  for (const job of existing) {
+    await (cronQueue as any).removeRepeatableByKey(job.key);
+    logger.info({ key: job.key }, 'Removed existing repeatable job');
   }
 
   const jobs: Array<{ name: CronJobName; pattern: string }> = [
@@ -49,13 +58,13 @@ export async function registerCronJobs(): Promise<void> {
     { name: 'runBackup',               pattern: '0 2 * * *' }, // daily at 2am
   ];
 
+  // Add fresh — no jobId at top level (doesn't work for repeatables)
   for (const job of jobs) {
     await (cronQueue as any).add(
       job.name,
       {},
       {
         repeat: { pattern: job.pattern },
-        jobId: `cron:${job.name}`, // stable ID prevents duplicates
         removeOnComplete: 10,
         removeOnFail: 5,
       }

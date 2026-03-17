@@ -3,12 +3,15 @@
 const jwt = require('jsonwebtoken');
 
 // JWT verification helper for Monday Workflow action blocks
+// FIX-22: Remove || '' fallback — throw if secret is not set to prevent empty-secret forgery
 function verifyWorkflowJWT(req) {
   try {
     const auth = req.headers['authorization'] || '';
     const token = auth.replace('Bearer ', '');
     if (!token) return null;
-    return jwt.verify(token, process.env.MONDAY_SIGNING_SECRET || process.env.MONDAY_CLIENT_SECRET || '');
+    const secret = process.env.MONDAY_SIGNING_SECRET || process.env.MONDAY_CLIENT_SECRET;
+    if (!secret) throw new Error('MONDAY_SIGNING_SECRET is required');
+    return jwt.verify(token, secret);
   } catch(e) { return null; }
 }
 

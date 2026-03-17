@@ -17,21 +17,12 @@ module.exports = function makeSubscriptionRouter(deps) {
     res.json(status);
   });
 
-  // ── UNINSTALL + DELETION QUEUE ──
-  router.post('/lifecycle/uninstall', async (req, res) => {
+  // FIX-13: verifyMondayHmac added — unauthenticated endpoint allowed arbitrary account deletion
+  // FIX-25: CREATE TABLE removed — deletion_queue table created in initDB()
+  router.post('/lifecycle/uninstall', verifyMondayHmac({ allowChallenge: false }), async (req, res) => {
     try {
       const { accountId } = req.body;
       if (!accountId) return res.status(400).json({ error: 'accountId required' });
-
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS deletion_queue (
-          id SERIAL PRIMARY KEY,
-          account_id TEXT NOT NULL UNIQUE,
-          scheduled_for TIMESTAMPTZ NOT NULL,
-          executed_at TIMESTAMPTZ,
-          created_at TIMESTAMPTZ DEFAULT NOW()
-        )
-      `);
 
       await pool.query(
         `INSERT INTO deletion_queue (account_id, scheduled_for)
@@ -67,21 +58,11 @@ module.exports = function makeSubscriptionRouter(deps) {
 
       logger.info('Lifecycle event:', type, 'account:', accountId, 'plan:', planId);
 
-      await pool.query(`CREATE TABLE IF NOT EXISTS lifecycle_events (
-        id SERIAL PRIMARY KEY, event_type TEXT NOT NULL, account_id TEXT,
-        user_id TEXT, plan_id TEXT, is_trial BOOLEAN, renewal_date TEXT,
-        data JSONB, created_at TIMESTAMP DEFAULT NOW()
-      )`);
+      // FIX-25: CREATE TABLE statements removed — tables created in initDB()
       await pool.query(
         'INSERT INTO lifecycle_events (event_type, account_id, user_id, plan_id, is_trial, renewal_date, data) VALUES ($1,$2,$3,$4,$5,$6,$7)',
         [type, accountId, userId, planId, isTrial, renewalDate, JSON.stringify(data)]
       );
-
-      await pool.query(`CREATE TABLE IF NOT EXISTS subscriptions (
-        account_id TEXT PRIMARY KEY, plan_id TEXT, status TEXT DEFAULT 'active',
-        is_trial BOOLEAN DEFAULT false, renewal_date TEXT,
-        subscribed_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW()
-      )`);
 
       if (type === 'install') {
         // Inicializar settings por defecto
@@ -138,12 +119,9 @@ module.exports = function makeSubscriptionRouter(deps) {
   });
 
   // Ver estado de suscripción de una cuenta
+  // FIX-25: CREATE TABLE removed — subscriptions table created in initDB()
   router.get('/subscription', requireAuth, async (req, res) => {
     try {
-      await pool.query(`CREATE TABLE IF NOT EXISTS subscriptions (
-        account_id TEXT PRIMARY KEY, plan_id TEXT, status TEXT DEFAULT 'active',
-        subscribed_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW()
-      )`);
       const r = await pool.query('SELECT * FROM subscriptions WHERE account_id=$1', [req.accountId]);
       res.json({ subscription: r.rows[0] || null });
     } catch(e) { res.status(500).json({ error: e.message }); }
