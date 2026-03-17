@@ -8,7 +8,7 @@
  *     Certificación (PSC) acreditado. Una TSA interna NO tiene validez.
  *
  * TSA usada por defecto: Sectigo (RFC 3161 compliant, gratuita)
- *   URL: http://timestamp.sectigo.com
+ *   URL: https://timestamp.sectigo.com
  *
  * Alternativas acreditadas:
  *   - DigiCert:  http://timestamp.digicert.com
@@ -25,7 +25,8 @@ const axios  = require('axios');
 const { tsaBreaker } = require('./circuit-breaker');
 
 // TSA pública por defecto (Sectigo, RFC 3161, sin costo para uso básico)
-const DEFAULT_TSA_URL = process.env.TSA_URL || 'http://timestamp.sectigo.com';
+// P1-6: use HTTPS for TSA URL to prevent MITM attacks on timestamp responses
+const DEFAULT_TSA_URL = process.env.TSA_URL || 'https://timestamp.sectigo.com';
 
 /**
  * Construye un TimeStampRequest (TSQ) RFC 3161 básico en formato DER.

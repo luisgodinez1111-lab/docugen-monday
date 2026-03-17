@@ -178,6 +178,7 @@ async function initDB(logger) {
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_attempts INT DEFAULT 0');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS user_agent TEXT');
+    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signature_data TEXT'); // P0-4
     // #9 Webhook deduplication: event_id column + partial unique index
     await pool.query(`ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS event_id TEXT`);
     // Improvement #9: proactive token refresh — store refresh_token and expires_at
@@ -204,6 +205,7 @@ async function initDB(logger) {
     log.info('Database initialised');
   } catch (err) {
     log.error({ err: err.message }, 'Error initialising DB');
+    throw err;  // P0-3: rethrow so the process fails fast on fatal schema errors
   }
 }
 

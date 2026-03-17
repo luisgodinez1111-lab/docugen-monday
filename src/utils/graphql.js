@@ -19,32 +19,9 @@ const { mondayBreaker } = require('./circuit-breaker');
 const MONDAY_API_URL     = 'https://api.monday.com/v2';
 const MONDAY_API_VERSION = '2024-10';
 const DEFAULT_TIMEOUT_MS = 20_000;
-const TOKEN_REFRESH_URL  = 'https://auth.monday.com/oauth2/token';
 
-/**
- * Refreshes a Monday.com OAuth access token.
- * Returns the new access token or null if refresh fails.
- *
- * @param {string} currentToken - The current (possibly expired) access token
- * @returns {Promise<string|null>}
- */
-async function refreshMondayToken(currentToken) {
-  try {
-    const resp = await axios.post(
-      TOKEN_REFRESH_URL,
-      {
-        client_id:     process.env.MONDAY_CLIENT_ID,
-        client_secret: process.env.MONDAY_CLIENT_SECRET,
-        grant_type:    'refresh_token',
-        refresh_token: currentToken,
-      },
-      { timeout: 10_000 }
-    );
-    return resp.data?.access_token ?? null;
-  } catch {
-    return null;
-  }
-}
+// P1-9: removed local refreshMondayToken() — it incorrectly passed the access token as refresh_token.
+// Token refresh is handled exclusively via opts.onTokenRefreshed() callback wired from auth.js.
 
 /**
  * Executes a GraphQL query/mutation against Monday.com.
@@ -74,16 +51,16 @@ async function mondayQuery(accessToken, query, variables = {}, timeout = DEFAULT
     );
 
     // Monday returns auth errors as 200 OK with errors array (code: 'Unauthorized')
-    // OR as HTTP 401. Handle both with a single retry after token refresh.
+    // Handle with a single retry after calling the onTokenRefreshed callback (from auth.js).
+    // P1-9: do NOT call local refreshMondayToken() — it incorrectly used the access token as refresh_token.
     const isUnauthorized =
       response.data.errors?.some(e =>
         e.extensions?.code === 'Unauthorized' || e.message?.toLowerCase().includes('unauthorized')
       );
 
-    if (isUnauthorized && !opts._refreshed) {
-      const newToken = await refreshMondayToken(accessToken);
+    if (isUnauthorized && !opts._refreshed && typeof opts.onTokenRefreshed === 'function') {
+      const newToken = await opts.onTokenRefreshed();
       if (newToken) {
-        if (typeof opts.onTokenRefreshed === 'function') await opts.onTokenRefreshed(newToken);
         // Retry exactly once with the new token — pass _refreshed flag to avoid loops
         return mondayQuery(newToken, query, variables, timeout, { ...opts, _refreshed: true });
       }

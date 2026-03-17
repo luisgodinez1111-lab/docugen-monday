@@ -4,11 +4,8 @@ const { pool } = require('./db.service');
 const { sendEmail } = require('./email.service');
 
 async function runBackup() {
+  // P1-4: CREATE TABLE statements removed — backups and backup_data tables are created in initDB()
   try {
-    await pool.query(`CREATE TABLE IF NOT EXISTS backups (
-      id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT NOW(),
-      tables_backed_up INT, total_rows INT, status TEXT, error TEXT
-    )`);
     // Contar filas de tablas principales
     const [d, t, s, l] = await Promise.all([
       pool.query('SELECT COUNT(*) FROM documents'),
@@ -29,9 +26,6 @@ async function runBackup() {
     });
 
     // Guardar en tabla de backups
-    await pool.query(`CREATE TABLE IF NOT EXISTS backup_data (
-      id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT NOW(), data TEXT
-    )`);
     await pool.query('INSERT INTO backup_data (data) VALUES ($1)', [backupJson]);
     // Mantener solo los últimos 7 backups
     await pool.query('DELETE FROM backup_data WHERE id NOT IN (SELECT id FROM backup_data ORDER BY created_at DESC LIMIT 7)');

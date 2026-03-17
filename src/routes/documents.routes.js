@@ -269,15 +269,15 @@ module.exports = function makeDocumentsRouter(deps) {
     }
   });
 
-  router.get('/download-pdf/:filename', async (req, res) => {
+  // P0-2: requireAuth added — download-pdf must be authenticated; accountId from req.accountId
+  router.get('/download-pdf/:filename', requireAuth, async (req, res) => {
     // P1-8: sanitize filename to prevent path traversal
     const raw = req.params.filename;
     const filename = path.basename(raw);
     if (!filename || filename !== raw || filename.includes('..')) {
       return res.status(400).json({ error: 'Nombre de archivo inválido' });
     }
-    const accountId = req.headers['x-account-id'] || req.query.account_id;
-    if (!accountId) return res.status(400).json({ error: 'Se requiere account_id' });
+    const accountId = req.accountId;
     try {
       const result = await pool.query('SELECT pdf_data FROM pdf_jobs WHERE filename=$1 AND account_id=$2', [filename, accountId]);
       if (result.rows.length && result.rows[0].pdf_data) {
@@ -292,7 +292,7 @@ module.exports = function makeDocumentsRouter(deps) {
       const storageKey = 'outputs/' + filename;
       const presignedUrl = await storageService.getDownloadUrl(storageKey);
       if (presignedUrl) return res.redirect(presignedUrl);
-      // Fallback filesystem — only serve from outputsDir
+      // Fallback filesystem — only serve from outputsDir (scoped to account via pdf_jobs check above)
       const pdfPath = path.resolve(outputsDir, filename);
       if (!pdfPath.startsWith(path.resolve(outputsDir))) return res.status(400).json({ error: 'Ruta inválida' });
       if (!fs.existsSync(pdfPath)) return res.status(404).json({ error: 'PDF no encontrado' });

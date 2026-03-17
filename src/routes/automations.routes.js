@@ -101,18 +101,16 @@ module.exports = function makeAutomationsRouter(deps) {
 
   // ─── GENERACIÓN MASIVA ────────────────────────────────────
   router.post('/generate-bulk', requireAuth, checkDocLimit, docGenRateLimit, async (req, res) => {
-    // -- SUBSCRIPTION CHECK --
-    const _accountId = req.body.account_id || req.query.account_id;
-    if (_accountId) {
-      const _subCheck = await checkSubscription(_accountId);
-      if (!_subCheck.allowed) {
-        const msg = _subCheck.reason === "trial_expired"
-          ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
-          : _subCheck.reason === "docs_limit_reached"
-            ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
-            : "Suscripcion inactiva. Actualiza tu plan.";
-        return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
-      }
+    // P0-5: Use req.accountId from auth — never trust req.body/query account_id (prevents billing bypass)
+    const _accountId = req.accountId;
+    const _subCheck = await checkSubscription(_accountId);
+    if (!_subCheck.allowed) {
+      const msg = _subCheck.reason === "trial_expired"
+        ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
+        : _subCheck.reason === "docs_limit_reached"
+          ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
+          : "Suscripcion inactiva. Actualiza tu plan.";
+      return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
     }
 
     const { board_id, item_ids, template_name } = req.body;
@@ -139,8 +137,7 @@ module.exports = function makeAutomationsRouter(deps) {
         'INSERT INTO scheduled_automations (account_id, name, cron_expression, board_id, template_name, condition_column, condition_value) VALUES ($1,$2,$3,$4,$5,$6,$7)',
         [req.accountId, name, cron_expression, board_id, template_name, condition_column, condition_value]
       );
-      // P1-7: _accountId no estaba definido en este scope — usar req.accountId
-      if (req.accountId) await incrementDocsUsed(req.accountId);
+      // P1-1: removed incrementDocsUsed — billing only happens when docs are generated, not when automations are created
       res.json({ success: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
   });

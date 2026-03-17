@@ -2,6 +2,9 @@
 
 const { escapeHtml } = require('./strings');
 
+// P1-3: HTML escape shorthand for use in template literals
+function he(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
 function signPage(sig) {
   const needsOtp = sig.otp_code && !sig.otp_verified;
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -40,9 +43,9 @@ canvas{display:block;touch-action:none;cursor:crosshair}
   </div>
   ` : `
   <h2>✍️ Firma requerida</h2>
-  <div class="doc-name">📄 ${sig.document_filename}</div>
+  <div class="doc-name">📄 ${he(sig.document_filename)}</div>
   <label>Tu nombre completo</label>
-  <input id="signerName" value="${sig.signer_name || ''}" placeholder="Nombre del firmante">
+  <input id="signerName" value="${he(sig.signer_name)}" placeholder="Nombre del firmante">
   <label>Tipo de firma</label>
   <div class="tabs">
     <div class="tab active" onclick="setTab('draw',this)">✍ Dibujar</div>

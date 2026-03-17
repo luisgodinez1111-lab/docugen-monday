@@ -19,19 +19,19 @@ module.exports = function makeWorkflowsRouter(deps) {
   // Devuelve lista de plantillas de la cuenta para dropdown en workflow builder
   router.post('/workflows/fields/templates', async (req, res) => {
     try {
-      // El account_id viene en el JWT del header
+      // P1-2: JWT required — no fallback to body payload (prevents unauthenticated template listing)
       const auth = req.headers['authorization'] || '';
       const token = auth.replace('Bearer ', '');
-      let accountId = null;
+      let verified;
       try {
-        const decoded = jwt.verify(token, process.env.MONDAY_SIGNING_SECRET || process.env.MONDAY_CLIENT_SECRET || '');
-        accountId = decoded.accountId || decoded.account_id;
-      } catch(e) {
-        // Si no hay JWT válido, intentar obtener de payload
-        accountId = req.body?.payload?.credentialsValues?.['docugen-credentials']?.accountId;
+        const secret = process.env.MONDAY_SIGNING_SECRET || process.env.MONDAY_CLIENT_SECRET;
+        verified = jwt.verify(token, secret);
+      } catch (e) {
+        return res.status(401).json({ error: 'Token inválido' });
       }
+      const accountId = verified.accountId || verified.account_id;
 
-      if (!accountId) return res.status(200).json([{ title: 'No autenticado', value: '' }]);
+      if (!accountId) return res.status(401).json({ error: 'Token inválido' });
 
       const r = await pool.query(
         'SELECT id, name FROM templates WHERE account_id=$1 AND deleted_at IS NULL ORDER BY name ASC',

@@ -22,6 +22,21 @@ module.exports = function makeSignaturesRouter(deps) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
   }
 
+  // P0-1: getAccountAdmins — fetches admin emails for legal doc approval flow
+  async function getAccountAdmins(accountId) {
+    const result = await pool.query(
+      "SELECT settings FROM account_settings WHERE account_id=$1",
+      [accountId]
+    );
+    if (!result.rows.length) return [];
+    try {
+      const admins = result.rows[0].settings?.admin_emails;
+      if (Array.isArray(admins)) return admins;
+      if (typeof admins === 'string') return JSON.parse(admins);
+      return [];
+    } catch { return []; }
+  }
+
   // ─── FIRMA DIGITAL ────────────────────────────────────────
   // FIX-11: All ALTER TABLE statements removed — they are in initDB()
   router.post('/signatures/request', requireAuth, checkSigLimit, async (req, res) => {
@@ -304,25 +319,23 @@ module.exports = function makeSignaturesRouter(deps) {
   // DOWNLOAD endpoint — siempre sirve PDF
   router.get('/sign/:token/download', async (req, res) => {
     try {
+      // P1-8: single query fetches all needed columns — eliminates 2 redundant follow-up queries
       const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
       if (!r.rows.length) return res.status(404).send('No encontrado');
       const sig = r.rows[0];
+      const sigRow = sig; // sig already contains signature_data, signer_name, signed_at, signer_ip, signed_pdf
       const filename = sig.document_filename;
       const PDFDocument = require('pdf-lib').PDFDocument;
       const { rgb } = require('pdf-lib');
 
-      // 1. Si tiene signed_pdf ya generado, servirlo
-      const sigR = await pool.query('SELECT signature_data, signer_name, signed_at, signer_ip FROM signature_requests WHERE token=$1', [req.params.token]);
-      const sigRow = sigR.rows[0];
       // 1. Si tiene signed_pdf generado al firmar, servirlo
-      const sigPdfR = await pool.query('SELECT signed_pdf FROM signature_requests WHERE token=$1', [req.params.token]);
-      const signedPdfSize = sigPdfR.rows[0]?.signed_pdf?.length || 0;
+      const signedPdfSize = sig.signed_pdf?.length || 0;
       logger.debug('signed_pdf size:', signedPdfSize, 'token:', req.params.token.substring(0,10));
       if (signedPdfSize > 10000) {
         const outName = filename.replace(/\.\w+$/, '') + '_firmado.pdf';
         res.set('Content-Disposition', 'attachment; filename="' + outName + '"');
         res.set('Content-Type', 'application/pdf');
-        return res.send(sigPdfR.rows[0].signed_pdf);
+        return res.send(sig.signed_pdf);
       }
 
       // 2. Buscar PDF real del documento (preferir PDF sobre DOCX)
@@ -466,6 +479,10 @@ module.exports = function makeSignaturesRouter(deps) {
   router.post('/sign/:token', async (req, res) => {
     const { signature_data, signer_name } = req.body;
     if (!signature_data) return res.status(400).json({ error: 'Firma requerida' });
+    // P0-4: reject oversized signature_data to prevent DB abuse
+    if (signature_data && signature_data.length > 300000) {
+      return res.status(400).json({ error: 'Firma demasiado grande' });
+    }
     try {
       const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1 AND status=$2', [req.params.token, 'pending']);
       if (!r.rows.length) return res.status(404).json({ error: 'Link no válido o ya firmado' });
@@ -873,7 +890,8 @@ module.exports = function makeSignaturesRouter(deps) {
         if (!Number.isInteger(time_spent) || time_spent < 0 || time_spent > 3600) {
           return res.status(400).json({ error: 'Invalid time_spent' });
         }
-        await pool.query('UPDATE signature_requests SET time_on_portal=time_on_portal+$1 WHERE token=$2', [time_spent, token]);
+        // P1-7: use LEAST() to cap cumulative total at 86400 seconds (1 day) — prevents integer overflow
+        await pool.query('UPDATE signature_requests SET time_on_portal = LEAST(COALESCE(time_on_portal,0) + $1, 86400) WHERE token=$2', [time_spent, token]);
       }
       res.json({ success: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
