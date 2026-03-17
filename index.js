@@ -1,18 +1,21 @@
 const crypto = require('crypto');
 
+// ── MÓDULOS DE SEGURIDAD Y COMPLIANCE ──
+const { verifyMondayHmac } = require('./src/middleware/hmac');
+const { getMondayItem, getMondayBoard, createMondayUpdate, mondayQuery } = require('./src/utils/graphql');
+const { generateOtp, hashOtp, verifyOtp } = require('./src/utils/otp');
+const { getTimestamp } = require('./src/utils/tsa');
+
 // Generar hash SHA-256 del documento
 function generateDocHash(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex');
 }
 
-// Generar timestamp RFC 3161 simulado (para producción usar TSA real)
-function generateTimestamp() {
-  return {
-    timestamp: new Date().toISOString(),
-    tsa: 'DocuGen Internal TSA v1.0',
-    hash_algorithm: 'SHA-256',
-    policy: 'DocuGen-Legal-1.0'
-  };
+// ⚖️  generateTimestamp: ahora usa TSA externa RFC 3161 acreditada
+// Ver src/utils/tsa.js para detalles de cumplimiento NOM-151-SCFI-2016
+// Mantener esta función como wrapper para compatibilidad con código existente
+async function generateTimestamp(documentBuffer) {
+  return getTimestamp(documentBuffer);
 }
 
 const express = require('express');
@@ -112,7 +115,23 @@ const app = express();
 app.use(helmet.hsts({ maxAge: 31536000, includeSubDomains: true, preload: true }));
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// P3-1: CORS restringido a orígenes de Monday.com y la propia app
+const ALLOWED_ORIGINS = [
+  'https://monday.com',
+  process.env.APP_URL,
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, cb) => {
+    // Permitir: sin origin (curl, server-to-server), orígenes *.monday.com, APP_URL
+    if (!origin) return cb(null, true);
+    if (ALLOWED_ORIGINS.includes(origin) || /^https:\/\/.*\.monday\.com$/.test(origin)) {
+      return cb(null, true);
+    }
+    cb(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+}));
 app.use(express.json())
 
 // ── SECURITY HEADERS (HSTS + XSS + etc) ──
@@ -247,6 +266,16 @@ async function initDB() {
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS identity_verified BOOLEAN DEFAULT FALSE');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_attempts INT DEFAULT 0');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP');
+    // P3-2: tablas adicionales en initDB para evitar CREATE TABLE en cada request
+    await pool.query(`CREATE TABLE IF NOT EXISTS account_settings (account_id TEXT PRIMARY KEY, settings JSONB DEFAULT '{}', updated_at TIMESTAMP DEFAULT NOW())`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS portal_logos (account_id TEXT PRIMARY KEY, filename TEXT, data BYTEA, mimetype TEXT, updated_at TIMESTAMP DEFAULT NOW())`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS lifecycle_events (id SERIAL PRIMARY KEY, event_type TEXT NOT NULL, account_id TEXT, user_id TEXT, plan_id TEXT, is_trial BOOLEAN, renewal_date TEXT, data JSONB, created_at TIMESTAMP DEFAULT NOW())`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS subscriptions (account_id TEXT PRIMARY KEY, plan_id TEXT, status TEXT DEFAULT 'active', is_trial BOOLEAN DEFAULT false, renewal_date TEXT, docs_limit INT DEFAULT 10, docs_used INT DEFAULT 0, trial_ends_at TIMESTAMP, subscribed_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW())`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS approval_requests (id SERIAL PRIMARY KEY, approval_token TEXT UNIQUE NOT NULL, signature_request_id INT, created_at TIMESTAMP DEFAULT NOW())`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS error_logs (id SERIAL PRIMARY KEY, account_id TEXT, error_type TEXT, message TEXT, stack TEXT, created_at TIMESTAMP DEFAULT NOW())`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS backups (id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT NOW(), tables_backed_up INT, total_rows INT, status TEXT, error TEXT)`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS backup_data (id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT NOW(), data TEXT)`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS deletion_queue (id SERIAL PRIMARY KEY, account_id TEXT NOT NULL UNIQUE, scheduled_for TIMESTAMPTZ NOT NULL, executed_at TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT NOW())`);
     console.log('Base de datos inicializada');
   } catch (err) {
     console.error('Error iniciando DB:', err.message);
@@ -256,7 +285,11 @@ async function initDB() {
 const outputsDir = path.join(__dirname, 'outputs');
 if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir);
 
-const upload = multer({ storage: multer.memoryStorage() });
+// P4-5 + P1-8: Límite de tamaño en uploads — evita DoS por archivos enormes en memoria
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB máximo
+});
 
 async function saveToken(accountId, userId, token) {
   await pool.query(`INSERT INTO tokens (account_id, user_id, access_token, updated_at) VALUES ($1, $2, $3, NOW()) ON CONFLICT (account_id) DO UPDATE SET access_token = $3, user_id = $2, updated_at = NOW()`, [accountId, userId, encryptToken(token)]);
@@ -270,10 +303,10 @@ async function getToken(accountId) {
 async function requireAuth(req, res, next) {
   const accountId = req.headers['x-account-id'] || req.query.account_id || req.body?.account_id;
   if (!accountId) return res.status(401).json({ error: 'Se requiere account_id' });
-  const token = await getToken(accountId);
-  if (!token) return res.status(401).json({ error: 'No hay sesion. Haz OAuth primero.', needs_auth: true });
+  const encryptedToken = await getToken(accountId);
+  if (!encryptedToken) return res.status(401).json({ error: 'No hay sesion. Haz OAuth primero.', needs_auth: true });
   req.accountId = accountId;
-  req.accessToken = token;
+  req.accessToken = decryptToken(encryptedToken); // descifrar AES-256-CBC si aplica
   next();
 }
 
@@ -476,55 +509,89 @@ const GRAPHQL_COLUMN_FRAGMENT = `
   ... on FormulaValue { display_value }
 `;
 
-app.get('/debug-sigs', async (req, res) => {
-  try {
-    const accountId = req.query.account_id || req.headers['x-account-id'];
-    const r = await pool.query(
-      'SELECT id, token, signer_name, signer_email, status, document_filename, item_id, created_at, otp_code FROM signature_requests WHERE account_id=$1 ORDER BY created_at DESC LIMIT 5',
-      [accountId]
-    );
-    res.json(r.rows);
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
+// P1-1: Debug endpoints — solo disponibles en desarrollo, con auth, sin exponer OTP codes
+if (process.env.NODE_ENV !== 'production') {
+  app.get('/debug-sigs', requireAuth, async (req, res) => {
+    try {
+      // otp_code ELIMINADO de la query — nunca exponer OTPs activos
+      const r = await pool.query(
+        'SELECT id, token, signer_name, signer_email, status, document_filename, item_id, created_at FROM signature_requests WHERE account_id=$1 ORDER BY created_at DESC LIMIT 5',
+        [req.accountId]
+      );
+      res.json(r.rows);
+    } catch(e) { res.status(500).json({ error: e.message }); }
+  });
 
-app.get('/debug-docs', async (req, res) => {
-  try {
-    const accountId = req.query.account_id || req.headers['x-account-id'];
-    const r = await pool.query(
-      'SELECT id, filename, template_name, item_id, created_at, doc_data IS NOT NULL as has_data, length(doc_data) as data_size FROM documents WHERE account_id=$1 ORDER BY created_at DESC LIMIT 15',
-      [accountId]
-    );
-    res.json(r.rows);
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
+  app.get('/debug-docs', requireAuth, async (req, res) => {
+    try {
+      const r = await pool.query(
+        'SELECT id, filename, template_name, item_id, created_at, doc_data IS NOT NULL as has_data, length(doc_data) as data_size FROM documents WHERE account_id=$1 ORDER BY created_at DESC LIMIT 15',
+        [req.accountId]
+      );
+      res.json(r.rows);
+    } catch(e) { res.status(500).json({ error: e.message }); }
+  });
+} else {
+  // En producción: rutas debug devuelven 404
+  app.get('/debug-sigs', (_, res) => res.status(404).end());
+  app.get('/debug-docs', (_, res) => res.status(404).end());
+}
 
 app.get('/', (req, res) => { res.json({ status: 'ok', message: 'DocuGen for monday', version: '3.0.0' }); });
+
+// P2-4: Mapa en memoria para validar el state CSRF del flujo OAuth
+// Key = state (hex), Value = { createdAt }. Se limpia tras uso y cada 10min.
+const oauthStateStore = new Map();
+setInterval(() => {
+  const cutoff = Date.now() - 15 * 60 * 1000; // expirar states > 15 min
+  for (const [k, v] of oauthStateStore.entries()) {
+    if (v.createdAt < cutoff) oauthStateStore.delete(k);
+  }
+}, 10 * 60 * 1000);
 
 app.get('/oauth/start', (req, res) => {
   const clientId = process.env.MONDAY_CLIENT_ID;
   const redirectUri = encodeURIComponent(process.env.REDIRECT_URI);
   const scopes = 'boards:read boards:write me:read notifications:write';
-  const state = Math.random().toString(36).substring(2);
-  res.redirect('https://auth.monday.com/oauth2/authorize?client_id=' + clientId + '&redirect_uri=' + redirectUri + '&scope=' + encodeURIComponent(scopes) + '&state=' + state);
+
+  // P2-4: state criptográfico (crypto.randomBytes, no Math.random)
+  // Ref: Sección 2 — "state: Valor arbitrario para prevenir ataques CSRF"
+  const state = crypto.randomBytes(16).toString('hex');
+  oauthStateStore.set(state, { createdAt: Date.now() });
+
+  res.redirect(
+    'https://auth.monday.com/oauth2/authorize' +
+    '?client_id=' + clientId +
+    '&redirect_uri=' + redirectUri +
+    '&scope=' + encodeURIComponent(scopes) +
+    '&state=' + state
+  );
 });
 
 app.get('/oauth/callback', async (req, res) => {
-  const { code } = req.query;
+  const { code, state } = req.query;
   if (!code) return res.status(400).json({ error: 'No se recibio codigo' });
+
+  // P2-4: Validar state anti-CSRF antes de usar el code
+  if (!state || !oauthStateStore.has(state)) {
+    return res.status(400).json({ error: 'Estado OAuth inválido o expirado. Inicia el flujo nuevamente.' });
+  }
+  oauthStateStore.delete(state); // use-once: eliminar tras validar
+
   try {
     const response = await axios.post('https://auth.monday.com/oauth2/token', {
       client_id: process.env.MONDAY_CLIENT_ID,
       client_secret: process.env.MONDAY_CLIENT_SECRET,
       code,
       redirect_uri: process.env.REDIRECT_URI
-    });
+    }, { timeout: 15000 });
     const { access_token } = response.data;
     const decoded = jwt.decode(access_token);
     const accountId = decoded?.actid?.toString() || 'default';
     const userId = decoded?.uid?.toString() || null;
     await saveToken(accountId, userId, access_token);
-    console.log('Token guardado — account: ' + accountId);
-    res.redirect('/view?account_id=' + accountId);
+    // P2-5: Redirigir solo a rutas internas conocidas
+    res.redirect('/view?account_id=' + encodeURIComponent(accountId));
   } catch (error) {
     console.error('Error OAuth:', error.response?.data || error.message);
     res.status(500).json({ error: 'Error OAuth', details: error.response?.data });
@@ -541,23 +608,23 @@ app.get('/auth/check', async (req, res) => {
 app.post('/board-items', requireAuth, async (req, res) => {
   const { board_id } = req.body;
   try {
-    const query = 'query { boards(ids: ' + board_id + ') { name columns { id title type } items_page(limit: 50) { items { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } } } }';
-    const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: req.accessToken, 'Content-Type': 'application/json' } });
-    res.json(response.data);
+    // P1-3: usa getMondayBoard — variables GraphQL, sin concatenación
+    const board = await getMondayBoard(req.accessToken, board_id, 50, GRAPHQL_COLUMN_FRAGMENT);
+    if (!board) return res.status(404).json({ error: 'Board no encontrado' });
+    res.json({ data: { boards: [board] } });
   } catch (error) {
-    console.error('GraphQL error:', JSON.stringify(error.response?.data || error.message));
-    res.status(500).json({ error: 'Error GraphQL', details: error.response?.data, message: error.message });
+    console.error('GraphQL error:', error.message);
+    res.status(500).json({ error: 'Error GraphQL', message: error.message });
   }
 });
 
 app.post('/item-variables', requireAuth, async (req, res) => {
   const { item_id } = req.body;
   try {
-    const query = 'query { items(ids: ' + item_id + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
-    const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: req.accessToken, 'Content-Type': 'application/json' } });
-    console.log('GraphQL response errors:', JSON.stringify(response.data.errors));
-    console.log('Items encontrados:', response.data.data?.items?.length);
-    const item = response.data.data.items[0];
+    // P1-3: getMondayItem usa variables GraphQL — sin inyección posible
+    const item = await getMondayItem(req.accessToken, item_id, GRAPHQL_COLUMN_FRAGMENT);
+    // P1-4: null-check antes de acceder a propiedades
+    if (!item) return res.status(404).json({ error: 'Item no encontrado en Monday.com' });
     const variables = [{ variable: 'nombre', value: item.name, type: 'name' }];
     item.column_values.forEach(col => {
       variables.push({ variable: toVarName(col.column.title), original_title: col.column.title, value: extractColumnValue(col) || '(vacio)', type: col.column.type });
@@ -650,10 +717,9 @@ app.post('/generate-from-monday', requireAuth, checkDocLimit, accountRateLimit(2
     const tplResult = await pool.query('SELECT data FROM templates WHERE account_id = $1 AND filename = $2', [req.accountId, template_name]);
     if (!tplResult.rows.length) return res.status(404).json({ error: 'Plantilla "' + template_name + '" no encontrada' });
 
-    const query = 'query { items(ids: ' + item_id + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
-    const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: req.accessToken, 'Content-Type': 'application/json' } });
-    const item = response.data.data.items[0];
-    console.log('Item obtenido:', item?.name);
+    // P1-3 + P1-4: variables GraphQL + null-check
+    const item = await getMondayItem(req.accessToken, item_id, GRAPHQL_COLUMN_FRAGMENT);
+    if (!item) return res.status(404).json({ error: 'Item no encontrado en Monday.com' });
 
     const data = { nombre: item.name };
     item.column_values.forEach(col => {
@@ -711,7 +777,8 @@ app.post('/generate-from-monday-pdf', requireAuth, checkDocLimit, accountRateLim
   }
 
   const { board_id, item_id, template_name } = req.body;
-  const { exec } = require('child_process');
+  // P1-6: execFile no invoca /bin/sh — evita command injection
+  const { execFile } = require('child_process');
 
   try {
     const tplResult = await pool.query(
@@ -720,9 +787,9 @@ app.post('/generate-from-monday-pdf', requireAuth, checkDocLimit, accountRateLim
     );
     if (!tplResult.rows.length) return res.status(404).json({ error: 'Plantilla no encontrada' });
 
-    const query = 'query { items(ids: ' + item_id + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
-    const response = await axios.post('https://api.monday.com/v2', { query }, { headers: { Authorization: req.accessToken, 'Content-Type': 'application/json' } });
-    const item = response.data.data.items[0];
+    // P1-3 + P1-4: variables GraphQL + null-check
+    const item = await getMondayItem(req.accessToken, item_id, GRAPHQL_COLUMN_FRAGMENT);
+    if (!item) return res.status(404).json({ error: 'Item no encontrado en Monday.com' });
 
     const data = { nombre: item.name };
     item.column_values.forEach(col => { data[toVarName(col.column.title)] = extractColumnValue(col); });
@@ -739,30 +806,25 @@ app.post('/generate-from-monday-pdf', requireAuth, checkDocLimit, accountRateLim
     const pdfPath = path.join(outputsDir, baseName + '.pdf');
     fs.writeFileSync(docxPath, outputBuffer);
 
-    // Convertir a PDF con LibreOffice
-    console.log('Renderizando plantilla...');
-
-    exec('libreoffice --headless --convert-to pdf --outdir ' + outputsDir + ' ' + docxPath, async (err) => {
-      console.log('LibreOffice terminó, err:', err?.message, 'pdf existe:', fs.existsSync(pdfPath));
-      // Limpiar docx temporal
-      try { fs.unlinkSync(docxPath); } catch(e) {}
-      
-      if (err || !fs.existsSync(pdfPath)) {
-        return res.status(500).json({ error: 'Error convirtiendo a PDF', details: err?.message });
+    // P1-6 + P3-5: execFile (sin shell) + timeout 60s
+    execFile('libreoffice', ['--headless', '--convert-to', 'pdf', '--outdir', outputsDir, docxPath],
+      { timeout: 60000 },
+      async (err) => {
+        try { fs.unlinkSync(docxPath); } catch(e) {}
+        if (err || !fs.existsSync(pdfPath)) {
+          return res.status(500).json({ error: 'Error convirtiendo a PDF', details: err?.message });
+        }
+        const pdfData = fs.readFileSync(pdfPath);
+        await pool.query(
+          'INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+          [req.accountId, board_id, item_id, item.name, template_name, baseName + '.pdf', pdfData]
+        );
+        if (_accountId) await incrementDocsUsed(_accountId);
+        res.download(pdfPath, baseName + '.pdf', () => {
+          try { fs.unlinkSync(pdfPath); } catch(e) {}
+        });
       }
-
-      const pdfData = fs.readFileSync(pdfPath);
-      await pool.query(
-        'INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-        [accountId, board_id, item_id, item.name, template_name, baseName + '.pdf', pdfData]
-      );
-
-      
-    if (_accountId) await incrementDocsUsed(_accountId); // billing
-res.download(pdfPath, baseName + '.pdf', () => {
-        try { fs.unlinkSync(pdfPath); } catch(e) {}
-      });
-    });
+    );
   } catch (error) {
     console.error('Error PDF:', error);
     res.status(500).json({ error: 'Error al generar PDF', details: error.message });
@@ -814,14 +876,8 @@ app.post('/generate-pdf-async', requireAuth, checkDocLimit, accountRateLimit(20,
       }
 
       console.log('PDF async - consultando monday...');
-      const query = 'query { items(ids: ' + item_id + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
-      
-      const response = await axios.post('https://api.monday.com/v2', { query }, {
-        headers: { Authorization: accessToken, 'Content-Type': 'application/json' },
-        timeout: 20000
-      });
-
-      const item = response.data.data?.items?.[0];
+      // P1-3: variables GraphQL — sin concatenación
+      const item = await getMondayItem(accessToken, item_id, GRAPHQL_COLUMN_FRAGMENT).catch(() => null);
       if (!item) {
         await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', 'Item no encontrado', jobId]);
         return;
@@ -843,8 +899,12 @@ app.post('/generate-pdf-async', requireAuth, checkDocLimit, accountRateLimit(20,
       const pdfPath = path.join(outputsDir, baseName + '.pdf');
       fs.writeFileSync(docxPath, outputBuffer);
 
+      // P1-6: execFile (sin shell) + P3-5: timeout 60s
+      const { execFile } = require('child_process');
       console.log('PDF async - convirtiendo con LibreOffice...');
-      exec('libreoffice --headless --convert-to pdf --outdir ' + outputsDir + ' ' + docxPath, async (err) => {
+      execFile('libreoffice', ['--headless', '--convert-to', 'pdf', '--outdir', outputsDir, docxPath],
+        { timeout: 60000 },
+        async (err) => {
         try { fs.unlinkSync(docxPath); } catch(e) {}
         if (err || !fs.existsSync(pdfPath)) {
           console.error('PDF async - error LibreOffice:', err?.message);
@@ -856,6 +916,7 @@ app.post('/generate-pdf-async', requireAuth, checkDocLimit, accountRateLimit(20,
         await pool.query('UPDATE pdf_jobs SET status=$1, filename=$2, item_name=$3, pdf_data=$4 WHERE job_id=$5', ['ready', baseName + '.pdf', item.name, pdfData, jobId]);
         if (accountId) await incrementDocsUsed(accountId); // billing async
         await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)', [accountId, board_id, item_id, item.name, template_name, baseName + '.pdf', pdfData]);
+        try { fs.unlinkSync(pdfPath); } catch(e) {}
       });
 
     } catch(err) {
@@ -902,7 +963,11 @@ app.get('/download/:filename', (req, res) => {
 });
 
 app.post('/migrate', async (req, res) => {
-  if (req.body.secret !== 'docugen2026') return res.status(403).json({ error: 'No autorizado' });
+  // Secret desde env — nunca hardcodeado en el código
+  const adminSecret = process.env.ADMIN_MIGRATE_SECRET;
+  if (!adminSecret || req.body.secret !== adminSecret) {
+    return res.status(403).json({ error: 'No autorizado' });
+  }
   try {
     await pool.query('ALTER TABLE tokens ADD COLUMN IF NOT EXISTS user_id TEXT');
     res.json({ success: true, message: 'Migracion completada' });
@@ -966,7 +1031,8 @@ async function checkSubscription(accountId) {
     return { allowed: true, plan: sub.plan_id, status: sub.status, docs_used: sub.docs_used, docs_limit: sub.docs_limit };
   } catch(e) {
     console.error('checkSubscription error:', e.message);
-    return { allowed: true, plan: 'unknown' }; // fail open para no bloquear en error de DB
+    // P1-8: fail CLOSED para billing — un error de DB no debe regalar acceso
+    return { allowed: false, reason: 'subscription_check_error', plan: 'unknown' };
   }
 }
 
@@ -1543,13 +1609,15 @@ app.post('/sign/:token/send-otp', async (req, res) => {
     const sig = r.rows[0];
     if (!sig.signer_email) return res.status(400).json({ error: 'No hay email registrado para este firmante' });
 
-    // Generar OTP de 6 dígitos
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutos
+    // P2-2: crypto.randomInt — criptográficamente seguro (no Math.random)
+    // P2-3: almacenar HASH del OTP, no el código en claro
+    // ⚖️  NOM-151: código de identidad debe ser impredecible
+    const otp = generateOtp();
+    const otpHash = hashOtp(otp, req.params.token);
 
     await pool.query(
       'UPDATE signature_requests SET otp_code=$1, otp_verified=FALSE, otp_attempts=0 WHERE token=$2',
-      [otp, req.params.token]
+      [otpHash, req.params.token]
     );
 
     // Enviar email via Resend API
@@ -1599,9 +1667,13 @@ app.post('/sign/:token/verify-otp', async (req, res) => {
     if (!r.rows.length) return res.status(404).json({ error: 'Token no válido' });
     const sig = r.rows[0];
 
-    if (sig.otp_attempts >= 5) return res.status(400).json({ error: 'Demasiados intentos. Solicita un nuevo código.' });
+    // P2-3: máximo 3 intentos (más conservador que los 5 anteriores)
+    if (sig.otp_attempts >= 3) {
+      return res.status(400).json({ error: 'Demasiados intentos fallidos. Solicita un nuevo código OTP.' });
+    }
 
-    if (sig.otp_code !== otp) {
+    // P2-2/P2-3: verifyOtp usa hashOtp + timingSafeEqual (sin comparación de string directo)
+    if (!verifyOtp(otp, sig.otp_code, req.params.token)) {
       await pool.query('UPDATE signature_requests SET otp_attempts=otp_attempts+1 WHERE token=$1', [req.params.token]);
       return res.status(400).json({ error: 'Código incorrecto', attempts: (sig.otp_attempts || 0) + 1 });
     }
@@ -2074,25 +2146,8 @@ app.post('/workflows/fields/templates', async (req, res) => {
 // app_subscription_renewed, app_subscription_cancelled_by_user, app_subscription_cancelled,
 // app_subscription_cancellation_revoked_by_user, app_subscription_renewal_attempt_failed,
 // app_subscription_renewal_failed, app_trial_subscription_started, app_trial_subscription_ended
-app.post('/monday/lifecycle', async (req, res) => {
-  // ── Verificar HMAC signature de Monday ──
-  try {
-    const signingSecret = process.env.MONDAY_SIGNING_SECRET || process.env.MONDAY_CLIENT_SECRET || '';
-    const authHeader = req.headers['authorization'] || '';
-    if (signingSecret && authHeader) {
-      const rawBody = JSON.stringify(req.body);
-      const expectedSig = require('crypto')
-        .createHmac('sha256', signingSecret)
-        .update(rawBody)
-        .digest('hex');
-      if (authHeader !== expectedSig) {
-        console.warn('Lifecycle webhook signature mismatch — rejecting');
-        return res.status(401).json({ error: 'Invalid signature' });
-      }
-    }
-  } catch(sigErr) {
-    console.error('Signature verification error:', sigErr.message);
-  }
+// P2-6: lifecycle con HMAC obligatorio (no condicional), usando el mismo middleware
+app.post('/monday/lifecycle', verifyMondayHmac({ allowChallenge: false }), async (req, res) => {
 
   // Responder 200 inmediatamente según docs
   res.sendStatus(200);
@@ -2225,15 +2280,10 @@ app.post('/sign/:token/quote-response', async (req, res) => {
         'changes_requested': 'Cambios Solicitados'
       };
 
-      // Buscar columna de status en el board
+      // P1-3: createMondayUpdate usa variables GraphQL
+      const commentBody = `📄 Cotización ${statusMap[response]}${comment ? ': ' + comment : ''}`;
       try {
-        await fetch('https://api.monday.com/v2', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': tokenRow.rows[0].access_token },
-          body: JSON.stringify({ query: `mutation {
-            create_update(item_id: ${s.item_id}, body: "📄 Cotización ${statusMap[response]}${comment ? ': ' + comment : ''}") { id }
-          }` })
-        });
+        await createMondayUpdate(decryptToken(tokenRow.rows[0].access_token), s.item_id, commentBody);
       } catch(e) { console.error('Monday update error:', e.message); }
     }
 
@@ -2336,21 +2386,10 @@ app.post('/workflows/generate-document', accountRateLimit(20, 60 * 1000), async 
     // Obtener token del account
     const tokenRow = await pool.query('SELECT access_token FROM tokens WHERE account_id=$1 LIMIT 1', [accountId]);
     if (!tokenRow.rows.length) return res.status(401).json(severityError(6000, 'No autenticado', 'La cuenta no tiene token', 'No token found for account'));
-    const accessToken = tokenRow.rows[0].access_token;
+    const accessToken = decryptToken(tokenRow.rows[0].access_token);
 
-    // Obtener datos del item via GraphQL
-    const gqlResp = await fetch('https://api.monday.com/v2', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': accessToken },
-      body: JSON.stringify({ query: `query {
-        items(ids: [${itemId}]) {
-          id name
-          column_values { id text value }
-        }
-      }` })
-    });
-    const gqlData = await gqlResp.json();
-    const item = gqlData?.data?.items?.[0];
+    // P1-3: getMondayItem usa variables GraphQL
+    const item = await getMondayItem(accessToken, itemId, 'id text value').catch(() => null);
     if (!item) return res.status(404).json(severityError(4000, 'Item no encontrado', 'El item no existe o no es accesible', 'Item not found'));
 
     // Obtener template
@@ -2994,11 +3033,9 @@ app.post('/export-xlsx', requireAuth, async (req, res) => {
   const { board_id, item_id } = req.body;
   try {
     const ExcelJS = require('exceljs');
-    const query = 'query { items(ids: ' + item_id + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
-    const response = await axios.post('https://api.monday.com/v2', { query }, {
-      headers: { Authorization: req.accessToken, 'Content-Type': 'application/json' }
-    });
-    const item = response.data.data.items[0];
+    // P1-3 + P1-4: getMondayItem usa variables GraphQL + null-check
+    const item = await getMondayItem(req.accessToken, item_id, GRAPHQL_COLUMN_FRAGMENT);
+    if (!item) return res.status(404).json({ error: 'Item no encontrado en Monday.com' });
     const data = { nombre: item.name };
     item.column_values.forEach(col => { data[toVarName(col.column.title)] = extractColumnValue(col); });
     calcularTotales(data, item.subitems, item.column_values);
@@ -3056,20 +3093,32 @@ app.post('/export-xlsx', requireAuth, async (req, res) => {
 
 // ─── ESCRITURA DE COLUMNAS ────────────────────────────────
 async function updateMondayColumn(accessToken, itemId, boardId, columnId, value) {
-  const query = `mutation {
-    change_column_value(item_id: ${itemId}, board_id: ${boardId}, column_id: "${columnId}", value: ${JSON.stringify(JSON.stringify(value))}) { id }
-  }`;
-  return axios.post('https://api.monday.com/v2', { query }, {
-    headers: { Authorization: accessToken, 'Content-Type': 'application/json' }
+  // P1-3: variables GraphQL — itemId y boardId como variables, no interpolados
+  const query = `
+    mutation UpdateColumn($itemId: ID!, $boardId: ID!, $columnId: String!, $value: JSON!) {
+      change_column_value(item_id: $itemId, board_id: $boardId, column_id: $columnId, value: $value) { id }
+    }
+  `;
+  return mondayQuery(accessToken, query, {
+    itemId: String(parseInt(itemId, 10)),
+    boardId: String(parseInt(boardId, 10)),
+    columnId: String(columnId),
+    value: JSON.stringify(value),
   });
 }
 
 async function updateMondayStatus(accessToken, itemId, boardId, columnId, label) {
-  const query = `mutation {
-    change_simple_column_value(item_id: ${itemId}, board_id: ${boardId}, column_id: "${columnId}", value: "${label}") { id }
-  }`;
-  return axios.post('https://api.monday.com/v2', { query }, {
-    headers: { Authorization: accessToken, 'Content-Type': 'application/json' }
+  // P1-3: variables GraphQL
+  const query = `
+    mutation UpdateStatus($itemId: ID!, $boardId: ID!, $columnId: String!, $value: String!) {
+      change_simple_column_value(item_id: $itemId, board_id: $boardId, column_id: $columnId, value: $value) { id }
+    }
+  `;
+  return mondayQuery(accessToken, query, {
+    itemId: String(parseInt(itemId, 10)),
+    boardId: String(parseInt(boardId, 10)),
+    columnId: String(columnId),
+    value: String(label),
   });
 }
 
@@ -3089,8 +3138,8 @@ app.post('/monday/update-column', requireAuth, async (req, res) => {
 });
 
 // ─── WEBHOOKS DE MONDAY ───────────────────────────────────
-app.post('/webhooks/monday', async (req, res) => {
-  // Verificación de challenge de monday
+// P1-2: HMAC verificado con allowChallenge=true para el handshake inicial
+app.post('/webhooks/monday', verifyMondayHmac({ allowChallenge: true }), async (req, res) => {
   if (req.body.challenge) return res.json({ challenge: req.body.challenge });
 
   const event = req.body.event;
@@ -3174,13 +3223,8 @@ async function executeAutomation(accountId, itemId, boardId, templateName, acces
     const tplResult = await pool.query('SELECT data FROM templates WHERE account_id=$1 AND filename=$2', [accountId, templateName]);
     if (!tplResult.rows.length) throw new Error('Plantilla no encontrada: ' + templateName);
 
-    const query = 'query { items(ids: ' + itemId + ') { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } subitems { id name column_values { ' + GRAPHQL_COLUMN_FRAGMENT + ' } } } }';
-    const response = await withRetry(() =>
-      axios.post('https://api.monday.com/v2', { query }, {
-        headers: { Authorization: accessToken, 'Content-Type': 'application/json' }
-      })
-    );
-    const item = response.data.data.items[0];
+    // P1-3: getMondayItem usa variables GraphQL — sin inyección
+    const item = await withRetry(() => getMondayItem(accessToken, itemId, GRAPHQL_COLUMN_FRAGMENT));
     if (!item) throw new Error('Item no encontrado: ' + itemId);
 
     const data = { nombre: item.name };
@@ -3200,11 +3244,9 @@ async function executeAutomation(accountId, itemId, boardId, templateName, acces
       [accountId, String(boardId), String(itemId), item.name, templateName, outputFilename, outputBuffer]
     );
 
-    // Comentar en monday que se generó el doc
-    const commentQuery = `mutation { create_update(item_id: ${itemId}, body: "📄 Documento generado automáticamente: ${outputFilename}") { id } }`;
-    await axios.post('https://api.monday.com/v2', { query: commentQuery }, {
-      headers: { Authorization: accessToken, 'Content-Type': 'application/json' }
-    }).catch(e => console.error('Comment error:', e.message));
+    // Comentar en Monday — createMondayUpdate usa variables GraphQL
+    await createMondayUpdate(accessToken, itemId, `📄 Documento generado: ${outputFilename}`)
+      .catch(e => console.error('Comment error:', e.message));
 
     return { success: true, filename: outputFilename };
   } catch(e) {
@@ -3225,10 +3267,12 @@ async function processPendingTriggers() {
         [evt.account_id, evt.column_id]
       );
       if (!trigger.rows.length) continue;
-      const acc = await pool.query('SELECT access_token FROM accounts WHERE account_id=$1', [evt.account_id]);
+      // P1-5: tabla correcta es 'tokens', no 'accounts' (accounts no tiene access_token)
+      const acc = await pool.query('SELECT access_token FROM tokens WHERE account_id=$1', [evt.account_id]);
       if (!acc.rows.length) continue;
+      const decryptedToken = decryptToken(acc.rows[0].access_token);
 
-      const result = await executeAutomation(evt.account_id, evt.item_id, evt.board_id, evt.column_id, acc.rows[0].access_token);
+      const result = await executeAutomation(evt.account_id, evt.item_id, evt.board_id, evt.column_id, decryptedToken);
       await pool.query("UPDATE webhook_events SET column_value=$1 WHERE id=$2", [result.success ? 'done' : 'error:' + result.error, evt.id]);
       console.log('Trigger procesado:', evt.item_id, result.success ? '✅' : '❌');
     }
@@ -3283,9 +3327,9 @@ app.post('/scheduled-automations', requireAuth, async (req, res) => {
       'INSERT INTO scheduled_automations (account_id, name, cron_expression, board_id, template_name, condition_column, condition_value) VALUES ($1,$2,$3,$4,$5,$6,$7)',
       [req.accountId, name, cron_expression, board_id, template_name, condition_column, condition_value]
     );
-    
-    if (_accountId) await incrementDocsUsed(_accountId); // billing
-res.json({ success: true });
+    // P1-7: _accountId no estaba definido en este scope — usar req.accountId
+    if (req.accountId) await incrementDocsUsed(req.accountId);
+    res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3324,17 +3368,15 @@ cron.schedule('0 * * * *', async () => {
 
       if (!shouldRun) continue;
 
-      const acc = await pool.query('SELECT access_token FROM accounts WHERE account_id=$1', [auto.account_id]);
+      // P1-5: tabla correcta es 'tokens', no 'accounts'
+      const acc = await pool.query('SELECT access_token FROM tokens WHERE account_id=$1', [auto.account_id]);
       if (!acc.rows.length) continue;
+      const autoToken = decryptToken(acc.rows[0].access_token);
 
-      // Obtener items del board
-      const boardQuery = `query { boards(ids: ${auto.board_id}) { items_page(limit: 100) { items { id name column_values { id text } } } } }`;
-      const boardRes = await axios.post('https://api.monday.com/v2', { query: boardQuery }, {
-        headers: { Authorization: acc.rows[0].access_token, 'Content-Type': 'application/json' }
-      }).catch(e => null);
-
-      if (!boardRes) continue;
-      const items = boardRes.data?.data?.boards?.[0]?.items_page?.items || [];
+      // P1-3: getMondayBoard usa variables GraphQL, no concatenación
+      const board = await getMondayBoard(autoToken, auto.board_id, 100, 'id text').catch(() => null);
+      if (!board) continue;
+      const items = board.items_page?.items || [];
 
       for (const item of items) {
         // Aplicar condición si existe
@@ -3342,7 +3384,7 @@ cron.schedule('0 * * * *', async () => {
           const col = item.column_values.find(c => c.id === auto.condition_column);
           if (!col || col.text !== auto.condition_value) continue;
         }
-        await executeAutomation(auto.account_id, item.id, auto.board_id, auto.template_name, acc.rows[0].access_token);
+        await executeAutomation(auto.account_id, item.id, auto.board_id, auto.template_name, autoToken);
         await new Promise(r => setTimeout(r, 500));
       }
 
@@ -3600,11 +3642,12 @@ app.post('/workflows/send-reminder', async (req, res) => {
     if (sig.item_id && sig.account_id) {
       const tokenRow = await pool.query('SELECT access_token FROM tokens WHERE account_id=$1 LIMIT 1', [sig.account_id]);
       if (tokenRow.rows.length) {
-        await fetch('https://api.monday.com/v2', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': tokenRow.rows[0].access_token },
-          body: JSON.stringify({ query: 'mutation { create_update(item_id: ' + sig.item_id + ', body: "Recordatorio de firma enviado a ' + sig.signer_name + '.") { id } }' })
-        });
+        // P1-3: createMondayUpdate usa variables GraphQL
+      await createMondayUpdate(
+        decryptToken(tokenRow.rows[0].access_token),
+        sig.item_id,
+        `Recordatorio de firma enviado a ${sig.signer_name}.`
+      );
       }
     }
 
@@ -3681,12 +3724,15 @@ async function checkDocLimit(req, res, next) {
         : sub.reason === 'docs_limit_reached'
           ? 'Limite de documentos alcanzado (' + sub.docs_used + '/' + sub.docs_limit + '). Actualiza tu plan.'
           : 'Suscripcion inactiva. Actualiza tu plan.';
-      return res.status(402).json({ error: sub.reason, message: msg, upgrade_url: 'https://nexlabs.online/upgrade' });
+      // P2-5: upgrade_url debe apuntar al marketplace de Monday, no a un sitio externo
+      // Ref: https://developer.monday.com/apps/docs/monetization
+      return res.status(402).json({ error: sub.reason, message: msg, upgrade_url: 'https://monday.com/marketplace' });
     }
     next();
   } catch(e) {
     console.error('checkDocLimit error:', e.message);
-    next(); // fail open
+    // P1-8: fail CLOSED — error en verificación no debe dar acceso gratis
+    return res.status(500).json({ error: 'Error verificando suscripción. Intenta de nuevo.' });
   }
 }
 
