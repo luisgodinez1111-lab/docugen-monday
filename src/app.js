@@ -30,7 +30,7 @@ module.exports = function createApp(deps) {
     },
     credentials: true,
   }));
-  app.use(express.json());
+  app.use(express.json({ limit: '2mb' }));
 
   // FIX-33: X-Frame-Options ALLOW-FROM removed (deprecated) — CSP frame-ancestors handles this
   // FIX-34: Duplicate HSTS and X-XSS-Protection removed — helmet already sets them
@@ -136,6 +136,9 @@ module.exports = function createApp(deps) {
   app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
     if (err.code === 'CIRCUIT_OPEN') {
       return res.status(503).json({ error: 'Servicio temporalmente no disponible. Intenta en unos minutos.', code: 'CIRCUIT_OPEN' });
+    }
+    if (err.type === 'entity.too.large') {
+      return res.status(413).json({ error: 'Payload demasiado grande' });
     }
     logger.error({ err: err.message, path: req.path }, 'Unhandled error');
     Sentry.captureException(err);
