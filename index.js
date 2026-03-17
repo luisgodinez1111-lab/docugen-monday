@@ -60,7 +60,8 @@ async function convertDocxToPdf(docxBuffer, timeoutMs = 60000) {
   }
   // Fallback: write tmp file, execFile, read back
   const { execFile } = require('child_process');
-  const tmpDocx = path.join(outputsDir, `tmp_${Date.now()}.docx`);
+  if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir, { recursive: true });
+  const tmpDocx = path.join(outputsDir, `tmp_${crypto.randomBytes(8).toString('hex')}.docx`);
   fs.writeFileSync(tmpDocx, docxBuffer);
   return new Promise((resolve, reject) => {
     execFile('libreoffice', ['--headless', '--convert-to', 'pdf', '--outdir', outputsDir, tmpDocx],
@@ -126,24 +127,22 @@ const ENC_KEY = process.env.TOKEN_ENCRYPTION_KEY
 
 function encryptToken(token) {
   if (!ENC_KEY || !token) return token;
-  try {
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv('aes-256-cbc', ENC_KEY, iv);
-    const encrypted = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
-    return iv.toString('hex') + ':' + encrypted.toString('hex');
-  } catch(e) { logger.error('encryptToken error:', e.message); return token; }
+  // P2-1: never silently fall back to plaintext — throw so callers know encryption failed
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-cbc', ENC_KEY, iv);
+  const encrypted = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
+  return iv.toString('hex') + ':' + encrypted.toString('hex');
 }
 
 function decryptToken(encrypted) {
   if (!ENC_KEY || !encrypted) return encrypted;
-  if (!encrypted.includes(':')) return encrypted; // ya no encriptado
-  try {
-    const [ivHex, encHex] = encrypted.split(':');
-    const iv = Buffer.from(ivHex, 'hex');
-    const encBuf = Buffer.from(encHex, 'hex');
-    const decipher = crypto.createDecipheriv('aes-256-cbc', ENC_KEY, iv);
-    return Buffer.concat([decipher.update(encBuf), decipher.final()]).toString('utf8');
-  } catch(e) { logger.error('decryptToken error:', e.message); return encrypted; }
+  if (!encrypted.includes(':')) return encrypted; // token pre-encryption (migration path)
+  // P2-1: never silently fall back to ciphertext — throw so callers handle it
+  const [ivHex, encHex] = encrypted.split(':');
+  const iv = Buffer.from(ivHex, 'hex');
+  const encBuf = Buffer.from(encHex, 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-cbc', ENC_KEY, iv);
+  return Buffer.concat([decipher.update(encBuf), decipher.final()]).toString('utf8');
 }
 
 // ── RATE LIMIT POR ACCOUNT_ID ──
@@ -767,9 +766,10 @@ app.get('/templates', requireAuth, async (req, res) => {
 
 
 // Subir logo de cuenta
-app.post('/logo/upload', upload.single('logo'), async (req, res) => {
+// P1-9: requireAuth — account_id from token, not body
+app.post('/logo/upload', requireAuth, upload.single('logo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No se recibio imagen' });
-  const accountId = req.body.account_id || 'default';
+  const accountId = req.accountId;
   try {
     await pool.query(
       'INSERT INTO logos (account_id, filename, data, mimetype) VALUES ($1,$2,$3,$4) ON CONFLICT (account_id) DO UPDATE SET data=$3, filename=$2, mimetype=$4',
@@ -1008,27 +1008,40 @@ app.get('/pdf-status/:jobId', async (req, res) => {
 });
 
 app.get('/download-pdf/:filename', async (req, res) => {
-  const filename = req.params.filename;
+  // P1-8: sanitize filename to prevent path traversal
+  const raw = req.params.filename;
+  const filename = path.basename(raw);
+  if (!filename || filename !== raw || filename.includes('..')) {
+    return res.status(400).json({ error: 'Nombre de archivo inválido' });
+  }
   const accountId = req.headers['x-account-id'] || req.query.account_id;
   if (!accountId) return res.status(400).json({ error: 'Se requiere account_id' });
   try {
     const result = await pool.query('SELECT pdf_data FROM pdf_jobs WHERE filename=$1 AND account_id=$2', [filename, accountId]);
     if (result.rows.length && result.rows[0].pdf_data) {
-      res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
+      res.setHeader('Content-Disposition', 'attachment; filename="' + filename.replace(/"/g, '\\"') + '"');
       res.setHeader('Content-Type', 'application/pdf');
       return res.send(result.rows[0].pdf_data);
     }
-    // Fallback filesystem
-    const pdfPath = path.join(outputsDir, filename);
+    // Fallback filesystem — only serve from outputsDir
+    const pdfPath = path.resolve(outputsDir, filename);
+    if (!pdfPath.startsWith(path.resolve(outputsDir))) return res.status(400).json({ error: 'Ruta inválida' });
     if (!fs.existsSync(pdfPath)) return res.status(404).json({ error: 'PDF no encontrado' });
     res.download(pdfPath, filename);
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/download/:filename', (req, res) => {
-  const filePath = path.join(outputsDir, req.params.filename);
+  // P1-8: sanitize to prevent path traversal
+  const raw = req.params.filename;
+  const filename = path.basename(raw);
+  if (!filename || filename !== raw || filename.includes('..')) {
+    return res.status(400).json({ error: 'Nombre de archivo inválido' });
+  }
+  const filePath = path.resolve(outputsDir, filename);
+  if (!filePath.startsWith(path.resolve(outputsDir))) return res.status(400).json({ error: 'Ruta inválida' });
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Archivo no encontrado' });
-  res.download(filePath);
+  res.download(filePath, filename);
 });
 
 app.post('/migrate', async (req, res) => {
@@ -2452,28 +2465,28 @@ app.post('/workflows/generate-document', accountRateLimit(20, 60 * 1000), async 
     if (!item) return res.status(404).json(severityError(4000, 'Item no encontrado', 'El item no existe o no es accesible', 'Item not found'));
 
     // Obtener template
-    const tmplRow = await pool.query('SELECT * FROM templates WHERE id=$1 AND account_id=$2', [templateId, accountId]);
+    // P0-3: query by filename (natural key), not by id
+    const tmplRow = await pool.query('SELECT * FROM templates WHERE filename=$1 AND account_id=$2', [templateId, accountId]);
     if (!tmplRow.rows.length) return res.status(404).json(severityError(4000, 'Template no encontrado', 'El template no existe', 'Template not found'));
 
     // Construir rowData desde column_values
-    const rowData = { item_name: item.name };
+    const rowData = { item_name: item.name, nombre: item.name };
     item.column_values.forEach(cv => {
       rowData[cv.id] = cv.text || '';
       try { const v = JSON.parse(cv.value); if (v && typeof v === 'object') rowData[cv.id + '_raw'] = v; } catch(e){}
     });
 
-    // Generar documento usando la función existente
-    const doc = new DocxTemplater();
-    const templateBuf = tmplRow.rows[0].file_data;
-    doc.loadZip(new PizZip(templateBuf));
-    doc.setData(rowData);
-    doc.render();
+    // P0-2: use createDocxtemplater() helper (same as rest of codebase) + correct column `data`
+    const templateBuf = tmplRow.rows[0].data;
+    const zip = new PizZip(templateBuf);
+    const doc = await createDocxtemplater(zip, accountId);
+    doc.render(rowData);
     const docBuf = doc.getZip().generate({ type: 'nodebuffer' });
 
-    // Guardar en documents
+    // Guardar en documents — correct columns (doc_data, no template_id/file_data)
     const docRow = await pool.query(
-      'INSERT INTO documents (account_id, template_id, item_id, board_id, file_data, filename, created_at) VALUES ($1,$2,$3,$4,$5,$6,NOW()) RETURNING id',
-      [accountId, templateId, itemId, boardId, docBuf, `${item.name}_${Date.now()}.docx`]
+      'INSERT INTO documents (account_id, item_id, board_id, item_name, template_name, filename, doc_data, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,NOW()) RETURNING id',
+      [accountId, itemId, boardId, item.name, templateId, `${item.name}_${Date.now()}.docx`, docBuf]
     );
     const docId = docRow.rows[0].id;
 
@@ -2808,9 +2821,8 @@ app.get('/signatures/:token/download', async (req, res) => {
     const sigImgBase64 = sig.signature_data.replace(/^data:image\/png;base64,/, '');
     const sigImgBuffer = Buffer.from(sigImgBase64, 'base64');
 
-    // Insertar firma en el docx via PizZip + XML
-    const PizZip2 = require('pizzip');
-    const zip2 = new PizZip2(docBuffer);
+    // Insertar firma en el docx via PizZip + XML (PizZip already required at top)
+    const zip2 = new PizZip(docBuffer);
     let documentXml = zip2.file('word/document.xml').asText();
 
     // Agregar imagen de firma como relación
@@ -2916,6 +2928,57 @@ function emailSignConfirm(signerName, docName, downloadUrl, signerIp) {
     </div>
   </div>
 </body></html>`;
+}
+
+// ─── EMAIL HELPERS ────────────────────────────────────────
+
+/**
+ * Send signature request email to a signer.
+ * P0-1 fix: was called but never defined.
+ */
+async function sendSignatureEmail(email, name, url, docName) {
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  await resend.emails.send({
+    from: process.env.SMTP_FROM || 'DocuGen <onboarding@resend.dev>',
+    to: email,
+    subject: `Documento pendiente de tu firma — ${escapeHtml(docName)}`,
+    html: emailSignRequest(escapeHtml(name), escapeHtml(docName), escapeHtml(url), expiresAt),
+  });
+}
+
+/**
+ * Notify each account admin that a legal document needs approval.
+ * P0-1 fix: was called but never defined.
+ */
+async function sendApprovalEmails(admins, approvalToken, docName, signerName, accountId) {
+  const approvalUrl = (process.env.APP_URL || '') + '/approve/' + approvalToken;
+  const targets = admins.length > 0
+    ? admins
+    : process.env.ADMIN_EMAIL ? [{ email: process.env.ADMIN_EMAIL, name: 'Admin' }] : [];
+  for (const admin of targets) {
+    try {
+      await resend.emails.send({
+        from: process.env.SMTP_FROM || 'DocuGen <onboarding@resend.dev>',
+        to: admin.email,
+        subject: `Aprobación requerida: ${escapeHtml(docName)}`,
+        html: `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:system-ui,sans-serif;background:#f5f5f5;padding:32px">
+  <div style="max-width:480px;margin:0 auto;background:white;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
+    <div style="background:#f59e0b;padding:24px 28px">
+      <div style="color:white;font-size:20px;font-weight:700">DocuGen · Aprobación pendiente</div>
+    </div>
+    <div style="padding:28px">
+      <p style="color:#444;font-size:14px;margin:0 0 16px">Hola <b>${escapeHtml(admin.name || 'Admin')}</b>,</p>
+      <p style="color:#444;font-size:14px;line-height:1.6;margin:0 0 20px">
+        <b>${escapeHtml(signerName)}</b> ha solicitado firma en el documento <b>${escapeHtml(docName)}</b>.
+        Tu aprobación es requerida antes de enviarlo al firmante.
+      </p>
+      <a href="${escapeHtml(approvalUrl)}" style="display:block;text-align:center;background:#f59e0b;color:white;text-decoration:none;padding:13px;border-radius:8px;font-size:14px;font-weight:600">✅ Revisar y aprobar</a>
+    </div>
+  </div>
+</body></html>`,
+      });
+    } catch(e) { logger.error({ err: e.message, to: admin.email }, 'Approval email failed'); }
+  }
 }
 
 // ─── HEALTH CHECK ─────────────────────────────────────────
