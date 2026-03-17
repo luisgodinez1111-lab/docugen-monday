@@ -1,5 +1,6 @@
 'use strict';
 const { Router } = require('express');
+const storageService = require('../services/storage.service');
 
 module.exports = function makeAdminRouter(deps) {
   const { pool, requireAuth, logger, runBackup } = deps;
@@ -16,6 +17,7 @@ module.exports = function makeAdminRouter(deps) {
         uptime_seconds: Math.round(uptime),
         memory_mb: Math.round(mem.heapUsed / 1024 / 1024),
         db: 'connected',
+        s3: { enabled: storageService.isS3Enabled },
         timestamp: new Date().toISOString()
       });
     } catch(e) {

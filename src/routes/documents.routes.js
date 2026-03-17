@@ -3,6 +3,7 @@ const { Router } = require('express');
 const path = require('path');
 const fs = require('fs');
 const PizZip = require('pizzip');
+const storageService = require('../services/storage.service');
 
 module.exports = function makeDocumentsRouter(deps) {
   const {
@@ -55,7 +56,8 @@ module.exports = function makeDocumentsRouter(deps) {
 
       const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
       const outputFilename = item.name.replace(/[^a-zA-Z0-9]/g, '_') + '_' + Date.now() + '.docx';
-      fs.writeFileSync(path.join(outputsDir, outputFilename), outputBuffer);
+      const storageKey = 'outputs/' + outputFilename;
+      await storageService.uploadFile(storageKey, outputBuffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
 
       await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)', [req.accountId, board_id, item_id, item.name, template_name, outputFilename, outputBuffer]);
 
@@ -251,6 +253,10 @@ module.exports = function makeDocumentsRouter(deps) {
         res.setHeader('Content-Type', 'application/pdf');
         return res.send(result.rows[0].pdf_data);
       }
+      // Try S3 presigned URL
+      const storageKey = 'outputs/' + filename;
+      const presignedUrl = await storageService.getDownloadUrl(storageKey);
+      if (presignedUrl) return res.redirect(presignedUrl);
       // Fallback filesystem — only serve from outputsDir
       const pdfPath = path.resolve(outputsDir, filename);
       if (!pdfPath.startsWith(path.resolve(outputsDir))) return res.status(400).json({ error: 'Ruta inválida' });
@@ -259,17 +265,23 @@ module.exports = function makeDocumentsRouter(deps) {
     } catch(err) { res.status(500).json({ error: err.message }); }
   });
 
-  router.get('/download/:filename', (req, res) => {
+  router.get('/download/:filename', async (req, res) => {
     // P1-8: sanitize to prevent path traversal
     const raw = req.params.filename;
     const filename = path.basename(raw);
     if (!filename || filename !== raw || filename.includes('..')) {
       return res.status(400).json({ error: 'Nombre de archivo inválido' });
     }
-    const filePath = path.resolve(outputsDir, filename);
-    if (!filePath.startsWith(path.resolve(outputsDir))) return res.status(400).json({ error: 'Ruta inválida' });
-    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Archivo no encontrado' });
-    res.download(filePath, filename);
+    try {
+      const storageKey = 'outputs/' + filename;
+      const presignedUrl = await storageService.getDownloadUrl(storageKey);
+      if (presignedUrl) return res.redirect(presignedUrl);
+      // Local disk fallback
+      const filePath = path.resolve(outputsDir, filename);
+      if (!filePath.startsWith(path.resolve(outputsDir))) return res.status(400).json({ error: 'Ruta inválida' });
+      if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Archivo no encontrado' });
+      res.download(filePath, filename);
+    } catch(err) { res.status(500).json({ error: err.message }); }
   });
 
   // ─── EXPORTAR A XLSX ──────────────────────────────────────

@@ -46,6 +46,13 @@ const schema = z.object({
 
   // Sentry (optional — error tracking disabled when not set)
   SENTRY_DSN: z.string().url().optional(),
+
+  // S3-compatible object storage (optional — falls back to local disk when not set)
+  S3_BUCKET: z.string().optional(),
+  S3_REGION: z.string().optional(),
+  S3_ENDPOINT: z.string().url().optional(),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
 });
 
 type Env = z.infer<typeof schema>;
