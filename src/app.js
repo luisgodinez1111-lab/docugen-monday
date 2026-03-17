@@ -42,12 +42,22 @@ module.exports = function createApp(deps) {
 
   // ── SANITIZE REQ.BODY MIDDLEWARE ──
   app.use((req, res, next) => {
+    // P2-3: Recursively sanitize all string leaves, including nested objects like 'settings'
+    function sanitizeDeep(obj) {
+      if (typeof obj === 'string') return sanitizeStr(obj);
+      if (Array.isArray(obj)) return obj.map(sanitizeDeep);
+      if (obj && typeof obj === 'object') {
+        const out = {};
+        for (const [k, v] of Object.entries(obj)) out[k] = sanitizeDeep(v);
+        return out;
+      }
+      return obj;
+    }
     if (req.body && typeof req.body === 'object') {
-      // Sanitizar strings en body, excepto campos que son JSON legítimo
-      const skipKeys = ['settings', 'event', 'data'];
-      for (const [key, val] of Object.entries(req.body)) {
-        if (!skipKeys.includes(key) && typeof val === 'string') {
-          req.body[key] = sanitizeStr(val);
+      const skipKeys = ['event', 'data', 'signature_data', 'challenge'];
+      for (const key of Object.keys(req.body)) {
+        if (!skipKeys.includes(key)) {
+          req.body[key] = sanitizeDeep(req.body[key]);
         }
       }
     }

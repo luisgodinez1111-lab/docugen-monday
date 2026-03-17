@@ -26,7 +26,10 @@ const schema = z.object({
   ADMIN_SECRET: z.string().optional(),
   ADMIN_MIGRATE_SECRET: z.string().optional(),
   ENCRYPTION_KEY_VERSION: z.string().optional(),
-});
+}).refine(
+  (d) => d.NODE_ENV === 'test' || !!(d.TOKEN_ENCRYPTION_KEY || d.ENCRYPTION_KEYS),
+  { message: 'Either TOKEN_ENCRYPTION_KEY or ENCRYPTION_KEYS must be set' }
+);
 
 const result = schema.safeParse(process.env);
 if (!result.success) {

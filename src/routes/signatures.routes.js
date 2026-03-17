@@ -4,6 +4,8 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const PizZip = require('pizzip');
+// P3-5: multer moved to module top level (was inside factory function)
+const multer = require('multer');
 
 module.exports = function makeSignaturesRouter(deps) {
   const {
@@ -195,23 +197,23 @@ module.exports = function makeSignaturesRouter(deps) {
 
       if (!docR.rows.length) return res.status(404).send('Documento no encontrado');
 
-      // Escribir DOCX temporal y convertir
-      const tmpDocx = path.join(outputsDir, 'tmp_preview_' + Date.now() + '.docx');
-      const tmpPdf = tmpDocx.replace('.docx', '.pdf');
-      fs.writeFileSync(tmpDocx, docR.rows[0].doc_data);
-
-      // Convertir DOCX a HTML con mammoth y devolver como HTML embebible
+      // P3-3: tmpDocx cleanup wrapped in finally to ensure cleanup on exception
+      let tmpDocx = null;
       try {
+        tmpDocx = path.join(outputsDir, 'tmp_preview_' + Date.now() + '.docx');
+        fs.writeFileSync(tmpDocx, docR.rows[0].doc_data);
+
+        // Convertir DOCX a HTML con mammoth y devolver como HTML embebible
         const mammoth = require('mammoth');
         const result = await mammoth.convertToHtml({ buffer: docR.rows[0].doc_data });
-        try { fs.unlinkSync(tmpDocx); } catch(e) {}
         const html = result.value;
         res.set('Content-Type', 'text/html; charset=utf-8');
         res.send('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:Georgia,serif;max-width:750px;margin:40px auto;padding:20px;font-size:14px;line-height:1.8;color:#111}h1,h2,h3{font-family:Georgia,serif}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6px 10px}img{max-width:100%}p{margin-bottom:10px}</style></head><body>' + html + '</body></html>');
       } catch(mammothErr) {
-        try { fs.unlinkSync(tmpDocx); } catch(e) {}
         logger.error('Mammoth error:', mammothErr.message);
         res.status(500).send('Error convirtiendo documento');
+      } finally {
+        if (tmpDocx) try { fs.unlinkSync(tmpDocx); } catch {}
       }
     } catch(e) { res.status(500).send('Error: ' + e.message); }
   });
@@ -662,7 +664,6 @@ module.exports = function makeSignaturesRouter(deps) {
   });
 
   // ── PORTAL LOGO (solo para portal de firmas, separado del logo de documentos) ──
-  const multer = require('multer');
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
   // FIX-5: requireAuth added — use req.accountId from auth middleware
@@ -736,6 +737,10 @@ module.exports = function makeSignaturesRouter(deps) {
       const docBuffer = docR.rows[0].doc_data;
       // FIX-19: null check before calling .replace() on signature_data
       if (!sig.signature_data) return res.status(400).json({ error: 'No hay datos de firma' });
+      // P2-7: Size check before Buffer.from() to prevent memory exhaustion from corrupt data
+      if (sig.signature_data && sig.signature_data.length > 500000) {
+        return res.status(400).json({ error: 'Datos de firma corruptos' });
+      }
       const sigImgBase64 = sig.signature_data.replace(/^data:image\/png;base64,/, '');
       const sigImgBuffer = Buffer.from(sigImgBase64, 'base64');
 

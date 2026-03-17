@@ -11,7 +11,8 @@ const { decryptToken } = require('../utils/crypto');
 const { withRetry } = require('../utils/retry');
 const { logError } = require('./error-log.service');
 
-const outputsDir = path.join(__dirname, '..', '..', '..', 'outputs');
+// P2-8: from src/services/, two levels up = project root (not three)
+const outputsDir = path.join(__dirname, '..', '..', 'outputs');
 
 async function executeAutomation(accountId, itemId, boardId, templateName, accessToken) {
   try {

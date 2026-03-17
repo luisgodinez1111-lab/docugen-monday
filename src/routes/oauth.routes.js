@@ -4,27 +4,48 @@ const crypto = require('crypto');
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
 
+// P2-1: OAuth state store — persisted in Redis when REDIS_URL is set, fallback to Map otherwise
+const stateStore = {
+  async set(key, value, ttlMs) {
+    if (process.env.REDIS_URL) {
+      const Redis = require('ioredis');
+      if (!stateStore._redis) stateStore._redis = new Redis(process.env.REDIS_URL, { lazyConnect: false });
+      await stateStore._redis.set('oauth_state:' + key, value, 'PX', ttlMs);
+    } else {
+      stateStore._map = stateStore._map || new Map();
+      stateStore._map.set(key, value);
+      setTimeout(() => stateStore._map.delete(key), ttlMs);
+    }
+  },
+  async get(key) {
+    if (process.env.REDIS_URL) {
+      if (!stateStore._redis) stateStore._redis = new Redis(process.env.REDIS_URL, { lazyConnect: false });
+      return stateStore._redis.get('oauth_state:' + key);
+    }
+    return stateStore._map?.get(key) ?? null;
+  },
+  async delete(key) {
+    if (process.env.REDIS_URL) {
+      if (!stateStore._redis) return;
+      await stateStore._redis.del('oauth_state:' + key);
+    } else {
+      stateStore._map?.delete(key);
+    }
+  }
+};
+
 module.exports = function makeOauthRouter(deps) {
   const { saveToken, getToken, logger } = deps;
   const router = Router();
 
-  // P2-4: Mapa en memoria para validar el state CSRF del flujo OAuth
-  const oauthStateStore = new Map();
-  setInterval(() => {
-    const cutoff = Date.now() - 15 * 60 * 1000; // expirar states > 15 min
-    for (const [k, v] of oauthStateStore.entries()) {
-      if (v.createdAt < cutoff) oauthStateStore.delete(k);
-    }
-  }, 10 * 60 * 1000);
-
-  router.get('/oauth/start', (req, res) => {
+  router.get('/oauth/start', async (req, res) => {
     const clientId = process.env.MONDAY_CLIENT_ID;
     const redirectUri = encodeURIComponent(process.env.REDIRECT_URI);
     const scopes = 'boards:read boards:write me:read notifications:write';
 
-    // P2-4: state criptográfico (crypto.randomBytes, no Math.random)
+    // P2-1: state criptográfico (crypto.randomBytes, no Math.random) — stored in Redis or Map
     const state = crypto.randomBytes(16).toString('hex');
-    oauthStateStore.set(state, { createdAt: Date.now() });
+    await stateStore.set(state, state, 15 * 60 * 1000);
 
     res.redirect(
       'https://auth.monday.com/oauth2/authorize' +
@@ -39,11 +60,12 @@ module.exports = function makeOauthRouter(deps) {
     const { code, state } = req.query;
     if (!code) return res.status(400).json({ error: 'No se recibio codigo' });
 
-    // P2-4: Validar state anti-CSRF antes de usar el code
-    if (!state || !oauthStateStore.has(state)) {
+    // P2-1: Validar state anti-CSRF antes de usar el code
+    const savedState = await stateStore.get(state);
+    if (!state || !savedState) {
       return res.status(400).json({ error: 'Estado OAuth inválido o expirado. Inicia el flujo nuevamente.' });
     }
-    oauthStateStore.delete(state); // use-once: eliminar tras validar
+    await stateStore.delete(state); // use-once: eliminar tras validar
 
     try {
       const response = await axios.post('https://auth.monday.com/oauth2/token', {

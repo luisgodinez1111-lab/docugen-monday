@@ -16,9 +16,11 @@ module.exports = function makeTemplatesRouter(deps) {
   router.post('/templates/upload', requireAuth, upload.single('template'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No se recibio archivo' });
     const accountId = req.accountId; // from requireAuth — never trust body/query
+    // P2-6: Sanitize filename to prevent path traversal and special character injection
+    const safeName = path.basename(req.file.originalname).replace(/[^a-zA-Z0-9._\-]/g, '_');
     try {
-      await pool.query(`INSERT INTO templates (account_id, filename, data) VALUES ($1, $2, $3) ON CONFLICT (account_id, filename) DO UPDATE SET data = $3, updated_at = NOW()`, [accountId, req.file.originalname, req.file.buffer]);
-      res.json({ success: true, filename: req.file.originalname });
+      await pool.query(`INSERT INTO templates (account_id, filename, data) VALUES ($1, $2, $3) ON CONFLICT (account_id, filename) DO UPDATE SET data = $3, updated_at = NOW()`, [accountId, safeName, req.file.buffer]);
+      res.json({ success: true, filename: safeName });
     } catch (err) {
       res.status(500).json({ error: 'Error al guardar plantilla', details: err.message });
     }

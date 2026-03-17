@@ -62,7 +62,8 @@ module.exports = function makeDocumentsRouter(deps) {
       logDocumentEvent(pool, { documentId: insertResult.rows[0].id, eventType: 'created', actorId: req.accountId }).catch(() => {});
 
       await incrementDocsUsed(_accountId); // billing
-      res.json({ success: true, filename: outputFilename, data_used: data, download_url: '/download/' + outputFilename });
+      // P2-9: data_used removed from response — do not expose all template variables to client
+      res.json({ success: true, filename: outputFilename, download_url: '/download/' + outputFilename });
     } catch (error) {
       logger.error('Error:', error);
       res.status(500).json({ error: 'Error al generar', details: error.message });
@@ -184,8 +185,6 @@ module.exports = function makeDocumentsRouter(deps) {
   });
 
   // Jobs PDF en PostgreSQL
-  logger.debug('PDF async endpoint registered');
-
   router.post('/generate-pdf-async', requireAuth, checkDocLimit, docGenRateLimit, async (req, res) => {
     // FIX-14: Use req.accountId from auth — not req.body.account_id (prevents billing bypass)
     const _accountId = req.accountId;
@@ -245,9 +244,11 @@ module.exports = function makeDocumentsRouter(deps) {
         logger.debug({ jobId, baseName }, 'PDF async - converting DOCX→PDF');
         const pdfData = await convertDocxToPdf(outputBuffer);
 
+        // P2-4: Update pdf_jobs to 'ready' first, then insert document, then increment billing.
+        // This ensures that if the DB write fails, billing is not incremented.
         await pool.query('UPDATE pdf_jobs SET status=$1, filename=$2, item_name=$3, pdf_data=$4 WHERE job_id=$5', ['ready', baseName + '.pdf', item.name, pdfData, jobId]);
-        if (accountId) await incrementDocsUsed(accountId);
         const asyncInsertResult = await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id', [accountId, board_id, item_id, item.name, template_name, baseName + '.pdf', pdfData]);
+        if (accountId) await incrementDocsUsed(accountId);
         logDocumentEvent(pool, { documentId: asyncInsertResult.rows[0].id, eventType: 'created', actorId: accountId }).catch(() => {});
         logger.info({ jobId, accountId, filename: baseName + '.pdf' }, 'PDF async job complete');
 

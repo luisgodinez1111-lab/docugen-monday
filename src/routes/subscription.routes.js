@@ -10,10 +10,9 @@ module.exports = function makeSubscriptionRouter(deps) {
   const router = Router();
 
   // ── SUBSCRIPTION STATUS ──
-  router.get('/subscription/status', async (req, res) => {
-    const accountId = req.query.account_id;
-    if (!accountId) return res.status(400).json({ error: 'account_id requerido' });
-    const status = await checkSubscription(accountId);
+  // P2-10: requireAuth added — plan info must not be exposed without authentication
+  router.get('/subscription/status', requireAuth, async (req, res) => {
+    const status = await checkSubscription(req.accountId);
     res.json(status);
   });
 

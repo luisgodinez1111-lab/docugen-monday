@@ -1,5 +1,8 @@
 'use strict';
 
+// P3-6: Defensive HTML escaping for URL attributes in email templates
+const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
 function emailSignRequest(signerName, docName, signUrl, expiresAt) {
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:system-ui,sans-serif;background:#f5f5f5;padding:32px">
   <div style="max-width:480px;margin:0 auto;background:white;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
@@ -14,7 +17,7 @@ function emailSignRequest(signerName, docName, signUrl, expiresAt) {
         <div style="font-size:13px;color:#666">📄 Documento</div>
         <div style="font-size:15px;font-weight:600;color:#111;margin-top:4px">${docName}</div>
       </div>
-      <a href="${signUrl}" style="display:block;text-align:center;background:#5b6af5;color:white;text-decoration:none;padding:13px;border-radius:8px;font-size:14px;font-weight:600">✍️ Firmar documento</a>
+      <a href="${esc(signUrl)}" style="display:block;text-align:center;background:#5b6af5;color:white;text-decoration:none;padding:13px;border-radius:8px;font-size:14px;font-weight:600">✍️ Firmar documento</a>
       <p style="color:#aaa;font-size:11px;text-align:center;margin-top:16px">Este link expira el ${new Date(expiresAt).toLocaleDateString('es-MX')}</p>
       <p style="color:#aaa;font-size:11px;text-align:center;margin-top:4px">🔒 Al firmar se registrará tu IP y fecha como evidencia legal</p>
     </div>
@@ -37,7 +40,7 @@ function emailSignConfirm(signerName, docName, downloadUrl, signerIp) {
         <div style="font-size:15px;font-weight:600;color:#111;margin-top:4px">${docName}</div>
         <div style="font-size:11px;color:#999;margin-top:6px">IP registrada: ${signerIp || 'N/A'}</div>
       </div>
-      <a href="${downloadUrl}" style="display:block;text-align:center;background:#059669;color:white;text-decoration:none;padding:13px;border-radius:8px;font-size:14px;font-weight:600">⬇️ Descargar documento firmado</a>
+      <a href="${esc(downloadUrl)}" style="display:block;text-align:center;background:#059669;color:white;text-decoration:none;padding:13px;border-radius:8px;font-size:14px;font-weight:600">⬇️ Descargar documento firmado</a>
     </div>
   </div>
 </body></html>`;

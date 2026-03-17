@@ -144,6 +144,7 @@ module.exports = function makeAdminRouter(deps) {
   }
 
   // Endpoint para ver historial de backups
+  // P3-7: System-wide — admin only (requireAdminSecret applied above). No account scoping needed for system backup data.
   router.get('/backups', requireAuth, requireAdminSecret, async (req, res) => {
     try {
       const r = await pool.query('SELECT id, created_at, tables_backed_up, total_rows, status, error FROM backups ORDER BY created_at DESC LIMIT 10');
@@ -152,6 +153,7 @@ module.exports = function makeAdminRouter(deps) {
   });
 
   // Endpoint para descargar último backup
+  // P3-7: System-wide — admin only (requireAdminSecret applied above). No account scoping needed for system backup data.
   router.get('/backups/latest', requireAuth, requireAdminSecret, async (req, res) => {
     try {
       const r = await pool.query('SELECT data, created_at FROM backup_data ORDER BY created_at DESC LIMIT 1');
