@@ -19,7 +19,6 @@ dotenv.config();
 
 const path = require('path');
 const fs = require('fs');
-const cron = require('node-cron');
 
 // ── OBSERVABILITY ──
 // Pino logger (structured JSON in prod, pretty in dev)
@@ -128,13 +127,16 @@ const app = createApp({
 });
 
 // ── CRON JOBS ──
-cron.schedule('0 3 * * *', runBackup);          // Backup every 24h at 3am
-cron.schedule('* * * * *', processPendingTriggers); // Check triggers every minute
-cron.schedule('0 * * * *', runScheduledAutomations); // Scheduled automations every hour
-
-// ── CRON: Ejecutar deletions pendientes cada hora ──
-setInterval(processDeletionQueue, 60 * 60 * 1000);
-processDeletionQueue();
+// When Redis is available: distributed cron via BullMQ (registered after server starts).
+// When Redis is not available: fall back to node-cron running in-process.
+if (!process.env.REDIS_URL) {
+  const cron = require('node-cron');
+  cron.schedule('* * * * *', () => processPendingTriggers().catch(console.error));
+  cron.schedule('* * * * *', () => runScheduledAutomations().catch(console.error));
+  cron.schedule('0 3 * * *', () => processDeletionQueue().catch(console.error));
+  cron.schedule('0 2 * * *', () => runBackup().catch(console.error));
+  logger.info('Local cron jobs started (Redis not configured)');
+}
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
@@ -143,10 +145,19 @@ app.listen(PORT, async () => {
 
   // ── #6 EMAIL WORKER ── register after server starts (Redis-conditional)
   if (process.env.REDIS_URL) {
+    try { require('./src/workers/email.worker'); }
+    catch (workerErr) { logger.warn({ err: workerErr.message }, 'Email worker failed to start'); }
+
     try {
-      require('./src/workers/email.worker');
+      require('./src/workers/cron.worker');
+      const { registerCronJobs } = require('./src/queues/cron.queue');
+      registerCronJobs().then(() => {
+        logger.info('Cron jobs registered');
+      }).catch(err => {
+        logger.warn({ err: err.message }, 'Failed to register cron jobs');
+      });
     } catch (workerErr) {
-      logger.warn({ err: workerErr.message }, 'Email worker failed to start');
+      logger.warn({ err: workerErr.message }, 'Cron worker failed to start');
     }
   }
 });
