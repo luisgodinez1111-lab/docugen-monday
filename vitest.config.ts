@@ -15,8 +15,8 @@ export default defineConfig({
     server: {
       deps: {
         interopDefault: true,
-        // Do not inline axios — nock intercepts at the http module level
-        // inline: [],
+        // Inline root index.js and db service so vi.mock('pg') intercepts their require() calls
+        inline: [/\/backend\/index\.js/, /\/src\/services\/db\.service\.js/],
       },
     },
   },

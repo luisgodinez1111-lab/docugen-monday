@@ -41,6 +41,9 @@ const schema = z.object({
 
   // Redis (optional — queues gracefully degrade without it)
   REDIS_URL: z.string().url().optional(),
+
+  // Sentry (optional — error tracking disabled when not set)
+  SENTRY_DSN: z.string().url().optional(),
 });
 
 type Env = z.infer<typeof schema>;

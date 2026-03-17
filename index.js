@@ -1,3 +1,19 @@
+// ── #10 SENTRY — must be first require for full auto-instrumentation ──────
+const Sentry = require('@sentry/node');
+Sentry.init({
+  dsn:              process.env.SENTRY_DSN,
+  environment:      process.env.NODE_ENV || 'development',
+  enabled:          !!process.env.SENTRY_DSN,
+  tracesSampleRate: 0.1,
+  beforeSend(event) {
+    // Scrub sensitive fields before sending
+    if (event.request?.headers?.authorization) event.request.headers.authorization = '[REDACTED]';
+    if (event.request?.data?.accessToken)       event.request.data.accessToken       = '[REDACTED]';
+    if (event.request?.data?.signature_data)    event.request.data.signature_data    = '[REDACTED]';
+    return event;
+  },
+});
+
 const crypto = require('crypto');
 
 // ── MÓDULOS DE SEGURIDAD Y COMPLIANCE ──
@@ -5,6 +21,21 @@ const { verifyMondayHmac } = require('./src/middleware/hmac');
 const { getMondayItem, getMondayBoard, createMondayUpdate, mondayQuery } = require('./src/utils/graphql');
 const { generateOtp, hashOtp, verifyOtp } = require('./src/utils/otp');
 const { getTimestamp } = require('./src/utils/tsa');
+
+// ── #8 CIRCUIT BREAKERS ──────────────────────────────────────────────────
+const { mondayBreaker, resendBreaker, tsaBreaker } = require('./src/utils/circuit-breaker');
+
+// ── #3 REDIS RATE LIMITER ────────────────────────────────────────────────
+const { makeRateLimiter } = require('./src/middleware/rateLimit');
+
+// ── #6 EMAIL QUEUE ───────────────────────────────────────────────────────
+let enqueueEmailJob = null;
+try {
+  enqueueEmailJob = require('./src/queues/email.queue').enqueueEmailJob;
+} catch { /* Redis not configured — direct send fallback is used */ }
+
+// ── #1 DB SERVICE (withTransaction) ─────────────────────────────────────
+const { withTransaction } = require('./src/services/db.service');
 
 // ── OBSERVABILITY ──
 // Pino logger (structured JSON in prod, pretty in dev)
@@ -103,6 +134,31 @@ const express = require('express');
 const helmet = require('helmet');
 const { Resend } = require('resend');
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+// ── #6 sendEmail: queue-first, direct-send fallback ─────────────────────
+/**
+ * Sends an email via BullMQ queue (async, retried) when Redis is available,
+ * or directly via Resend when Redis is not configured.
+ * @param {{ to: string|string[], subject: string, html: string, from?: string, type?: string, accountId?: string, token?: string }} payload
+ */
+async function sendEmail(payload) {
+  if (typeof enqueueEmailJob === 'function') {
+    const jobId = await enqueueEmailJob({
+      type: 'generic',
+      ...payload,
+    }).catch(() => null);
+    if (jobId !== null) return; // successfully queued
+  }
+  // Fallback: direct send (Redis unavailable or queue error)
+  await resendBreaker.call(() =>
+    resend.emails.send({
+      from:    payload.from || process.env.SMTP_FROM || 'DocuGen <onboarding@resend.dev>',
+      to:      Array.isArray(payload.to) ? payload.to : [payload.to],
+      subject: payload.subject,
+      html:    payload.html,
+    })
+  );
+}
 const cron = require('node-cron');
 
 const cors = require('cors');
@@ -145,49 +201,24 @@ function decryptToken(encrypted) {
   return Buffer.concat([decipher.update(encBuf), decipher.final()]).toString('utf8');
 }
 
-// ── RATE LIMIT POR ACCOUNT_ID ──
-const accountRateLimits = new Map();
+// ── #3 RATE LIMIT POR ACCOUNT_ID (Redis-backed, in-memory fallback) ──────
+// makeRateLimiter uses Redis when REDIS_URL is set, falls back to Map when not.
+const docGenRateLimit = makeRateLimiter(20, 60 * 1000);
 
-function accountRateLimit(maxRequests, windowMs) {
-  return (req, res, next) => {
-    const accountId = req.body?.accountId || req.query?.account_id || 'unknown';
-    const now = Date.now();
-    const key = accountId;
-
-    if (!accountRateLimits.has(key)) {
-      accountRateLimits.set(key, { count: 1, windowStart: now });
-      return next();
-    }
-
-    const entry = accountRateLimits.get(key);
-
-    // Reset si venció la ventana
-    if (now - entry.windowStart > windowMs) {
-      entry.count = 1;
-      entry.windowStart = now;
-      return next();
-    }
-
-    // Incrementar
-    entry.count++;
-    if (entry.count > maxRequests) {
-      return res.status(429).json({
-        error: 'Too many requests',
-        message: 'Rate limit exceeded. Please wait before generating more documents.',
-        retryAfter: Math.ceil((entry.windowStart + windowMs - now) / 1000)
-      });
-    }
-    next();
-  };
+// ── #7 PAGINATION HELPER ──────────────────────────────────────────────────
+/**
+ * Parses ?page and ?limit query params.
+ * @param {object} query - req.query
+ * @param {number} [defaultLimit=20]
+ * @param {number} [maxLimit=100]
+ * @returns {{ page: number, limit: number, offset: number }}
+ */
+function parsePagination(query, defaultLimit = 20, maxLimit = 100) {
+  const limit  = Math.min(Math.max(parseInt(query.limit)  || defaultLimit, 1), maxLimit);
+  const page   = Math.max(parseInt(query.page) || 1, 1);
+  const offset = (page - 1) * limit;
+  return { limit, page, offset };
 }
-
-// Limpiar entradas viejas cada 10 minutos
-setInterval(() => {
-  const cutoff = Date.now() - 60 * 60 * 1000;
-  for (const [key, entry] of accountRateLimits.entries()) {
-    if (entry.windowStart < cutoff) accountRateLimits.delete(key);
-  }
-}, 10 * 60 * 1000);
 
 
 const app = express();
@@ -370,6 +401,9 @@ async function initDB() {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_deletion_queue_sched  ON deletion_queue(scheduled_for) WHERE executed_at IS NULL`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_webhook_triggers_acct ON webhook_triggers(account_id)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_sched_autos_account   ON scheduled_automations(account_id)`);
+    // #9 Webhook deduplication: event_id column + partial unique index
+    await pool.query(`ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS event_id TEXT`);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_webhook_events_event_id ON webhook_events(event_id) WHERE event_id IS NOT NULL`);
 
     logger.info('Database initialised');
   } catch (err) {
@@ -400,8 +434,15 @@ async function requireAuth(req, res, next) {
   if (!accountId) return res.status(401).json({ error: 'Se requiere account_id' });
   const encryptedToken = await getToken(accountId);
   if (!encryptedToken) return res.status(401).json({ error: 'No hay sesion. Haz OAuth primero.', needs_auth: true });
-  req.accountId = accountId;
-  req.accessToken = decryptToken(encryptedToken); // descifrar AES-256-CBC si aplica
+  req.accountId   = accountId;
+  req.accessToken = decryptToken(encryptedToken);
+  // #10 Sentry: attach account context so errors are tagged per-account
+  Sentry.setUser({ id: accountId });
+  // #5 Token refresh helper: called by graphql.js when Monday returns 401
+  req.onTokenRefreshed = async (newToken) => {
+    await saveToken(accountId, null, newToken);
+    req.accessToken = newToken;
+  };
   next();
 }
 
@@ -757,8 +798,14 @@ app.post('/templates/upload', requireAuth, upload.single('template'), async (req
 app.get('/templates', requireAuth, async (req, res) => {
   const accountId = req.accountId;
   try {
-    const result = await pool.query('SELECT filename, created_at, updated_at, (canvas_json IS NOT NULL) as has_editor FROM templates WHERE account_id = $1 ORDER BY COALESCE(updated_at, created_at) DESC', [accountId]);
-    res.json({ templates: result.rows });
+    // #7 Pagination
+    const { limit, page, offset } = parsePagination(req.query);
+    const [countRes, result] = await Promise.all([
+      pool.query('SELECT COUNT(*) FROM templates WHERE account_id=$1', [accountId]),
+      pool.query('SELECT filename, created_at, updated_at, (canvas_json IS NOT NULL) as has_editor FROM templates WHERE account_id=$1 ORDER BY COALESCE(updated_at, created_at) DESC LIMIT $2 OFFSET $3', [accountId, limit, offset]),
+    ]);
+    const total = parseInt(countRes.rows[0].count, 10);
+    res.json({ templates: result.rows, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
   } catch (err) {
     res.status(500).json({ error: 'Error al listar plantillas' });
   }
@@ -793,7 +840,7 @@ app.get('/logo', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-app.post('/generate-from-monday', requireAuth, checkDocLimit, accountRateLimit(20, 60 * 1000), async (req, res) => {
+app.post('/generate-from-monday', requireAuth, checkDocLimit, docGenRateLimit, async (req, res) => {
   // -- SUBSCRIPTION CHECK --
   const _accountId = req.body.account_id || req.query.account_id;
   if (_accountId) {
@@ -848,8 +895,19 @@ app.post('/generate-from-monday', requireAuth, checkDocLimit, accountRateLimit(2
 
 app.get('/documents', requireAuth, async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, item_name, template_name, filename, created_at FROM documents WHERE account_id = $1 ORDER BY created_at DESC LIMIT 20', [req.accountId]);
-    res.json({ documents: result.rows });
+    const { page, limit, offset } = parsePagination(req.query);
+    const [result, countResult] = await Promise.all([
+      pool.query(
+        'SELECT id, item_name, template_name, filename, created_at FROM documents WHERE account_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+        [req.accountId, limit, offset]
+      ),
+      pool.query('SELECT COUNT(*)::int AS total FROM documents WHERE account_id = $1', [req.accountId]),
+    ]);
+    const total = countResult.rows[0].total;
+    res.json({
+      documents:  result.rows,
+      pagination: { page, limit, total, total_pages: Math.ceil(total / limit) },
+    });
   } catch (err) {
     res.status(500).json({ error: 'Error al obtener historial' });
   }
@@ -857,7 +915,7 @@ app.get('/documents', requireAuth, async (req, res) => {
 
 
 // Generar documento desde monday en formato PDF o DOCX
-app.post('/generate-from-monday-pdf', requireAuth, checkDocLimit, accountRateLimit(20, 60 * 1000), async (req, res) => {
+app.post('/generate-from-monday-pdf', requireAuth, checkDocLimit, docGenRateLimit, async (req, res) => {
   // -- SUBSCRIPTION CHECK --
   const _accountId = req.body.account_id || req.query.account_id;
   if (_accountId) {
@@ -923,7 +981,7 @@ app.post('/generate-from-monday-pdf', requireAuth, checkDocLimit, accountRateLim
 // Jobs PDF en PostgreSQL
 logger.debug('PDF async endpoint registered');
 
-app.post('/generate-pdf-async', requireAuth, checkDocLimit, accountRateLimit(20, 60 * 1000), async (req, res) => {
+app.post('/generate-pdf-async', requireAuth, checkDocLimit, docGenRateLimit, async (req, res) => {
   // -- SUBSCRIPTION CHECK --
   const _accountId = req.body.account_id || req.query.account_id;
   if (_accountId) {
@@ -1236,9 +1294,33 @@ function sanitizeInput(obj) {
   return clean;
 }
 
+// ── #10 SENTRY EXPRESS ERROR HANDLER (must be after all routes, before custom error handler) ──
+Sentry.setupExpressErrorHandler(app);
+
+// ── GLOBAL ERROR HANDLER ──────────────────────────────────────────────────
+// Catches any error passed via next(err) or thrown in express handlers.
+// Handles circuit breaker CIRCUIT_OPEN errors with a proper 503 response.
+app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
+  if (err.code === 'CIRCUIT_OPEN') {
+    return res.status(503).json({ error: 'Servicio temporalmente no disponible. Intenta en unos minutos.', code: 'CIRCUIT_OPEN' });
+  }
+  logger.error({ err: err.message, path: req.path }, 'Unhandled error');
+  Sentry.captureException(err);
+  res.status(500).json({ error: 'Error interno del servidor' });
+});
+
 app.listen(PORT, async () => {
   logger.info({ port: PORT, appId: process.env.MONDAY_APP_ID, env: process.env.NODE_ENV || 'development' }, 'DocuGen server started');
   await initDB();
+
+  // ── #6 EMAIL WORKER ── register after server starts (Redis-conditional)
+  if (process.env.REDIS_URL) {
+    try {
+      require('./src/workers/email.worker');
+    } catch (workerErr) {
+      logger.warn({ err: workerErr.message }, 'Email worker failed to start');
+    }
+  }
 });
 
 module.exports = app;
@@ -1543,36 +1625,48 @@ app.post('/signatures/request', requireAuth, checkSigLimit, async (req, res) => 
       }
     } catch(e) {}
 
-    await pool.query(
-      'INSERT INTO signature_requests (token, account_id, document_filename, signer_name, signer_email, item_id, board_id, expires_at, doc_hash, audit_log, consent_text, doc_data, doc_type) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',
-      [token, req.accountId, document_filename, signer_name, signer_email, item_id, board_id, expiresAt, docHashVal, auditInit, consentText, signDocData, doc_type || 'document']
-    );
-    logger.debug({ bytes: signDocData ? signDocData.length : 0 }, "FIRMA signDocData saved");
-    const signUrl = process.env.APP_URL + '/sign/' + token;
-
-    // Flujo según doc_type
+    // #2 TRANSACTION: insert signature_request + optional approval_request atomically
     const finalDocType = doc_type || 'document';
+    const signUrl      = process.env.APP_URL + '/sign/' + token;
+    let approvalToken  = null;
+    let adminsNotified = 0;
+
+    await withTransaction(pool, async (client) => {
+      await client.query(
+        'INSERT INTO signature_requests (token, account_id, document_filename, signer_name, signer_email, item_id, board_id, expires_at, doc_hash, audit_log, consent_text, doc_data, doc_type) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',
+        [token, req.accountId, document_filename, signer_name, signer_email, item_id, board_id, expiresAt, docHashVal, auditInit, consentText, signDocData, finalDocType]
+      );
+      logger.debug({ bytes: signDocData ? signDocData.length : 0 }, 'FIRMA signDocData saved');
+
+      if (finalDocType === 'legal') {
+        approvalToken = crypto.randomBytes(32).toString('hex');
+        const sigRow = await client.query('SELECT id FROM signature_requests WHERE token=$1', [token]);
+        if (!sigRow.rows.length) throw new Error('Signature request not found after insert');
+        await client.query(
+          'INSERT INTO approval_requests (approval_token, signature_request_id) VALUES ($1,$2)',
+          [approvalToken, sigRow.rows[0].id]
+        );
+        await client.query('UPDATE signature_requests SET status=$1 WHERE token=$2', ['pending_approval', token]);
+      }
+    });
+
+    // Post-transaction: send emails (outside TX — email failures don't roll back the record)
     if (finalDocType === 'legal') {
-      // approval_requests table created in initDB()
-      const approvalToken = require('crypto').randomBytes(32).toString('hex');
-      const sigRow = await pool.query('SELECT id FROM signature_requests WHERE token=$1', [token]);
-      if (!sigRow.rows.length) throw new Error('Signature request not found after insert');
-      await pool.query('INSERT INTO approval_requests (approval_token, signature_request_id) VALUES ($1,$2)', [approvalToken, sigRow.rows[0].id]);
-      await pool.query('UPDATE signature_requests SET status=$1 WHERE token=$2', ['pending_approval', token]);
       const admins = await getAccountAdmins(req.accountId);
       await sendApprovalEmails(admins, approvalToken, document_filename, signer_name, req.accountId);
-      res.json({ success: true, token, sign_url: signUrl, status: 'pending_approval', admins_notified: admins.length });
+      adminsNotified = admins.length;
+      res.json({ success: true, token, sign_url: signUrl, status: 'pending_approval', admins_notified: adminsNotified });
     } else {
-      // Enviar email al firmante si hay email
+      // #6 Email queue: send via BullMQ when Redis available, direct Resend otherwise
       if (signer_email) {
-        try {
-          await resend.emails.send({
-            from: 'DocuGen <onboarding@resend.dev>',
-            to: signer_email,
-            subject: 'Documento pendiente de tu firma — ' + document_filename,
-            html: emailSignRequest(signer_name, document_filename, signUrl, expiresAt)
-          });
-        } catch(emailErr) { logger.error('Email error:', emailErr.message); }
+        sendEmail({
+          to:      signer_email,
+          subject: 'Documento pendiente de tu firma — ' + escapeHtml(document_filename),
+          html:    emailSignRequest(escapeHtml(signer_name), escapeHtml(document_filename), signUrl, expiresAt),
+          type:    'sign_request',
+          accountId: req.accountId,
+          token,
+        }).catch(emailErr => logger.error({ err: emailErr.message }, 'Email error'));
       }
       res.json({ success: true, token, sign_url: signUrl });
     }
@@ -1681,17 +1775,10 @@ app.post('/sign/:token/send-otp', async (req, res) => {
       [otpHash, req.params.token]
     );
 
-    // Enviar email via Resend API
-    const emailRes = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + process.env.SMTP_PASS,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        from: process.env.SMTP_FROM || 'DocuGen <noreply@velumlaser.com>',
-        to: [sig.signer_email],
-        subject: 'Código de verificación para firma de documento',
+    // #6 Enviar OTP vía sendEmail (queue-first, direct-send fallback)
+    await sendEmail({
+      to:      sig.signer_email,
+      subject: 'Código de verificación para firma de documento',
       html: `
         <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:20px">
           <div style="background:#0f1e3d;color:white;padding:20px;border-radius:8px 8px 0 0;text-align:center">
@@ -1707,11 +1794,9 @@ app.post('/sign/:token/send-otp', async (req, res) => {
             <p style="color:#666;font-size:12px">Si no solicitaste esta firma, ignora este mensaje.</p>
           </div>
         </div>
-      `
-      })
+      `,
+      type: 'otp',
     });
-    const emailData = await emailRes.json();
-    if (!emailRes.ok) throw new Error('Resend error: ' + JSON.stringify(emailData));
     logger.info('OTP enviado a:', sig.signer_email);
     res.json({ ok: true, email: sig.signer_email.replace(/(.{2}).*(@.*)/, '$1***$2') });
   } catch(e) {
@@ -2058,20 +2143,14 @@ app.post('/sign/:token', async (req, res) => {
           logger.debug('PDF firmado generado:', pdfBuffer.length, 'bytes con', pdfDoc.getPageCount(), 'paginas');
         }
 
-        // Email confirmación
-        if (sig.signer_email && process.env.SMTP_PASS) {
-          try {
-            await fetch('https://api.resend.com/emails', {
-              method: 'POST',
-              headers: { 'Authorization': 'Bearer ' + process.env.SMTP_PASS, 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                from: process.env.SMTP_FROM || 'DocuGen <noreply@velumlaser.com>',
-                to: [sig.signer_email],
-                subject: 'Documento firmado: ' + escapeHtml(sig.document_filename),
-                html: '<h2>Documento firmado exitosamente</h2><p>Hola <b>' + escapeHtml(finalName) + '</b>, has firmado el documento <b>' + escapeHtml(sig.document_filename) + '</b>.</p><p><a href="' + escapeHtml(downloadUrl) + '">Descargar documento firmado</a></p><p style="color:#666;font-size:12px">Fecha: ' + new Date().toLocaleString('es-MX') + ' · IP: ' + escapeHtml(signerIp) + '</p>'
-              })
-            });
-          } catch(emailErr) { logger.error('Email confirm error:', emailErr.message); }
+        // #6 Email confirmación vía sendEmail
+        if (sig.signer_email) {
+          sendEmail({
+            to:      sig.signer_email,
+            subject: 'Documento firmado: ' + escapeHtml(sig.document_filename),
+            html:    '<h2>Documento firmado exitosamente</h2><p>Hola <b>' + escapeHtml(finalName) + '</b>, has firmado el documento <b>' + escapeHtml(sig.document_filename) + '</b>.</p><p><a href="' + escapeHtml(downloadUrl) + '">Descargar documento firmado</a></p><p style="color:#666;font-size:12px">Fecha: ' + new Date().toLocaleString('es-MX') + ' · IP: ' + escapeHtml(signerIp) + '</p>',
+            type:    'sign_confirm',
+          }).catch(emailErr => logger.error('Email confirm error:', emailErr.message));
         }
 
         // Monday: notificaciones al firmar (usando variables GraphQL — sin injection)
@@ -2369,20 +2448,16 @@ app.post('/sign/:token/quote-response', async (req, res) => {
           'rejected': '❌ Rechazada', 
           'changes_requested': '💬 Cambios Solicitados'
         };
-        await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${process.env.SMTP_PASS}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from: process.env.SMTP_FROM,
-            to: ownerEmail,
-            subject: `Cotización ${responseLabels[response]} — ${s.signer_name || 'Cliente'}`,
-            html: `<h2>Respuesta de Cotización</h2>
+        await sendEmail({
+          to:      ownerEmail,
+          subject: `Cotización ${responseLabels[response]} — ${s.signer_name || 'Cliente'}`,
+          html:    `<h2>Respuesta de Cotización</h2>
               <p><strong>Cliente:</strong> ${s.signer_name || 'N/A'}</p>
               <p><strong>Email:</strong> ${s.signer_email || 'N/A'}</p>
               <p><strong>Respuesta:</strong> ${responseLabels[response]}</p>
               ${comment ? `<p><strong>Comentario:</strong> ${comment}</p>` : ''}
-              <p><strong>Fecha:</strong> ${new Date().toLocaleString('es-MX')}</p>`
-          })
+              <p><strong>Fecha:</strong> ${new Date().toLocaleString('es-MX')}</p>`,
+          type: 'generic',
         });
       }
     } catch(e) { logger.error('Email notification error:', e.message); }
@@ -2424,7 +2499,7 @@ function verifyWorkflowJWT(req) {
 
 // ACTION BLOCK 1: Generar documento desde workflow
 // Run URL: https://docugen-monday-production.up.railway.app/workflows/generate-document
-app.post('/workflows/generate-document', accountRateLimit(20, 60 * 1000), async (req, res) => {
+app.post('/workflows/generate-document', docGenRateLimit, async (req, res) => {
   // -- SUBSCRIPTION CHECK --
   const _accountId = req.body.account_id || req.query.account_id;
   if (_accountId) {
@@ -2613,8 +2688,19 @@ app.get('/signatures', requireAuth, async (req, res) => {
       item_id TEXT, board_id TEXT, status TEXT DEFAULT 'pending',
       signature_data TEXT, signed_at TIMESTAMP, expires_at TIMESTAMP, created_at TIMESTAMP DEFAULT NOW()
     )`);
-    const r = await pool.query('SELECT id, document_filename, signer_name, signer_email, status, signed_at, created_at, token FROM signature_requests WHERE account_id=$1 ORDER BY created_at DESC LIMIT 50', [req.accountId]);
-    res.json({ signatures: r.rows });
+    const { page, limit, offset } = parsePagination(req.query, 20, 100);
+    const [r, countResult] = await Promise.all([
+      pool.query(
+        'SELECT id, document_filename, signer_name, signer_email, status, signed_at, created_at, token FROM signature_requests WHERE account_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+        [req.accountId, limit, offset]
+      ),
+      pool.query('SELECT COUNT(*)::int AS total FROM signature_requests WHERE account_id=$1', [req.accountId]),
+    ]);
+    const total = countResult.rows[0].total;
+    res.json({
+      signatures: r.rows,
+      pagination:  { page, limit, total, total_pages: Math.ceil(total / limit) },
+    });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2938,11 +3024,11 @@ function emailSignConfirm(signerName, docName, downloadUrl, signerIp) {
  */
 async function sendSignatureEmail(email, name, url, docName) {
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-  await resend.emails.send({
-    from: process.env.SMTP_FROM || 'DocuGen <onboarding@resend.dev>',
-    to: email,
+  await sendEmail({
+    to:      email,
     subject: `Documento pendiente de tu firma — ${escapeHtml(docName)}`,
-    html: emailSignRequest(escapeHtml(name), escapeHtml(docName), escapeHtml(url), expiresAt),
+    html:    emailSignRequest(escapeHtml(name), escapeHtml(docName), escapeHtml(url), expiresAt),
+    type:    'sign_request',
   });
 }
 
@@ -2957,11 +3043,10 @@ async function sendApprovalEmails(admins, approvalToken, docName, signerName, ac
     : process.env.ADMIN_EMAIL ? [{ email: process.env.ADMIN_EMAIL, name: 'Admin' }] : [];
   for (const admin of targets) {
     try {
-      await resend.emails.send({
-        from: process.env.SMTP_FROM || 'DocuGen <onboarding@resend.dev>',
-        to: admin.email,
+      await sendEmail({
+        to:      admin.email,
         subject: `Aprobación requerida: ${escapeHtml(docName)}`,
-        html: `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:system-ui,sans-serif;background:#f5f5f5;padding:32px">
+        html:    `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:system-ui,sans-serif;background:#f5f5f5;padding:32px">
   <div style="max-width:480px;margin:0 auto;background:white;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
     <div style="background:#f59e0b;padding:24px 28px">
       <div style="color:white;font-size:20px;font-weight:700">DocuGen · Aprobación pendiente</div>
@@ -2976,6 +3061,7 @@ async function sendApprovalEmails(admins, approvalToken, docName, signerName, ac
     </div>
   </div>
 </body></html>`,
+        type: 'approval',
       });
     } catch(e) { logger.error({ err: e.message, to: admin.email }, 'Approval email failed'); }
   }
@@ -3086,14 +3172,14 @@ async function runBackup() {
     logger.error('Backup error:', e.message);
     try {
       await pool.query('INSERT INTO backups (tables_backed_up, total_rows, status, error) VALUES ($1,$2,$3,$4)', [0, 0, 'error', e.message]);
-      // Alertar por email si hay RESEND_API_KEY
-      if (process.env.RESEND_API_KEY && process.env.ADMIN_EMAIL) {
-        await resend.emails.send({
-          from: 'DocuGen <onboarding@resend.dev>',
-          to: process.env.ADMIN_EMAIL,
-          subject: '⚠️ Error en backup de DocuGen',
-          html: '<p>El backup automático falló: ' + e.message + '</p>'
-        });
+      // Alertar por email si hay ADMIN_EMAIL configurado
+      if (process.env.ADMIN_EMAIL) {
+        sendEmail({
+          to:      process.env.ADMIN_EMAIL,
+          subject: 'Error en backup de DocuGen',
+          html:    '<p>El backup automático falló: ' + e.message + '</p>',
+          type:    'generic',
+        }).catch(() => {});
       }
     } catch(e2) {}
   }
@@ -3260,36 +3346,51 @@ app.post('/webhooks/monday', verifyMondayHmac({ allowChallenge: true }), async (
   const event = req.body.event;
   if (!event) return res.sendStatus(200);
 
-  logger.info('Monday webhook:', event.type, event.itemId);
+  // #9 DEDUPLICATION: build a stable event_id
+  // Monday sends event.id on most payloads; fall back to composite key
+  const eventId = event.id != null
+    ? String(event.id)
+    : [event.type, event.itemId, event.boardId, event.columnId, event.timestamp]
+        .filter(Boolean).join(':') || null;
+
+  logger.info({ eventType: event.type, itemId: event.itemId, eventId }, 'Monday webhook received');
 
   try {
-    await pool.query(`CREATE TABLE IF NOT EXISTS webhook_events (
-      id SERIAL PRIMARY KEY, event_type TEXT, item_id TEXT, board_id TEXT,
-      column_id TEXT, column_value TEXT, account_id TEXT,
-      created_at TIMESTAMP DEFAULT NOW()
-    )`);
-
-    await pool.query(
-      'INSERT INTO webhook_events (event_type, item_id, board_id, column_id, column_value) VALUES ($1,$2,$3,$4,$5)',
-      [event.type, event.itemId, event.boardId, event.columnId, JSON.stringify(event.value)]
-    );
-
-    // Trigger: si columna de status cambia a valor configurado, auto-generar doc
-    if (event.type === 'change_column_value') {
-      const triggers = await pool.query(
-        'SELECT * FROM webhook_triggers WHERE board_id=$1 AND column_id=$2 AND trigger_value=$3',
-        [String(event.boardId), event.columnId, event.value?.label?.text || event.value]
+    // #2 TRANSACTION: insert event + trigger_fired atomically
+    // ON CONFLICT DO NOTHING handles duplicate delivery gracefully
+    await withTransaction(pool, async (client) => {
+      const insertResult = await client.query(
+        `INSERT INTO webhook_events (event_id, event_type, item_id, board_id, column_id, column_value)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (event_id) WHERE event_id IS NOT NULL DO NOTHING
+         RETURNING id`,
+        [eventId, event.type, event.itemId, event.boardId, event.columnId, JSON.stringify(event.value)]
       );
-      for (const trigger of triggers.rows) {
-        logger.info('Trigger activado:', trigger.action, 'item:', event.itemId);
-        // Guardar evento pendiente para procesar
-        await pool.query(
-          'INSERT INTO webhook_events (event_type, item_id, board_id, column_id, column_value, account_id) VALUES ($1,$2,$3,$4,$5,$6)',
-          ['trigger_fired', String(event.itemId), String(event.boardId), trigger.template_name, 'pending', trigger.account_id]
-        );
+
+      if (insertResult.rows.length === 0) {
+        logger.info({ eventId }, 'Duplicate webhook event — skipped');
+        return; // duplicate — no further processing
       }
-    }
-  } catch(e) { logger.error('Webhook error:', e.message); }
+
+      // Trigger: si columna de status cambia a valor configurado, auto-generar doc
+      if (event.type === 'change_column_value') {
+        const triggers = await client.query(
+          'SELECT * FROM webhook_triggers WHERE board_id=$1 AND column_id=$2 AND trigger_value=$3',
+          [String(event.boardId), event.columnId, event.value?.label?.text || event.value]
+        );
+        for (const trigger of triggers.rows) {
+          logger.info({ action: trigger.action, itemId: event.itemId }, 'Webhook trigger fired');
+          await client.query(
+            'INSERT INTO webhook_events (event_type, item_id, board_id, column_id, column_value, account_id) VALUES ($1,$2,$3,$4,$5,$6)',
+            ['trigger_fired', String(event.itemId), String(event.boardId), trigger.template_name, 'pending', trigger.account_id]
+          );
+        }
+      }
+    });
+  } catch(e) {
+    logger.error({ err: e.message }, 'Webhook error');
+    Sentry.captureException(e, { tags: { endpoint: 'webhook-monday' } });
+  }
 
   res.sendStatus(200);
 });
@@ -3313,13 +3414,14 @@ app.post('/webhooks/triggers', requireAuth, async (req, res) => {
 
 app.get('/webhooks/triggers', requireAuth, async (req, res) => {
   try {
-    await pool.query(`CREATE TABLE IF NOT EXISTS webhook_triggers (
-      id SERIAL PRIMARY KEY, account_id TEXT, board_id TEXT, column_id TEXT,
-      trigger_value TEXT, template_name TEXT, action TEXT DEFAULT 'generate_doc',
-      created_at TIMESTAMP DEFAULT NOW()
-    )`);
-    const r = await pool.query('SELECT * FROM webhook_triggers WHERE account_id=$1 ORDER BY created_at DESC', [req.accountId]);
-    res.json({ triggers: r.rows });
+    // #7 Pagination
+    const { limit, page, offset } = parsePagination(req.query);
+    const [countRes, r] = await Promise.all([
+      pool.query('SELECT COUNT(*) FROM webhook_triggers WHERE account_id=$1', [req.accountId]),
+      pool.query('SELECT * FROM webhook_triggers WHERE account_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3', [req.accountId, limit, offset]),
+    ]);
+    const total = parseInt(countRes.rows[0].count, 10);
+    res.json({ triggers: r.rows, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3398,7 +3500,7 @@ async function processPendingTriggers() {
 cron.schedule('* * * * *', processPendingTriggers);
 
 // ─── GENERACIÓN MASIVA ────────────────────────────────────
-app.post('/generate-bulk', requireAuth, checkDocLimit, accountRateLimit(20, 60 * 1000), async (req, res) => {
+app.post('/generate-bulk', requireAuth, checkDocLimit, docGenRateLimit, async (req, res) => {
   // -- SUBSCRIPTION CHECK --
   const _accountId = req.body.account_id || req.query.account_id;
   if (_accountId) {
@@ -3450,14 +3552,14 @@ app.post('/scheduled-automations', requireAuth, async (req, res) => {
 
 app.get('/scheduled-automations', requireAuth, async (req, res) => {
   try {
-    await pool.query(`CREATE TABLE IF NOT EXISTS scheduled_automations (
-      id SERIAL PRIMARY KEY, account_id TEXT, name TEXT, cron_expression TEXT,
-      board_id TEXT, template_name TEXT, condition_column TEXT, condition_value TEXT,
-      last_run TIMESTAMP, next_run TIMESTAMP, status TEXT DEFAULT 'active',
-      created_at TIMESTAMP DEFAULT NOW()
-    )`);
-    const r = await pool.query('SELECT * FROM scheduled_automations WHERE account_id=$1 ORDER BY created_at DESC', [req.accountId]);
-    res.json({ automations: r.rows });
+    // #7 Pagination
+    const { limit, page, offset } = parsePagination(req.query);
+    const [countRes, r] = await Promise.all([
+      pool.query('SELECT COUNT(*) FROM scheduled_automations WHERE account_id=$1', [req.accountId]),
+      pool.query('SELECT * FROM scheduled_automations WHERE account_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3', [req.accountId, limit, offset]),
+    ]);
+    const total = parseInt(countRes.rows[0].count, 10);
+    res.json({ automations: r.rows, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3537,14 +3639,12 @@ app.post('/signatures/request-multi', requireAuth, checkSigLimit, async (req, re
 
       // Solo enviar email al primero en el orden
       if (order === 1 && signer.email) {
-        try {
-          await resend.emails.send({
-            from: 'DocuGen <onboarding@resend.dev>',
-            to: signer.email,
-            subject: 'Documento pendiente de tu firma — ' + document_filename,
-            html: emailSignRequest(signer.name, document_filename, signUrl, expiresAt)
-          });
-        } catch(e) { logger.error('Email error:', e.message); }
+        sendEmail({
+          to:      signer.email,
+          subject: 'Documento pendiente de tu firma — ' + document_filename,
+          html:    emailSignRequest(signer.name, document_filename, signUrl, expiresAt),
+          type:    'sign_request',
+        }).catch(e => logger.error('Email error:', e.message));
       }
       tokens.push({ name: signer.name, email: signer.email, order, token, sign_url: signUrl });
     }
@@ -3662,16 +3762,12 @@ app.post('/sign/:token/remind', requireAuth, async (req, res) => {
     const portalUrl = (process.env.APP_URL || 'https://docugen-monday-production.up.railway.app') + '/sign/' + sig.token;
     const expiresText = sig.expires_at ? new Date(sig.expires_at).toLocaleDateString('es-MX') : 'pronto';
 
-    // Email al firmante
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + process.env.SMTP_PASS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: process.env.SMTP_FROM || 'DocuGen <noreply@velumlaser.com>',
-        to: sig.signer_email,
-        subject: 'Recordatorio: documento pendiente de tu firma',
-        html: '<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px"><h2 style="color:#1a1a1a">Tienes un documento pendiente de firma</h2><p>Hola <strong>' + escapeHtml(sig.signer_name) + '</strong>,</p><p>Te recordamos que el documento <strong>' + escapeHtml(sig.document_filename) + '</strong> sigue pendiente de tu firma.</p><p style="color:#e55;">Este enlace expira el ' + escapeHtml(expiresText) + '.</p><div style="margin:32px 0;text-align:center"><a href="' + escapeHtml(portalUrl) + '" style="background:#1a1a1a;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px">Firmar ahora</a></div></div>'
-      })
+    // #6 Email al firmante vía sendEmail
+    await sendEmail({
+      to:      sig.signer_email,
+      subject: 'Recordatorio: documento pendiente de tu firma',
+      html:    '<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px"><h2 style="color:#1a1a1a">Tienes un documento pendiente de firma</h2><p>Hola <strong>' + escapeHtml(sig.signer_name) + '</strong>,</p><p>Te recordamos que el documento <strong>' + escapeHtml(sig.document_filename) + '</strong> sigue pendiente de tu firma.</p><p style="color:#e55;">Este enlace expira el ' + escapeHtml(expiresText) + '.</p><div style="margin:32px 0;text-align:center"><a href="' + escapeHtml(portalUrl) + '" style="background:#1a1a1a;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px">Firmar ahora</a></div></div>',
+      type: 'reminder',
     });
 
     // Notificación en Monday si hay item_id
@@ -3714,15 +3810,11 @@ app.post('/workflows/send-reminder', async (req, res) => {
     const portalUrl = (process.env.APP_URL || 'https://docugen-monday-production.up.railway.app') + '/sign/' + sig.token;
     const expiresText = sig.expires_at ? new Date(sig.expires_at).toLocaleDateString('es-MX') : 'pronto';
 
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + process.env.SMTP_PASS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: process.env.SMTP_FROM || 'DocuGen <noreply@velumlaser.com>',
-        to: sig.signer_email,
-        subject: 'Recordatorio: documento pendiente de tu firma',
-        html: '<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px"><h2>Tienes un documento pendiente de firma</h2><p>Hola <strong>' + escapeHtml(sig.signer_name) + '</strong>,</p><p>El documento <strong>' + escapeHtml(sig.document_filename) + '</strong> sigue pendiente de tu firma. Expira el ' + escapeHtml(expiresText) + '.</p><div style="margin:32px 0;text-align:center"><a href="' + escapeHtml(portalUrl) + '" style="background:#1a1a1a;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px">Firmar ahora</a></div></div>'
-      })
+    await sendEmail({
+      to:      sig.signer_email,
+      subject: 'Recordatorio: documento pendiente de tu firma',
+      html:    '<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px"><h2>Tienes un documento pendiente de firma</h2><p>Hola <strong>' + escapeHtml(sig.signer_name) + '</strong>,</p><p>El documento <strong>' + escapeHtml(sig.document_filename) + '</strong> sigue pendiente de tu firma. Expira el ' + escapeHtml(expiresText) + '.</p><div style="margin:32px 0;text-align:center"><a href="' + escapeHtml(portalUrl) + '" style="background:#1a1a1a;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px">Firmar ahora</a></div></div>',
+      type: 'reminder',
     });
 
     if (sig.item_id && sig.account_id) {

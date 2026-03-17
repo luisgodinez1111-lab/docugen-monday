@@ -18,8 +18,11 @@
  * Docs RFC 3161: https://www.rfc-editor.org/rfc/rfc3161
  * Docs NOM-151: https://www.dof.gob.mx/nota_detalle.php?codigo=5427399
  */
+// #8 Circuit breaker — protects against TSA outages
+'use strict';
 const crypto = require('crypto');
 const axios  = require('axios');
+const { tsaBreaker } = require('./circuit-breaker');
 
 // TSA pública por defecto (Sectigo, RFC 3161, sin costo para uso básico)
 const DEFAULT_TSA_URL = process.env.TSA_URL || 'http://timestamp.sectigo.com';
@@ -106,14 +109,16 @@ async function requestTsaTimestamp(documentBuffer, tsaUrl = DEFAULT_TSA_URL) {
   // 2. Construir TimeStampRequest
   const tsq = buildTsq(docHash);
 
-  // 3. Enviar a la TSA
+  // 3. Enviar a la TSA — wrapped in circuit breaker (#8)
   let tsrBuffer;
   try {
-    const response = await axios.post(tsaUrl, tsq, {
-      headers: { 'Content-Type': 'application/timestamp-query' },
-      responseType: 'arraybuffer',
-      timeout: 15000
-    });
+    const response = await tsaBreaker.call(() =>
+      axios.post(tsaUrl, tsq, {
+        headers:      { 'Content-Type': 'application/timestamp-query' },
+        responseType: 'arraybuffer',
+        timeout:      15_000,
+      })
+    );
     tsrBuffer = Buffer.from(response.data);
   } catch (err) {
     throw new Error(`TSA request failed (${tsaUrl}): ${err.message}`);
