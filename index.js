@@ -165,6 +165,6 @@ initDB(logger).then(() => {
       }
     }
   });
-}).catch(err => { logger.error(err); process.exit(1); });
+}).catch(err => { logger.error(err); if (process.env.NODE_ENV !== 'test') process.exit(1); });
 
 module.exports = app;
