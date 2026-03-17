@@ -12,7 +12,7 @@ try {
   // libreoffice-convert not found — falling back to execFile
 }
 
-const outputsDir = path.join(__dirname, '..', '..', '..', 'outputs');
+const outputsDir = path.join(__dirname, '..', '..', 'outputs');
 
 /**
  * Convert a DOCX Buffer → PDF Buffer using libreoffice-convert.

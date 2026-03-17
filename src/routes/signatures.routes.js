@@ -475,7 +475,7 @@ module.exports = function makeSignaturesRouter(deps) {
 
   // PORTAL - debe ir DESPUÉS de /info y /download
   router.get('/sign/:token', async (req, res) => {
-    return res.sendFile(require('path').join(__dirname, '../../..', 'public', 'portal.html'));
+    return res.sendFile(require('path').join(__dirname, '../..', 'public', 'portal.html'));
   });
 
   router.post('/sign/:token', async (req, res) => {
