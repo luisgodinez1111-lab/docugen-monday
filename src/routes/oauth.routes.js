@@ -52,11 +52,18 @@ module.exports = function makeOauthRouter(deps) {
         code,
         redirect_uri: process.env.REDIRECT_URI
       }, { timeout: 15000 });
-      const { access_token } = response.data;
+      const { access_token, refresh_token } = response.data;
       const decoded = jwt.decode(access_token);
       const accountId = decoded?.actid?.toString() || 'default';
       const userId = decoded?.uid?.toString() || null;
-      await saveToken(accountId, userId, access_token);
+
+      // Improvement #9: store refresh_token and expires_at for proactive refresh
+      const expiresIn = response.data.expires_in || 3600;
+      const expiresAt = new Date(Date.now() + expiresIn * 1000);
+      // saveToken detects legacy (accountId, userId, accessToken) vs new call by
+      // checking whether 2nd arg is a numeric user-id string — so we call the new
+      // 4-arg form explicitly to store the refresh token and expiry.
+      await saveToken(accountId, access_token, refresh_token || null, expiresAt);
       // P2-5: Redirigir solo a rutas internas conocidas
       res.redirect('/view?account_id=' + encodeURIComponent(accountId));
     } catch (error) {

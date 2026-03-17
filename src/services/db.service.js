@@ -181,6 +181,10 @@ async function initDB(logger) {
     await pool.query(`ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS event_id TEXT`);
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_webhook_events_event_id ON webhook_events(event_id) WHERE event_id IS NOT NULL`);
 
+    // Improvement #9: proactive token refresh — store refresh_token and expires_at
+    await pool.query(`ALTER TABLE tokens ADD COLUMN IF NOT EXISTS refresh_token TEXT`);
+    await pool.query(`ALTER TABLE tokens ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ`);
+
     // #6 Soft delete + audit trail
     await pool.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`);
     await pool.query(`CREATE TABLE IF NOT EXISTS document_events (
