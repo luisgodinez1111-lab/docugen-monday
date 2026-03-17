@@ -1,6 +1,7 @@
 'use strict';
 const { Router } = require('express');
 const storageService = require('../services/storage.service');
+const { mondayBreaker, resendBreaker, tsaBreaker } = require('../utils/circuit-breaker');
 
 module.exports = function makeAdminRouter(deps) {
   const { pool, requireAuth, logger, runBackup } = deps;
@@ -8,21 +9,74 @@ module.exports = function makeAdminRouter(deps) {
 
   // ─── HEALTH CHECK ─────────────────────────────────────────
   router.get('/health', async (req, res) => {
+    const startTime = Date.now();
+    const checks = {};
+
+    // DB ping
     try {
+      const t0 = Date.now();
       await pool.query('SELECT 1');
-      const uptime = process.uptime();
-      const mem = process.memoryUsage();
-      res.json({
-        status: 'ok',
-        uptime_seconds: Math.round(uptime),
-        memory_mb: Math.round(mem.heapUsed / 1024 / 1024),
-        db: 'connected',
-        s3: { enabled: storageService.isS3Enabled },
-        timestamp: new Date().toISOString()
-      });
-    } catch(e) {
-      res.status(500).json({ status: 'error', db: 'disconnected', error: e.message });
+      checks.database = { status: 'ok', latencyMs: Date.now() - t0 };
+    } catch (e) {
+      checks.database = { status: 'down', error: e.message };
     }
+
+    // Redis ping
+    if (process.env.REDIS_URL) {
+      try {
+        const Redis = require('ioredis');
+        const redis = new Redis(process.env.REDIS_URL, { lazyConnect: true, enableOfflineQueue: false, connectTimeout: 3000 });
+        await redis.connect();
+        const t0 = Date.now();
+        await redis.ping();
+        checks.redis = { status: 'ok', latencyMs: Date.now() - t0 };
+        redis.disconnect();
+      } catch (e) {
+        checks.redis = { status: 'down', error: e.message };
+      }
+    }
+
+    // Circuit breakers
+    checks.circuitBreakers = {
+      monday: { state: mondayBreaker.state, failures: mondayBreaker.failureCount },
+      resend: { state: resendBreaker.state, failures: resendBreaker.failureCount },
+      tsa:    { state: tsaBreaker.state,    failures: tsaBreaker.failureCount },
+    };
+
+    // BullMQ queue stats
+    if (process.env.REDIS_URL) {
+      try {
+        const { Queue } = require('bullmq');
+        const emailQueue = new Queue('email', { connection: { url: process.env.REDIS_URL } });
+        const [waiting, active, failed] = await Promise.all([
+          emailQueue.getWaitingCount(),
+          emailQueue.getActiveCount(),
+          emailQueue.getFailedCount(),
+        ]);
+        await emailQueue.close();
+        checks.emailQueue = { status: 'ok', waiting, active, failed };
+      } catch (e) {
+        checks.emailQueue = { status: 'down', error: e.message };
+      }
+    }
+
+    // S3 storage
+    checks.storage = { s3: storageService.isS3Enabled };
+
+    // Overall status
+    const isDown = checks.database?.status === 'down';
+    const isDegraded = checks.redis?.status === 'down' ||
+      Object.values(checks.circuitBreakers || {}).some(b => b.state !== 'CLOSED');
+
+    const status = isDown ? 'down' : isDegraded ? 'degraded' : 'ok';
+
+    res.status(isDown ? 503 : 200).json({
+      status,
+      version: require('../../package.json').version,
+      uptime: process.uptime(),
+      responseTimeMs: Date.now() - startTime,
+      checks,
+    });
   });
 
   // ─── MÉTRICAS ─────────────────────────────────────────────
