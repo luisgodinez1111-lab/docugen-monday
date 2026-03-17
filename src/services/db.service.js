@@ -23,7 +23,7 @@ const pool = new Pool({
   // Connection pool settings optimised for Railway's single-instance deployment
   max:              10,
   idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 5_000,
+  connectionTimeoutMillis: 15_000,
 });
 
 /**
