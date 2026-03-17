@@ -80,6 +80,17 @@ function generateDocHash(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex');
 }
 
+// HTML escape — prevent XSS when interpolating user data into HTML email/portal strings
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
 // ⚖️  generateTimestamp: ahora usa TSA externa RFC 3161 acreditada
 // Ver src/utils/tsa.js para detalles de cumplimiento NOM-151-SCFI-2016
 // Mantener esta función como wrapper para compatibilidad con código existente
@@ -120,7 +131,7 @@ function encryptToken(token) {
     const cipher = crypto.createCipheriv('aes-256-cbc', ENC_KEY, iv);
     const encrypted = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
     return iv.toString('hex') + ':' + encrypted.toString('hex');
-  } catch(e) { console.error('encryptToken error:', e.message); return token; }
+  } catch(e) { logger.error('encryptToken error:', e.message); return token; }
 }
 
 function decryptToken(encrypted) {
@@ -132,7 +143,7 @@ function decryptToken(encrypted) {
     const encBuf = Buffer.from(encHex, 'hex');
     const decipher = crypto.createDecipheriv('aes-256-cbc', ENC_KEY, iv);
     return Buffer.concat([decipher.update(encBuf), decipher.final()]).toString('utf8');
-  } catch(e) { console.error('decryptToken error:', e.message); return encrypted; }
+  } catch(e) { logger.error('decryptToken error:', e.message); return encrypted; }
 }
 
 // ── RATE LIMIT POR ACCOUNT_ID ──
@@ -345,9 +356,25 @@ async function initDB() {
     await pool.query(`CREATE TABLE IF NOT EXISTS backups (id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT NOW(), tables_backed_up INT, total_rows INT, status TEXT, error TEXT)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS backup_data (id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT NOW(), data TEXT)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS deletion_queue (id SERIAL PRIMARY KEY, account_id TEXT NOT NULL UNIQUE, scheduled_for TIMESTAMPTZ NOT NULL, executed_at TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT NOW())`);
-    console.log('Base de datos inicializada');
+
+    // ── ÍNDICES CRÍTICOS (evitan full table scans en producción) ──
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_tokens_account       ON tokens(account_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_templates_account    ON templates(account_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_documents_account    ON documents(account_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_documents_item       ON documents(item_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_sigs_account         ON signature_requests(account_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_sigs_token           ON signature_requests(token)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_sigs_group           ON signature_requests(group_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_sigs_status          ON signature_requests(status)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_pdf_jobs_account     ON pdf_jobs(account_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_subscriptions_account ON subscriptions(account_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_deletion_queue_sched  ON deletion_queue(scheduled_for) WHERE executed_at IS NULL`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_webhook_triggers_acct ON webhook_triggers(account_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_sched_autos_account   ON scheduled_automations(account_id)`);
+
+    logger.info('Database initialised');
   } catch (err) {
-    console.error('Error iniciando DB:', err.message);
+    logger.error({ err: err.message }, 'Error initialising DB');
   }
 }
 
@@ -440,7 +467,7 @@ async function injectGlobalSettings(data, accountId) {
     if (s.custom_fields && Array.isArray(s.custom_fields)) {
       s.custom_fields.forEach(f => { if (f.key && f.value) data[f.key] = f.value; });
     }
-  } catch(e) { console.log('Settings inject error:', e.message); }
+  } catch(e) { logger.debug('Settings inject error:', e.message); }
   return data;
 }
 
@@ -450,7 +477,7 @@ async function createDocxtemplater(zip, accountId) {
     const logoResult = await pool.query('SELECT data FROM logos WHERE account_id = $1', [accountId]);
     if (logoResult.rows.length) {
       logoBuffer = logoResult.rows[0].data;
-      console.log('Logo encontrado:', logoBuffer.length, 'bytes');
+      logger.debug('Logo encontrado:', logoBuffer.length, 'bytes');
     }
   } catch(e) {}
 
@@ -489,7 +516,7 @@ async function createDocxtemplater(zip, accountId) {
         '<w:p><w:pPr><w:jc w:val="left"/></w:pPr><w:r>' + imgXml + '<\/w:r><\/w:p>');
     }
     zip.file('word/document.xml', docXml);
-    console.log('Logo inyectado en XML');
+    logger.debug('Logo inyectado en XML');
   }
 
   return new Docxtemplater(zip, {
@@ -662,7 +689,7 @@ app.get('/oauth/callback', async (req, res) => {
     // P2-5: Redirigir solo a rutas internas conocidas
     res.redirect('/view?account_id=' + encodeURIComponent(accountId));
   } catch (error) {
-    console.error('Error OAuth:', error.response?.data || error.message);
+    logger.error('Error OAuth:', error.response?.data || error.message);
     res.status(500).json({ error: 'Error OAuth', details: error.response?.data });
   }
 });
@@ -682,7 +709,7 @@ app.post('/board-items', requireAuth, async (req, res) => {
     if (!board) return res.status(404).json({ error: 'Board no encontrado' });
     res.json({ data: { boards: [board] } });
   } catch (error) {
-    console.error('GraphQL error:', error.message);
+    logger.error('GraphQL error:', error.message);
     res.status(500).json({ error: 'Error GraphQL', message: error.message });
   }
 });
@@ -717,19 +744,19 @@ app.post('/item-variables', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/templates/upload', upload.single('template'), async (req, res) => {
+app.post('/templates/upload', requireAuth, upload.single('template'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No se recibio archivo' });
-  const accountId = req.body.account_id || 'default';
+  const accountId = req.accountId; // from requireAuth — never trust body/query
   try {
-    await pool.query(`INSERT INTO templates (account_id, filename, data) VALUES ($1, $2, $3) ON CONFLICT (account_id, filename) DO UPDATE SET data = $3`, [accountId, req.file.originalname, req.file.buffer]);
+    await pool.query(`INSERT INTO templates (account_id, filename, data) VALUES ($1, $2, $3) ON CONFLICT (account_id, filename) DO UPDATE SET data = $3, updated_at = NOW()`, [accountId, req.file.originalname, req.file.buffer]);
     res.json({ success: true, filename: req.file.originalname });
   } catch (err) {
     res.status(500).json({ error: 'Error al guardar plantilla', details: err.message });
   }
 });
 
-app.get('/templates', async (req, res) => {
-  const accountId = req.query.account_id || 'default';
+app.get('/templates', requireAuth, async (req, res) => {
+  const accountId = req.accountId;
   try {
     const result = await pool.query('SELECT filename, created_at, updated_at, (canvas_json IS NOT NULL) as has_editor FROM templates WHERE account_id = $1 ORDER BY COALESCE(updated_at, created_at) DESC', [accountId]);
     res.json({ templates: result.rows });
@@ -798,7 +825,7 @@ app.post('/generate-from-monday', requireAuth, checkDocLimit, accountRateLimit(2
     calcularTotales(data, item.subitems, item.column_values);
     await injectGlobalSettings(data, req.accountId);
 
-    console.log('Variables para plantilla:', JSON.stringify(data, null, 2));
+    logger.debug('Variables para plantilla:', JSON.stringify(data, null, 2));
 
     const zip = new PizZip(tplResult.rows[0].data);
     const doc = await createDocxtemplater(zip, req.accountId);
@@ -814,7 +841,7 @@ app.post('/generate-from-monday', requireAuth, checkDocLimit, accountRateLimit(2
         if (_accountId) await incrementDocsUsed(_accountId); // billing
     res.json({ success: true, filename: outputFilename, data_used: data, download_url: '/download/' + outputFilename });
   } catch (error) {
-    console.error('Error:', error);
+    logger.error('Error:', error);
     res.status(500).json({ error: 'Error al generar', details: error.message });
   }
 });
@@ -1072,7 +1099,7 @@ async function checkSubscription(accountId) {
 
     return { allowed: true, plan: sub.plan_id, status: sub.status, docs_used: sub.docs_used, docs_limit: sub.docs_limit };
   } catch(e) {
-    console.error('checkSubscription error:', e.message);
+    logger.error('checkSubscription error:', e.message);
     // P1-8: fail CLOSED para billing — un error de DB no debe regalar acceso
     return { allowed: false, reason: 'subscription_check_error', plan: 'unknown' };
   }
@@ -1086,7 +1113,7 @@ async function incrementDocsUsed(accountId) {
       [accountId]
     );
   } catch(e) {
-    console.error('incrementDocsUsed error:', e.message);
+    logger.error('incrementDocsUsed error:', e.message);
   }
 }
 
@@ -1123,10 +1150,10 @@ app.post('/lifecycle/uninstall', async (req, res) => {
       [accountId]
     );
 
-    console.log('Uninstall queued for account:', accountId);
+    logger.info('Uninstall queued for account:', accountId);
     res.status(200).json({ success: true });
   } catch(e) {
-    console.error('Uninstall webhook error:', e.message);
+    logger.error('Uninstall webhook error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -1148,10 +1175,10 @@ async function processDeletionQueue() {
           await pool.query('DELETE FROM ' + table + ' WHERE account_id = $1', [accountId]).catch(() => {});
         }
         await pool.query('UPDATE deletion_queue SET executed_at = NOW() WHERE account_id = $1', [accountId]);
-        console.log('Data deleted for uninstalled account:', accountId);
-      } catch(e) { console.error('Error deleting account:', accountId, e.message); }
+        logger.info('Data deleted for uninstalled account:', accountId);
+      } catch(e) { logger.error('Error deleting account:', accountId, e.message); }
     }
-  } catch(e) { console.error('processDeletionQueue error:', e.message); }
+  } catch(e) { logger.error('processDeletionQueue error:', e.message); }
 }
 
 setInterval(processDeletionQueue, 60 * 60 * 1000);
@@ -1389,7 +1416,7 @@ app.post('/editor/save-template', requireAuth, async (req, res) => {
 
     res.json({ success: true, filename });
   } catch(err) {
-    console.error('Editor save error:', err.message);
+    logger.error('Editor save error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1441,22 +1468,7 @@ app.post('/signatures/request', requireAuth, checkSigLimit, async (req, res) => 
   try {
     const token = require('crypto').randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 días
-    await pool.query(`CREATE TABLE IF NOT EXISTS signature_requests (
-      id SERIAL PRIMARY KEY,
-      token TEXT UNIQUE NOT NULL,
-      account_id TEXT NOT NULL,
-      document_filename TEXT NOT NULL,
-      signer_name TEXT,
-      signer_email TEXT,
-      item_id TEXT,
-      board_id TEXT,
-      status TEXT DEFAULT 'pending',
-      signature_data TEXT,
-      signed_at TIMESTAMP,
-      expires_at TIMESTAMP,
-      created_at TIMESTAMP DEFAULT NOW()
-    )`);
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signer_ip TEXT');
+    // Tables created in initDB() — no inline CREATE TABLE needed here
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS user_agent TEXT');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signed_pdf BYTEA');
     await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signature_type TEXT');
@@ -1498,14 +1510,14 @@ app.post('/signatures/request', requireAuth, checkSigLimit, async (req, res) => 
     const consentText = 'Al firmar este documento, el firmante acepta que su firma electronica tiene plena validez legal conforme a la legislacion mexicana (Codigo de Comercio Art. 89-114, NOM-151-SCFI-2016). IP: ' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '') + '. Fecha: ' + new Date().toISOString();
     // Guardar doc_data directamente en la solicitud de firma
     let signDocData = null;
-    console.log('FIRMA: item_id=', item_id, 'account=', req.accountId, 'doc_filename=', document_filename);
+    logger.debug({ itemId: item_id, accountId: req.accountId, filename: document_filename }, 'Signature request');
     try {
       if (item_id) {
         const docQ = await pool.query(
           "SELECT doc_data FROM documents WHERE item_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1",
           [String(item_id)]
         );
-        console.log('FIRMA: docs by item_id:', docQ.rows.length);
+        logger.debug({ count: docQ.rows.length }, 'FIRMA docs by item_id');
         if (docQ.rows.length) signDocData = docQ.rows[0].doc_data;
       }
       if (!signDocData) {
@@ -1513,7 +1525,7 @@ app.post('/signatures/request', requireAuth, checkSigLimit, async (req, res) => 
           "SELECT doc_data FROM documents WHERE account_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1",
           [req.accountId]
         );
-        console.log('FIRMA: docs by account:', docQ2.rows.length);
+        logger.debug({ count: docQ2.rows.length }, 'FIRMA docs by account');
         if (docQ2.rows.length) signDocData = docQ2.rows[0].doc_data;
       }
     } catch(e) {}
@@ -1522,22 +1534,18 @@ app.post('/signatures/request', requireAuth, checkSigLimit, async (req, res) => 
       'INSERT INTO signature_requests (token, account_id, document_filename, signer_name, signer_email, item_id, board_id, expires_at, doc_hash, audit_log, consent_text, doc_data, doc_type) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',
       [token, req.accountId, document_filename, signer_name, signer_email, item_id, board_id, expiresAt, docHashVal, auditInit, consentText, signDocData, doc_type || 'document']
     );
-    console.log('FIRMA: signDocData guardado:', signDocData ? signDocData.length + ' bytes' : 'NULL');
+    logger.debug({ bytes: signDocData ? signDocData.length : 0 }, "FIRMA signDocData saved");
     const signUrl = process.env.APP_URL + '/sign/' + token;
 
     // Flujo según doc_type
     const finalDocType = doc_type || 'document';
     if (finalDocType === 'legal') {
-      // Crear approval_request y notificar admins
-      await pool.query(`CREATE TABLE IF NOT EXISTS approval_requests (
-        id SERIAL PRIMARY KEY, approval_token TEXT UNIQUE NOT NULL,
-        signature_request_id INTEGER, status TEXT DEFAULT 'pending',
-        comment TEXT, responded_at TIMESTAMP, created_at TIMESTAMP DEFAULT NOW()
-      )`);
+      // approval_requests table created in initDB()
       const approvalToken = require('crypto').randomBytes(32).toString('hex');
-      const sigRow = await pool.query('SELECT id FROM signature_requests WHERE token=', [token]);
-      await pool.query('INSERT INTO approval_requests (approval_token, signature_request_id) VALUES (,)', [approvalToken, sigRow.rows[0].id]);
-      await pool.query('UPDATE signature_requests SET status= WHERE token=', ['pending_approval', token]);
+      const sigRow = await pool.query('SELECT id FROM signature_requests WHERE token=$1', [token]);
+      if (!sigRow.rows.length) throw new Error('Signature request not found after insert');
+      await pool.query('INSERT INTO approval_requests (approval_token, signature_request_id) VALUES ($1,$2)', [approvalToken, sigRow.rows[0].id]);
+      await pool.query('UPDATE signature_requests SET status=$1 WHERE token=$2', ['pending_approval', token]);
       const admins = await getAccountAdmins(req.accountId);
       await sendApprovalEmails(admins, approvalToken, document_filename, signer_name, req.accountId);
       res.json({ success: true, token, sign_url: signUrl, status: 'pending_approval', admins_notified: admins.length });
@@ -1551,7 +1559,7 @@ app.post('/signatures/request', requireAuth, checkSigLimit, async (req, res) => 
             subject: 'Documento pendiente de tu firma — ' + document_filename,
             html: emailSignRequest(signer_name, document_filename, signUrl, expiresAt)
           });
-        } catch(emailErr) { console.error('Email error:', emailErr.message); }
+        } catch(emailErr) { logger.error('Email error:', emailErr.message); }
       }
       res.json({ success: true, token, sign_url: signUrl });
     }
@@ -1634,7 +1642,7 @@ app.get('/sign/:token/preview-pdf', async (req, res) => {
       res.send('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:Georgia,serif;max-width:750px;margin:40px auto;padding:20px;font-size:14px;line-height:1.8;color:#111}h1,h2,h3{font-family:Georgia,serif}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6px 10px}img{max-width:100%}p{margin-bottom:10px}</style></head><body>' + html + '</body></html>');
     } catch(mammothErr) {
       try { fs.unlinkSync(tmpDocx); } catch(e) {}
-      console.error('Mammoth error:', mammothErr.message);
+      logger.error('Mammoth error:', mammothErr.message);
       res.status(500).send('Error convirtiendo documento');
     }
   } catch(e) { res.status(500).send('Error: ' + e.message); }
@@ -1677,8 +1685,8 @@ app.post('/sign/:token/send-otp', async (req, res) => {
             <h2 style="margin:0">DocuGen · Verificación de Firma</h2>
           </div>
           <div style="background:#f9f9f9;padding:24px;border:1px solid #e0e0e0;border-radius:0 0 8px 8px">
-            <p>Hola <b>${sig.signer_name || 'firmante'}</b>,</p>
-            <p>Tu código de verificación para firmar el documento <b>${sig.document_filename}</b> es:</p>
+            <p>Hola <b>${escapeHtml(sig.signer_name) || 'firmante'}</b>,</p>
+            <p>Tu código de verificación para firmar el documento <b>${escapeHtml(sig.document_filename)}</b> es:</p>
             <div style="background:white;border:2px solid #0f1e3d;border-radius:8px;padding:20px;text-align:center;margin:20px 0">
               <span style="font-size:36px;font-weight:bold;letter-spacing:8px;color:#0f1e3d">${otp}</span>
             </div>
@@ -1691,10 +1699,10 @@ app.post('/sign/:token/send-otp', async (req, res) => {
     });
     const emailData = await emailRes.json();
     if (!emailRes.ok) throw new Error('Resend error: ' + JSON.stringify(emailData));
-    console.log('OTP enviado a:', sig.signer_email);
+    logger.info('OTP enviado a:', sig.signer_email);
     res.json({ ok: true, email: sig.signer_email.replace(/(.{2}).*(@.*)/, '$1***$2') });
   } catch(e) {
-    console.error('OTP send error:', e.message);
+    logger.error('OTP send error:', e.message);
     res.status(500).json({ error: 'Error enviando OTP: ' + e.message });
   }
 });
@@ -1766,7 +1774,7 @@ app.get('/sign/:token/download', async (req, res) => {
     // 1. Si tiene signed_pdf generado al firmar, servirlo
     const sigPdfR = await pool.query('SELECT signed_pdf FROM signature_requests WHERE token=$1', [req.params.token]);
     const signedPdfSize = sigPdfR.rows[0]?.signed_pdf?.length || 0;
-    console.log('signed_pdf size:', signedPdfSize, 'token:', req.params.token.substring(0,10));
+    logger.debug('signed_pdf size:', signedPdfSize, 'token:', req.params.token.substring(0,10));
     if (signedPdfSize > 10000) {
       const outName = filename.replace(/\.\w+$/, '') + '_firmado.pdf';
       res.set('Content-Disposition', 'attachment; filename="' + outName + '"');
@@ -1835,7 +1843,7 @@ app.get('/sign/:token/download', async (req, res) => {
         res.set('Content-Disposition', 'attachment; filename="' + outName + '"');
         res.set('Content-Type', 'application/pdf');
         return res.send(Buffer.from(signedBytes));
-      } catch(e) { console.error('PDF embed error:', e.message); }
+      } catch(e) { logger.error('PDF embed error:', e.message); }
     }
 
     // Si tenemos PDF real sin firma, servirlo directo
@@ -1890,12 +1898,12 @@ app.get('/sign/:token/download', async (req, res) => {
         const dims = sigImg.scaleToFit(280, 100);
         page.drawImage(sigImg, { x:40, y:y-dims.height, width:dims.width, height:dims.height });
         y -= dims.height + 20;
-      } catch(e) { console.error('Sig embed:', e.message); }
+      } catch(e) { logger.error('Sig embed:', e.message); }
     }
 
     // Footer
     page.drawLine({ start:{x:40,y:60}, end:{x:555,y:60}, thickness:1, color:rgb(0.85,0.85,0.85) });
-    page.drawText('Documento generado y gestionado por DocuGen · docugen-monday-production.up.railway.app', {
+    page.drawText('Documento generado y gestionado por DocuGen · ' + new URL(process.env.APP_URL || 'https://docugen-monday-production.up.railway.app').hostname, {
       x:40, y:45, size:8, color:rgb(0.6,0.6,0.6)
     });
 
@@ -1904,7 +1912,7 @@ app.get('/sign/:token/download', async (req, res) => {
     res.set('Content-Disposition', 'attachment; filename="' + pdfName + '"');
     res.set('Content-Type', 'application/pdf');
     res.send(Buffer.from(pdfBytes));
-  } catch(e) { console.error('Download error:', e); res.status(500).send('Error: ' + e.message); }
+  } catch(e) { logger.error('Download error:', e); res.status(500).send('Error: ' + e.message); }
 });
 
 // PORTAL - debe ir DESPUÉS de /info y /download
@@ -2018,7 +2026,7 @@ app.post('/sign/:token', async (req, res) => {
               certPage.drawImage(sigImg, { x: 30, y: rowY - 100, width: 200, height: 80 });
               certPage.drawRectangle({ x: 30, y: rowY - 102, width: 204, height: 84, borderColor: rgb(0.8,0.8,0.8), borderWidth: 0.5 });
               rowY -= 120;
-            } catch(imgErr) { console.error('Sig image error:', imgErr.message); }
+            } catch(imgErr) { logger.error('Sig image error:', imgErr.message); }
           }
 
           // Legal
@@ -2034,7 +2042,7 @@ app.post('/sign/:token', async (req, res) => {
 
           const pdfBuffer = await pdfDoc.save();
           await pool.query('UPDATE signature_requests SET signed_pdf=$1, signed_hash=$2 WHERE token=$3', [Buffer.from(pdfBuffer), signedHash, req.params.token]);
-          console.log('PDF firmado generado:', pdfBuffer.length, 'bytes con', pdfDoc.getPageCount(), 'paginas');
+          logger.debug('PDF firmado generado:', pdfBuffer.length, 'bytes con', pdfDoc.getPageCount(), 'paginas');
         }
 
         // Email confirmación
@@ -2046,53 +2054,65 @@ app.post('/sign/:token', async (req, res) => {
               body: JSON.stringify({
                 from: process.env.SMTP_FROM || 'DocuGen <noreply@velumlaser.com>',
                 to: [sig.signer_email],
-                subject: 'Documento firmado: ' + sig.document_filename,
-                html: '<h2>Documento firmado exitosamente</h2><p>Hola <b>' + finalName + '</b>, has firmado el documento <b>' + sig.document_filename + '</b>.</p><p><a href="' + downloadUrl + '">Descargar documento firmado</a></p><p style="color:#666;font-size:12px">Fecha: ' + new Date().toLocaleString('es-MX') + ' · IP: ' + signerIp + '</p>'
+                subject: 'Documento firmado: ' + escapeHtml(sig.document_filename),
+                html: '<h2>Documento firmado exitosamente</h2><p>Hola <b>' + escapeHtml(finalName) + '</b>, has firmado el documento <b>' + escapeHtml(sig.document_filename) + '</b>.</p><p><a href="' + escapeHtml(downloadUrl) + '">Descargar documento firmado</a></p><p style="color:#666;font-size:12px">Fecha: ' + new Date().toLocaleString('es-MX') + ' · IP: ' + escapeHtml(signerIp) + '</p>'
               })
             });
-          } catch(emailErr) { console.error('Email confirm error:', emailErr.message); }
+          } catch(emailErr) { logger.error('Email confirm error:', emailErr.message); }
         }
 
-        // Monday: notificaciones al firmar
+        // Monday: notificaciones al firmar (usando variables GraphQL — sin injection)
         try {
           const tokenR = await pool.query('SELECT access_token FROM tokens WHERE account_id=$1', [sig.account_id]);
           if (tokenR.rows.length && sig.item_id) {
-            const accessToken = tokenR.rows[0].access_token;
-            const mondayApi = (q) => fetch('https://api.monday.com/v2', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': accessToken },
-              body: JSON.stringify({ query: q })
-            }).then(r => r.json());
+            const accessToken = decryptToken(tokenR.rows[0].access_token);
 
-            // 1. Crear update con detalles de firma
-            await mondayApi('mutation { create_update(item_id: ' + sig.item_id + ', body: "Documento firmado.\nFirmante: ' + finalName + '\nFecha: ' + new Date().toLocaleString('es-MX') + '\nIP: ' + signerIp + '") { id } }');
+            // 1. Crear update con detalles de firma — sin concatenación
+            const updateBody = `Documento firmado.\nFirmante: ${finalName}\nFecha: ${new Date().toLocaleString('es-MX')}\nIP: ${signerIp}`;
+            await createMondayUpdate(accessToken, sig.item_id, updateBody).catch(e => logger.error({ err: e.message }, 'Monday update error'));
 
-            // 2. Cambiar columna de status si existe
+            // 2. Cambiar columna de status si existe — variables GraphQL via mondayQuery
             try {
-              const boardR = await mondayApi('{ items(ids: [' + sig.item_id + ']) { board { id columns { id type title } } } }');
-              const cols = boardR?.data?.items?.[0]?.board?.columns || [];
+              const itemData = await mondayQuery(accessToken, `
+                query GetItemBoard($ids: [ID!]!) {
+                  items(ids: $ids) { board { id columns { id type title } } }
+                }`, { ids: [String(parseInt(sig.item_id, 10))] });
+              const cols = itemData?.items?.[0]?.board?.columns || [];
               const statusCol = cols.find(c => c.type === 'color' && (c.title.toLowerCase().includes('status') || c.title.toLowerCase().includes('estado') || c.title.toLowerCase().includes('firma')));
               if (statusCol) {
-                await mondayApi('mutation { change_simple_column_value(item_id: ' + sig.item_id + ', board_id: ' + boardR.data.items[0].board.id + ', column_id: "' + statusCol.id + '", value: "Firmado") { id } }');
+                const boardId = itemData.items[0].board.id;
+                await mondayQuery(accessToken, `
+                  mutation ChangeCol($itemId: ID!, $boardId: ID!, $colId: String!, $value: String!) {
+                    change_simple_column_value(item_id: $itemId, board_id: $boardId, column_id: $colId, value: $value) { id }
+                  }`, { itemId: String(sig.item_id), boardId: String(boardId), colId: statusCol.id, value: 'Firmado' }
+                ).catch(e => logger.error({ err: e.message }, 'Status col update error'));
               }
-            } catch(colErr) { console.error('Status col error:', colErr.message); }
+            } catch(colErr) { logger.error({ err: colErr.message }, 'Status col error'); }
 
-            // 3. Notificar al responsable asignado
+            // 3. Notificar al responsable asignado — variables GraphQL
             try {
-              const itemR = await mondayApi('{ items(ids: [' + sig.item_id + ']) { column_values(types: [people]) { value } } }');
-              const peopleVal = itemR?.data?.items?.[0]?.column_values?.[0]?.value;
+              const itemData2 = await mondayQuery(accessToken, `
+                query GetPeople($ids: [ID!]!) {
+                  items(ids: $ids) { column_values(types: [people]) { value } }
+                }`, { ids: [String(parseInt(sig.item_id, 10))] });
+              const peopleVal = itemData2?.items?.[0]?.column_values?.[0]?.value;
               if (peopleVal) {
                 const parsed = JSON.parse(peopleVal);
                 const personIds = (parsed.personsAndTeams || []).filter(p => p.kind === 'person').map(p => p.id);
+                const notifText = `DocuGen: ${sig.document_filename} fue firmado por ${finalName}.`;
                 for (const pid of personIds) {
-                  await mondayApi('mutation { create_notification(text: "DocuGen: ' + sig.document_filename + ' fue firmado por ' + finalName + '.", user_id: ' + pid + ', target_id: ' + sig.item_id + ', target_type: Project, internal: true) { id } }');
+                  await mondayQuery(accessToken, `
+                    mutation Notify($text: String!, $userId: ID!, $targetId: ID!) {
+                      create_notification(text: $text, user_id: $userId, target_id: $targetId, target_type: Project, internal: true) { id }
+                    }`, { text: notifText, userId: String(pid), targetId: String(sig.item_id) }
+                  ).catch(e => logger.error({ err: e.message }, 'Notification error'));
                 }
               }
-            } catch(notifErr) { console.error('Notif error:', notifErr.message); }
+            } catch(notifErr) { logger.error({ err: notifErr.message }, 'Notif error'); }
           }
-        } catch(mondayErr) { console.error('Monday update error:', mondayErr.message); }
+        } catch(mondayErr) { logger.error({ err: mondayErr.message }, 'Monday post-sign error'); }
 
-      } catch(bgErr) { console.error('Background PDF error:', bgErr.message); }
+      } catch(bgErr) { logger.error('Background PDF error:', bgErr.message); }
     }); // end setImmediate
 
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -2104,7 +2124,6 @@ app.post('/portal-logo/upload', upload.single('logo'), async (req, res) => {
   const accountId = req.body.account_id || req.headers['x-account-id'];
   if (!accountId) return res.status(400).json({ error: 'account_id required' });
   try {
-    await pool.query('CREATE TABLE IF NOT EXISTS portal_logos (account_id TEXT PRIMARY KEY, filename TEXT, data BYTEA, mimetype TEXT, updated_at TIMESTAMP DEFAULT NOW())');
     await pool.query(
       'INSERT INTO portal_logos (account_id, filename, data, mimetype) VALUES ($1,$2,$3,$4) ON CONFLICT (account_id) DO UPDATE SET filename=$2, data=$3, mimetype=$4, updated_at=NOW()',
       [accountId, req.file.originalname, req.file.buffer, req.file.mimetype]
@@ -2175,7 +2194,7 @@ app.post('/workflows/fields/templates', async (req, res) => {
 
     res.status(200).json(options);
   } catch(e) {
-    console.error('Workflow fields/templates error:', e.message);
+    logger.error('Workflow fields/templates error:', e.message);
     res.status(200).json([{ title: 'Error al cargar plantillas', value: '' }]);
   }
 });
@@ -2203,7 +2222,7 @@ app.post('/monday/lifecycle', verifyMondayHmac({ allowChallenge: false }), async
     const isTrial = data.subscription?.is_trial;
     const renewalDate = data.subscription?.renewal_date;
 
-    console.log('Lifecycle event:', type, 'account:', accountId, 'plan:', planId);
+    logger.info('Lifecycle event:', type, 'account:', accountId, 'plan:', planId);
 
     await pool.query(`CREATE TABLE IF NOT EXISTS lifecycle_events (
       id SERIAL PRIMARY KEY, event_type TEXT NOT NULL, account_id TEXT,
@@ -2271,7 +2290,7 @@ app.post('/monday/lifecycle', verifyMondayHmac({ allowChallenge: false }), async
     }
 
   } catch(e) {
-    console.error('Lifecycle error:', e.message);
+    logger.error('Lifecycle error:', e.message);
   }
 });
 
@@ -2324,7 +2343,7 @@ app.post('/sign/:token/quote-response', async (req, res) => {
       const commentBody = `📄 Cotización ${statusMap[response]}${comment ? ': ' + comment : ''}`;
       try {
         await createMondayUpdate(decryptToken(tokenRow.rows[0].access_token), s.item_id, commentBody);
-      } catch(e) { console.error('Monday update error:', e.message); }
+      } catch(e) { logger.error('Monday update error:', e.message); }
     }
 
     // Enviar notificación email al owner si hay email registrado
@@ -2353,11 +2372,11 @@ app.post('/sign/:token/quote-response', async (req, res) => {
           })
         });
       }
-    } catch(e) { console.error('Email notification error:', e.message); }
+    } catch(e) { logger.error('Email notification error:', e.message); }
 
     res.json({ success: true, response });
   } catch(e) {
-    console.error('Quote response error:', e.message);
+    logger.error('Quote response error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -2458,7 +2477,7 @@ app.post('/workflows/generate-document', accountRateLimit(20, 60 * 1000), async 
     );
     const docId = docRow.rows[0].id;
 
-    console.log('Workflow generate-document: doc', docId, 'item', itemId, 'account', accountId);
+    logger.info('Workflow generate-document: doc', docId, 'item', itemId, 'account', accountId);
 
     
     if (_accountId) await incrementDocsUsed(_accountId); // billing
@@ -2471,7 +2490,7 @@ res.status(200).json({
       }
     });
   } catch(e) {
-    console.error('Workflow generate-document error:', e.message);
+    logger.error('Workflow generate-document error:', e.message);
     res.status(500).json(severityError(4000, 'Error al generar', 'Ocurrió un error al generar el documento', e.message));
   }
 });
@@ -2515,7 +2534,7 @@ app.post('/workflows/send-for-signature', async (req, res) => {
       await sendSignatureEmail(signerEmail, signerName, portalUrl, docRow.rows[0].filename || 'Documento');
     }
 
-    console.log('Workflow send-for-signature: sig', sigId, 'doc', documentId, 'account', accountId);
+    logger.info('Workflow send-for-signature: sig', sigId, 'doc', documentId, 'account', accountId);
 
     res.status(200).json({
       outputFields: {
@@ -2527,7 +2546,7 @@ app.post('/workflows/send-for-signature', async (req, res) => {
       }
     });
   } catch(e) {
-    console.error('Workflow send-for-signature error:', e.message);
+    logger.error('Workflow send-for-signature error:', e.message);
     res.status(500).json(severityError(4000, 'Error al enviar', 'Ocurrió un error al enviar a firma', e.message));
   }
 });
@@ -2827,28 +2846,21 @@ app.get('/signatures/:token/download', async (req, res) => {
     zip2.file('word/document.xml', documentXml);
     const modifiedDocx = zip2.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
 
-    const tmpDir = require('os').tmpdir();
-    const tmpDocx = path.join(tmpDir, 'signed_' + req.params.token.slice(0,8) + '.docx');
-    require('fs').writeFileSync(tmpDocx, modifiedDocx);
-
-    // Convertir a PDF con LibreOffice
-    const { execSync } = require('child_process');
+    // Convertir a PDF con libreoffice-convert (in-process, async, no execSync)
     try {
-      execSync(`libreoffice --headless --convert-to pdf "${tmpDocx}" --outdir "${tmpDir}"`, { timeout: 30000 });
-      const pdfPath = tmpDocx.replace('.docx', '.pdf');
-      if (require('fs').existsSync(pdfPath)) {
-        const pdfBuffer = require('fs').readFileSync(pdfPath);
-        const baseName = docR.rows[0].filename.replace('.docx', '');
-        res.set('Content-Type', 'application/pdf');
-        res.set('Content-Disposition', 'attachment; filename="' + baseName + '_firmado.pdf"');
-        return res.send(pdfBuffer);
-      }
-    } catch(e) { console.error('LibreOffice error:', e.message); }
+      const pdfBuffer = await convertDocxToPdf(modifiedDocx);
+      const baseName = docR.rows[0].filename.replace(/\.docx$/i, '');
+      res.set('Content-Type', 'application/pdf');
+      res.set('Content-Disposition', `attachment; filename="${baseName}_firmado.pdf"`);
+      return res.send(pdfBuffer);
+    } catch(e) {
+      logger.error({ err: e.message, token: req.params.token.slice(0,8) }, 'PDF conversion error in download');
+    }
 
-    // Fallback: devolver el docx original
+    // Fallback: devolver el docx modificado si PDF falla
     res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.set('Content-Disposition', 'attachment; filename="documento_firmado.docx"');
-    res.send(docBuffer);
+    res.send(modifiedDocx);
 
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -3006,9 +3018,9 @@ async function runBackup() {
     await pool.query('DELETE FROM backup_data WHERE id NOT IN (SELECT id FROM backup_data ORDER BY created_at DESC LIMIT 7)');
     await pool.query('INSERT INTO backups (tables_backed_up, total_rows, status) VALUES ($1,$2,$3)', [4, totalRows, 'success']);
 
-    console.log('Backup completado:', totalRows, 'filas,', new Date().toISOString());
+    logger.info('Backup completado:', totalRows, 'filas,', new Date().toISOString());
   } catch(e) {
-    console.error('Backup error:', e.message);
+    logger.error('Backup error:', e.message);
     try {
       await pool.query('INSERT INTO backups (tables_backed_up, total_rows, status, error) VALUES ($1,$2,$3,$4)', [0, 0, 'error', e.message]);
       // Alertar por email si hay RESEND_API_KEY
@@ -3185,7 +3197,7 @@ app.post('/webhooks/monday', verifyMondayHmac({ allowChallenge: true }), async (
   const event = req.body.event;
   if (!event) return res.sendStatus(200);
 
-  console.log('Monday webhook:', event.type, event.itemId);
+  logger.info('Monday webhook:', event.type, event.itemId);
 
   try {
     await pool.query(`CREATE TABLE IF NOT EXISTS webhook_events (
@@ -3206,7 +3218,7 @@ app.post('/webhooks/monday', verifyMondayHmac({ allowChallenge: true }), async (
         [String(event.boardId), event.columnId, event.value?.label?.text || event.value]
       );
       for (const trigger of triggers.rows) {
-        console.log('Trigger activado:', trigger.action, 'item:', event.itemId);
+        logger.info('Trigger activado:', trigger.action, 'item:', event.itemId);
         // Guardar evento pendiente para procesar
         await pool.query(
           'INSERT INTO webhook_events (event_type, item_id, board_id, column_id, column_value, account_id) VALUES ($1,$2,$3,$4,$5,$6)',
@@ -3214,7 +3226,7 @@ app.post('/webhooks/monday', verifyMondayHmac({ allowChallenge: true }), async (
         );
       }
     }
-  } catch(e) { console.error('Webhook error:', e.message); }
+  } catch(e) { logger.error('Webhook error:', e.message); }
 
   res.sendStatus(200);
 });
@@ -3286,7 +3298,7 @@ async function executeAutomation(accountId, itemId, boardId, templateName, acces
 
     // Comentar en Monday — createMondayUpdate usa variables GraphQL
     await createMondayUpdate(accessToken, itemId, `📄 Documento generado: ${outputFilename}`)
-      .catch(e => console.error('Comment error:', e.message));
+      .catch(e => logger.error('Comment error:', e.message));
 
     return { success: true, filename: outputFilename };
   } catch(e) {
@@ -3314,9 +3326,9 @@ async function processPendingTriggers() {
 
       const result = await executeAutomation(evt.account_id, evt.item_id, evt.board_id, evt.column_id, decryptedToken);
       await pool.query("UPDATE webhook_events SET column_value=$1 WHERE id=$2", [result.success ? 'done' : 'error:' + result.error, evt.id]);
-      console.log('Trigger procesado:', evt.item_id, result.success ? '✅' : '❌');
+      logger.info('Trigger procesado:', evt.item_id, result.success ? '✅' : '❌');
     }
-  } catch(e) { console.error('processPendingTriggers error:', e.message); }
+  } catch(e) { logger.error('processPendingTriggers error:', e.message); }
 }
 
 // Correr cada minuto
@@ -3430,7 +3442,7 @@ cron.schedule('0 * * * *', async () => {
 
       await pool.query('UPDATE scheduled_automations SET last_run=$1 WHERE id=$2', [now, auto.id]);
     }
-  } catch(e) { console.error('Scheduled automation error:', e.message); }
+  } catch(e) { logger.error('Scheduled automation error:', e.message); }
 });
 
 
@@ -3441,38 +3453,21 @@ app.post('/signatures/request-multi', requireAuth, checkSigLimit, async (req, re
   // signers = [{name, email, order}, ...]
   if (!signers || !signers.length) return res.status(400).json({ error: 'Se requieren firmantes' });
   try {
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signer_order INT DEFAULT 1');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS group_id TEXT');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_code TEXT');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_verified BOOLEAN DEFAULT FALSE');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS doc_hash TEXT');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS doc_type TEXT DEFAULT \'document\'');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS quote_response TEXT');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS quote_comment TEXT');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS quote_responded_at TIMESTAMP');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS opened_at TIMESTAMP');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS time_on_portal INT DEFAULT 0');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signed_hash TEXT');
-    await pool.query("ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS audit_log JSONB DEFAULT '[]'");
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS consent_text TEXT');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS identity_verified BOOLEAN DEFAULT FALSE');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS otp_attempts INT DEFAULT 0');
-    await pool.query('ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP');
-    await pool.query("ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signature_type TEXT DEFAULT 'drawn'");
-    await pool.query("ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS locked BOOLEAN DEFAULT FALSE");
-
+    // Schema managed in initDB() — no inline ALTER TABLE needed here
     const groupId = require('crypto').randomBytes(16).toString('hex');
     const tokens = [];
 
     for (const signer of signers) {
       const token = require('crypto').randomBytes(32).toString('hex');
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+      // P2-2/P2-3: crypto OTP + stored as HMAC hash (same pattern as single-signer flow)
+      const rawOtp = generateOtp();
+      const otpHash = hashOtp(rawOtp, token);
       const order = signer.order || 1;
 
       await pool.query(
         'INSERT INTO signature_requests (token, account_id, document_filename, signer_name, signer_email, item_id, board_id, expires_at, signer_order, group_id, otp_code) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
-        [token, req.accountId, document_filename, signer.name, signer.email, item_id, board_id, expiresAt, order, groupId, otpCode]
+        [token, req.accountId, document_filename, signer.name, signer.email, item_id, board_id, expiresAt, order, groupId, otpHash]
       );
 
       const signUrl = process.env.APP_URL + '/sign/' + token;
@@ -3486,7 +3481,7 @@ app.post('/signatures/request-multi', requireAuth, checkSigLimit, async (req, re
             subject: 'Documento pendiente de tu firma — ' + document_filename,
             html: emailSignRequest(signer.name, document_filename, signUrl, expiresAt)
           });
-        } catch(e) { console.error('Email error:', e.message); }
+        } catch(e) { logger.error('Email error:', e.message); }
       }
       tokens.push({ name: signer.name, email: signer.email, order, token, sign_url: signUrl });
     }
@@ -3495,18 +3490,8 @@ app.post('/signatures/request-multi', requireAuth, checkSigLimit, async (req, re
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Verificar OTP
-app.post('/sign/:token/verify-otp', async (req, res) => {
-  const { otp } = req.body;
-  try {
-    const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
-    if (!r.rows.length) return res.status(404).json({ error: 'Token no válido' });
-    const sig = r.rows[0];
-    if (sig.otp_code !== otp) return res.status(400).json({ error: 'Código incorrecto' });
-    await pool.query('UPDATE signature_requests SET otp_verified=TRUE WHERE token=$1', [req.params.token]);
-    res.json({ success: true });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
+// NOTE: /sign/:token/verify-otp is defined at line ~1703 using verifyOtp() (HMAC-SHA256 + timingSafeEqual).
+// This duplicate insecure version (plain string compare + Math.random OTP) has been removed.
 
 // Certificado de auditoría
 app.get('/signatures/group/:groupId/certificate', async (req, res) => {
@@ -3622,7 +3607,7 @@ app.post('/sign/:token/remind', requireAuth, async (req, res) => {
         from: process.env.SMTP_FROM || 'DocuGen <noreply@velumlaser.com>',
         to: sig.signer_email,
         subject: 'Recordatorio: documento pendiente de tu firma',
-        html: '<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px"><h2 style="color:#1a1a1a">Tienes un documento pendiente de firma</h2><p>Hola <strong>' + sig.signer_name + '</strong>,</p><p>Te recordamos que el documento <strong>' + sig.document_filename + '</strong> sigue pendiente de tu firma.</p><p style="color:#e55;">Este enlace expira el ' + expiresText + '.</p><div style="margin:32px 0;text-align:center"><a href="' + portalUrl + '" style="background:#1a1a1a;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px">Firmar ahora</a></div></div>'
+        html: '<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px"><h2 style="color:#1a1a1a">Tienes un documento pendiente de firma</h2><p>Hola <strong>' + escapeHtml(sig.signer_name) + '</strong>,</p><p>Te recordamos que el documento <strong>' + escapeHtml(sig.document_filename) + '</strong> sigue pendiente de tu firma.</p><p style="color:#e55;">Este enlace expira el ' + escapeHtml(expiresText) + '.</p><div style="margin:32px 0;text-align:center"><a href="' + escapeHtml(portalUrl) + '" style="background:#1a1a1a;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px">Firmar ahora</a></div></div>'
       })
     });
 
@@ -3631,13 +3616,11 @@ app.post('/sign/:token/remind', requireAuth, async (req, res) => {
       try {
         const tokenRow = await pool.query('SELECT access_token FROM tokens WHERE account_id=$1 LIMIT 1', [req.accountId]);
         if (tokenRow.rows.length) {
-          await fetch('https://api.monday.com/v2', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': tokenRow.rows[0].access_token },
-            body: JSON.stringify({ query: 'mutation { create_update(item_id: ' + sig.item_id + ', body: "Recordatorio enviado a ' + sig.signer_name + ' (' + sig.signer_email + ') para firmar ' + sig.document_filename + '.") { id } }' })
-          });
+          const remindToken = decryptToken(tokenRow.rows[0].access_token);
+          const remindBody = `Recordatorio enviado a ${sig.signer_name} (${sig.signer_email}) para firmar ${sig.document_filename}.`;
+          await createMondayUpdate(remindToken, sig.item_id, remindBody).catch(e => logger.error({ err: e.message }, 'Monday remind error'));
         }
-      } catch(e) { console.error('Monday remind error:', e.message); }
+      } catch(e) { logger.error({ err: e.message }, 'Monday remind error'); }
     }
 
     // Registrar en audit log
@@ -3675,7 +3658,7 @@ app.post('/workflows/send-reminder', async (req, res) => {
         from: process.env.SMTP_FROM || 'DocuGen <noreply@velumlaser.com>',
         to: sig.signer_email,
         subject: 'Recordatorio: documento pendiente de tu firma',
-        html: '<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px"><h2>Tienes un documento pendiente de firma</h2><p>Hola <strong>' + sig.signer_name + '</strong>,</p><p>El documento <strong>' + sig.document_filename + '</strong> sigue pendiente de tu firma. Expira el ' + expiresText + '.</p><div style="margin:32px 0;text-align:center"><a href="' + portalUrl + '" style="background:#1a1a1a;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px">Firmar ahora</a></div></div>'
+        html: '<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px"><h2>Tienes un documento pendiente de firma</h2><p>Hola <strong>' + escapeHtml(sig.signer_name) + '</strong>,</p><p>El documento <strong>' + escapeHtml(sig.document_filename) + '</strong> sigue pendiente de tu firma. Expira el ' + escapeHtml(expiresText) + '.</p><div style="margin:32px 0;text-align:center"><a href="' + escapeHtml(portalUrl) + '" style="background:#1a1a1a;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px">Firmar ahora</a></div></div>'
       })
     });
 
@@ -3770,7 +3753,7 @@ async function checkDocLimit(req, res, next) {
     }
     next();
   } catch(e) {
-    console.error('checkDocLimit error:', e.message);
+    logger.error('checkDocLimit error:', e.message);
     // P1-8: fail CLOSED — error en verificación no debe dar acceso gratis
     return res.status(500).json({ error: 'Error verificando suscripción. Intenta de nuevo.' });
   }
