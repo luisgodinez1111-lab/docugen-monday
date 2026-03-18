@@ -500,5 +500,59 @@ module.exports = function makeDocumentsRouter(deps) {
     }
   });
 
+  // ─── PDF JOBS HISTORY ─────────────────────────────────────
+  router.get('/pdf-jobs', requireAuth, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+      const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+      const r = await pool.query(
+        'SELECT job_id, item_name, filename, status, error, created_at, updated_at FROM pdf_jobs WHERE account_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+        [req.accountId, limit, offset]
+      );
+      const c = await pool.query('SELECT COUNT(*)::int AS total FROM pdf_jobs WHERE account_id=$1', [req.accountId]);
+      res.json({ jobs: r.rows, total: c.rows[0].total });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─── BULK JOBS HISTORY ────────────────────────────────────
+  router.get('/bulk-jobs', requireAuth, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+      const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+      const r = await pool.query(
+        'SELECT id, total, completed, failed, status, created_at, updated_at FROM bulk_jobs WHERE account_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+        [req.accountId, limit, offset]
+      );
+      const c = await pool.query('SELECT COUNT(*)::int AS total FROM bulk_jobs WHERE account_id=$1', [req.accountId]);
+      res.json({ jobs: r.rows, total: c.rows[0].total });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─── ZIP EXPORT — download multiple documents as a single ZIP ──
+  router.post('/export/zip', requireAuth, async (req, res) => {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids debe ser un array no vacío' });
+    if (ids.length > 50) return res.status(400).json({ error: 'Máximo 50 documentos por ZIP' });
+    const safeIds = ids.map(id => parseInt(id, 10)).filter(n => Number.isFinite(n) && n > 0);
+    if (!safeIds.length) return res.status(400).json({ error: 'IDs inválidos' });
+    try {
+      const result = await pool.query(
+        'SELECT filename, doc_data, item_name FROM documents WHERE id = ANY($1::int[]) AND account_id=$2 AND deleted_at IS NULL AND doc_data IS NOT NULL',
+        [safeIds, req.accountId]
+      );
+      if (!result.rows.length) return res.status(404).json({ error: 'No se encontraron documentos' });
+      const PizZip = require('pizzip');
+      const zip = new PizZip();
+      result.rows.forEach(row => {
+        zip.file(row.filename, row.doc_data);
+      });
+      const zipBuffer = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+      const zipName = 'docugen_export_' + new Date().toISOString().split('T')[0] + '.zip';
+      res.set('Content-Type', 'application/zip');
+      res.set('Content-Disposition', 'attachment; filename="' + zipName + '"');
+      res.send(zipBuffer);
+    } catch(e) { res.status(500).json({ error: e.message }); }
+  });
+
   return router;
 };

@@ -1025,5 +1025,28 @@ module.exports = function makeSignaturesRouter(deps) {
     } catch(e) { res.status(500).json({ error: e.message }); }
   });
 
+  // ─── APPROVAL REQUESTS — list pending legal doc approvals ──
+  router.get('/approvals', requireAuth, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+      const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+      const r = await pool.query(
+        `SELECT ar.id, ar.approval_token, ar.created_at,
+                sr.document_filename, sr.signer_name, sr.signer_email,
+                sr.status AS sig_status, sr.doc_type, sr.account_id
+         FROM approval_requests ar
+         JOIN signature_requests sr ON sr.id = ar.signature_request_id
+         WHERE sr.account_id = $1
+         ORDER BY ar.created_at DESC LIMIT $2 OFFSET $3`,
+        [req.accountId, limit, offset]
+      );
+      const count = await pool.query(
+        'SELECT COUNT(*)::int AS total FROM approval_requests ar JOIN signature_requests sr ON sr.id = ar.signature_request_id WHERE sr.account_id=$1',
+        [req.accountId]
+      );
+      res.json({ approvals: r.rows, total: count.rows[0].total });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+  });
+
   return router;
 };

@@ -164,6 +164,63 @@ module.exports = function makeAdminRouter(deps) {
     } catch(e) { res.status(500).json({ error: e.message }); }
   });
 
+  // ─── LOGS: ERROR LOGS ──────────────────────────────────────
+  router.get('/logs/errors', requireAuth, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+      const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+      const [rows, count] = await Promise.all([
+        pool.query(
+          'SELECT id, error_type, message, created_at FROM error_logs WHERE account_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+          [req.accountId, limit, offset]
+        ),
+        pool.query('SELECT COUNT(*)::int AS total FROM error_logs WHERE account_id=$1', [req.accountId]),
+      ]);
+      res.json({ errors: rows.rows, total: count.rows[0].total });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─── LOGS: WEBHOOK EVENTS ──────────────────────────────────
+  router.get('/logs/webhooks', requireAuth, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+      const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+      const status = req.query.status; // pending, done, failed, error:*
+      const where = status ? 'AND column_value=$4' : '';
+      const params = status
+        ? [req.accountId, limit, offset, status]
+        : [req.accountId, limit, offset];
+      const [rows, count] = await Promise.all([
+        pool.query(
+          `SELECT id, event_type, item_id, board_id, column_id AS template_name, column_value AS status, attempts, last_error, created_at
+           FROM webhook_events WHERE account_id=$1 ${where} ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+          params
+        ),
+        pool.query(
+          `SELECT COUNT(*)::int AS total FROM webhook_events WHERE account_id=$1 ${where}`,
+          status ? [req.accountId, status] : [req.accountId]
+        ),
+      ]);
+      res.json({ events: rows.rows, total: count.rows[0].total });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ─── LOGS: AUDIT LOG ───────────────────────────────────────
+  router.get('/logs/audit', requireAuth, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+      const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+      const [rows, count] = await Promise.all([
+        pool.query(
+          'SELECT id, action, actor_id, details, ip, created_at FROM audit_log WHERE account_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+          [req.accountId, limit, offset]
+        ),
+        pool.query('SELECT COUNT(*)::int AS total FROM audit_log WHERE account_id=$1', [req.accountId]),
+      ]);
+      res.json({ entries: rows.rows, total: count.rows[0].total });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+  });
+
   router.post('/migrate', async (req, res) => {
     // FIX-24: Timing-safe comparison to prevent timing attacks
     const adminSecret = process.env.ADMIN_MIGRATE_SECRET;

@@ -348,6 +348,9 @@
       <button class="tab" onclick="switchTab('galeria')" id="tab-galeria">
         <span class="tab-icon">✨</span> Galería
       </button>
+      <button class="tab" onclick="switchTab('logs')" id="tab-logs">
+        <span class="tab-icon">📊</span> Registros
+      </button>
     </div>
 
     <!-- ═══════════════════════════════════════
@@ -480,6 +483,17 @@
         </div>
       </div>
 
+      <!-- Aprobaciones pendientes (doc_type=legal) -->
+      <div class="card" id="approvals-card">
+        <div class="card-header">
+          <div class="card-title">⚖️ Aprobaciones pendientes</div>
+          <button onclick="loadApprovals()" class="btn btn-sm btn-ghost">↻ Actualizar</button>
+        </div>
+        <div class="card-body" style="padding:8px">
+          <div id="approvals-list"><div class="empty">Cargando...</div></div>
+        </div>
+      </div>
+
     </div><!-- /panel-firmas -->
 
 
@@ -560,8 +574,9 @@
       <div class="card">
         <div class="card-header">
           <div class="card-title" data-i18n="historial_title">Documentos generados</div>
-          <div style="display:flex;gap:8px;align-items:center">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
             <span class="pill pill-gray">Últimos 20</span>
+            <button id="zip-export-btn" class="btn btn-sm btn-ghost" style="display:none" onclick="exportZip()">📦 Descargar ZIP</button>
             <button id="batch-delete-btn" class="btn btn-sm" style="display:none;background:#ef4444;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer" onclick="batchDeleteDocs()">🗑 Eliminar seleccionados</button>
           </div>
         </div>
@@ -727,7 +742,68 @@
 
     </div><!-- /panel-galeria -->
 
+    <!-- ═══════════════════════════════════════
+         TAB 7: REGISTROS
+    ════════════════════════════════════════ -->
+    <div class="panel" id="panel-logs">
+
+      <!-- Sub-tabs -->
+      <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-ghost log-subtab active" onclick="switchLogTab('errors')" id="logtab-errors" style="border-radius:20px;padding:5px 14px;font-size:12px">🔴 Errores</button>
+        <button class="btn btn-sm btn-ghost log-subtab" onclick="switchLogTab('webhooks')" id="logtab-webhooks" style="border-radius:20px;padding:5px 14px;font-size:12px">🔗 Webhooks</button>
+        <button class="btn btn-sm btn-ghost log-subtab" onclick="switchLogTab('audit')" id="logtab-audit" style="border-radius:20px;padding:5px 14px;font-size:12px">🔒 Auditoría</button>
+        <button class="btn btn-sm btn-ghost log-subtab" onclick="switchLogTab('jobs')" id="logtab-jobs" style="border-radius:20px;padding:5px 14px;font-size:12px">⚙️ Jobs</button>
+      </div>
+
+      <!-- Error logs -->
+      <div class="card log-subpanel" id="logpanel-errors">
+        <div class="card-header"><div class="card-title">🔴 Errores recientes</div><button class="btn btn-sm btn-ghost" onclick="loadErrorLogs()">↻ Recargar</button></div>
+        <div id="error-logs-list" class="card-body" style="padding:0"><div class="empty" style="padding:20px">Cargando...</div></div>
+      </div>
+
+      <!-- Webhook events -->
+      <div class="card log-subpanel" id="logpanel-webhooks" style="display:none">
+        <div class="card-header">
+          <div class="card-title">🔗 Eventos webhook</div>
+          <div style="display:flex;gap:6px">
+            <select id="webhook-filter" onchange="loadWebhookEvents()" class="input" style="padding:4px 8px;font-size:12px;height:32px">
+              <option value="">Todos</option>
+              <option value="pending">Pendientes</option>
+              <option value="done">Completados</option>
+              <option value="failed">Fallidos</option>
+            </select>
+            <button class="btn btn-sm btn-ghost" onclick="loadWebhookEvents()">↻ Recargar</button>
+          </div>
+        </div>
+        <div id="webhook-events-list" class="card-body" style="padding:0"><div class="empty" style="padding:20px">Cargando...</div></div>
+      </div>
+
+      <!-- Audit log -->
+      <div class="card log-subpanel" id="logpanel-audit" style="display:none">
+        <div class="card-header"><div class="card-title">🔒 Auditoría de cuenta</div><button class="btn btn-sm btn-ghost" onclick="loadAuditLog()">↻ Recargar</button></div>
+        <div id="audit-log-list" class="card-body" style="padding:0"><div class="empty" style="padding:20px">Cargando...</div></div>
+      </div>
+
+      <!-- Jobs (PDF + Bulk) -->
+      <div class="card log-subpanel" id="logpanel-jobs" style="display:none">
+        <div class="card-header"><div class="card-title">⚙️ Historial de Jobs</div><button class="btn btn-sm btn-ghost" onclick="loadJobsHistory()">↻ Recargar</button></div>
+        <div id="jobs-history-list" class="card-body" style="padding:0"><div class="empty" style="padding:20px">Cargando...</div></div>
+      </div>
+
+    </div><!-- /panel-logs -->
+
   </div><!-- /app -->
+
+  <!-- ── DOCUMENT TIMELINE MODAL ── -->
+  <div id="doc-timeline-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:999;display:none;align-items:center;justify-content:center">
+    <div style="background:var(--surface);border-radius:12px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.2)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div style="font-weight:700;font-size:16px" id="doc-timeline-title">Historial del documento</div>
+        <button onclick="closeDocTimeline()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted)">×</button>
+      </div>
+      <div id="doc-timeline-body"><div class="empty">Cargando...</div></div>
+    </div>
+  </div>
 </div><!-- /main-content -->
 
 <!-- ── PREVIEW MODAL ── -->
@@ -1533,7 +1609,10 @@ async function loadSignatures() {
           '<div class="doc-name">' + doc.item_name + '</div>' +
           '<div class="doc-meta">' + doc.template_name + ' · ' + fecha + ' ' + hora + '</div>' +
           '</div>' +
+          '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0">' +
           '<a href="' + API + '/download/' + doc.filename + '" target="_blank" style="font-size:12px;color:var(--accent);text-decoration:none;font-weight:500;white-space:nowrap">⬇ Descargar</a>' +
+          '<button onclick="showDocTimeline(' + doc.id + ',\'' + (doc.item_name||'').replace(/'/g,"\\'") + '\')" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--muted)" title="Ver historial">📋</button>' +
+          '</div>' +
           '</div>';
       }).join('');
     } catch(e) { document.getElementById('historial-list').innerHTML = '<div class="empty" style="padding:28px">Error al cargar</div>'; }
@@ -1542,8 +1621,11 @@ async function loadSignatures() {
   function updateBatchBtn() {
     const checked = document.querySelectorAll('#historial-list input[type=checkbox]:checked');
     const btn = document.getElementById('batch-delete-btn');
+    const zipBtn = document.getElementById('zip-export-btn');
     btn.style.display = checked.length ? 'inline-block' : 'none';
     btn.textContent = '🗑 Eliminar (' + checked.length + ')';
+    zipBtn.style.display = checked.length ? 'inline-block' : 'none';
+    zipBtn.textContent = '📦 ZIP (' + checked.length + ')';
   }
 
   async function batchDeleteDocs() {
@@ -1890,16 +1972,257 @@ async function loadSignatures() {
     }
   }
 
-  // Lazy-load gallery when tab is first opened
-  // Override switchTab to load gallery on first open
+  /* ── REGISTROS SUB-TABS ── */
+  function switchLogTab(name) {
+    document.querySelectorAll('.log-subtab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.log-subpanel').forEach(p => p.style.display = 'none');
+    document.getElementById('logtab-' + name).classList.add('active');
+    document.getElementById('logpanel-' + name).style.display = 'block';
+    if (name === 'errors') loadErrorLogs();
+    else if (name === 'webhooks') loadWebhookEvents();
+    else if (name === 'audit') loadAuditLog();
+    else if (name === 'jobs') loadJobsHistory();
+  }
+
+  /* ── ERROR LOGS ── */
+  async function loadErrorLogs() {
+    const el = document.getElementById('error-logs-list');
+    el.innerHTML = '<div class="empty" style="padding:20px">Cargando...</div>';
+    try {
+      const r = await fetch(API + '/logs/errors?limit=50', {headers:{'x-account-id':accountId}});
+      const d = await r.json();
+      if (!d.errors || !d.errors.length) { el.innerHTML = '<div class="empty" style="padding:20px">Sin errores registrados ✓</div>'; return; }
+      el.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
+        '<thead><tr style="background:var(--surface2)">' +
+        '<th style="padding:8px 12px;text-align:left;font-weight:600">Tipo</th>' +
+        '<th style="padding:8px 12px;text-align:left;font-weight:600">Mensaje</th>' +
+        '<th style="padding:8px 12px;text-align:left;font-weight:600;white-space:nowrap">Fecha</th>' +
+        '</tr></thead><tbody>' +
+        d.errors.map((e, i) => '<tr style="border-top:1px solid var(--border);background:' + (i%2?'var(--surface2)':'var(--surface)') + '">' +
+          '<td style="padding:8px 12px;white-space:nowrap"><span style="background:#fee2e2;color:#dc2626;border-radius:4px;padding:2px 7px;font-size:11px">' + (e.error_type||'error') + '</span></td>' +
+          '<td style="padding:8px 12px;color:var(--text);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + e.message + '">' + e.message + '</td>' +
+          '<td style="padding:8px 12px;color:var(--muted);white-space:nowrap">' + new Date(e.created_at).toLocaleString('es-MX') + '</td>' +
+          '</tr>'
+        ).join('') +
+        '</tbody></table></div>';
+    } catch(e) { el.innerHTML = '<div class="empty" style="padding:20px;color:var(--red)">Error al cargar</div>'; }
+  }
+
+  /* ── WEBHOOK EVENTS ── */
+  async function loadWebhookEvents() {
+    const el = document.getElementById('webhook-events-list');
+    el.innerHTML = '<div class="empty" style="padding:20px">Cargando...</div>';
+    const status = document.getElementById('webhook-filter').value;
+    const url = API + '/logs/webhooks?limit=50' + (status ? '&status=' + status : '');
+    try {
+      const r = await fetch(url, {headers:{'x-account-id':accountId}});
+      const d = await r.json();
+      if (!d.events || !d.events.length) { el.innerHTML = '<div class="empty" style="padding:20px">Sin eventos registrados</div>'; return; }
+      const statusColor = { pending:'#d97706', done:'#059669', failed:'#dc2626' };
+      const statusBg    = { pending:'#fef3c7', done:'#d1fae5', failed:'#fee2e2' };
+      el.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
+        '<thead><tr style="background:var(--surface2)">' +
+        '<th style="padding:8px 12px;text-align:left;font-weight:600">Estado</th>' +
+        '<th style="padding:8px 12px;text-align:left;font-weight:600">Item</th>' +
+        '<th style="padding:8px 12px;text-align:left;font-weight:600">Plantilla</th>' +
+        '<th style="padding:8px 12px;text-align:left;font-weight:600">Intentos</th>' +
+        '<th style="padding:8px 12px;text-align:left;font-weight:600;white-space:nowrap">Fecha</th>' +
+        '</tr></thead><tbody>' +
+        d.events.map((e, i) => {
+          const s = (e.status||'').startsWith('error') ? 'failed' : e.status;
+          const sc = statusColor[s] || '#64748b';
+          const sb = statusBg[s] || '#f1f5f9';
+          return '<tr style="border-top:1px solid var(--border);background:' + (i%2?'var(--surface2)':'var(--surface)') + '">' +
+            '<td style="padding:8px 12px"><span style="background:' + sb + ';color:' + sc + ';border-radius:4px;padding:2px 7px;font-size:11px">' + (e.status||'?') + '</span></td>' +
+            '<td style="padding:8px 12px;color:var(--muted)">' + (e.item_id||'-') + '</td>' +
+            '<td style="padding:8px 12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px" title="' + (e.template_name||'') + '">' + (e.template_name||'-') + '</td>' +
+            '<td style="padding:8px 12px;text-align:center">' + (e.attempts||0) + '</td>' +
+            '<td style="padding:8px 12px;color:var(--muted);white-space:nowrap">' + new Date(e.created_at).toLocaleString('es-MX') + '</td>' +
+            '</tr>';
+        }).join('') +
+        '</tbody></table></div>';
+    } catch(e) { el.innerHTML = '<div class="empty" style="padding:20px;color:var(--red)">Error al cargar</div>'; }
+  }
+
+  /* ── AUDIT LOG ── */
+  async function loadAuditLog() {
+    const el = document.getElementById('audit-log-list');
+    el.innerHTML = '<div class="empty" style="padding:20px">Cargando...</div>';
+    try {
+      const r = await fetch(API + '/logs/audit?limit=50', {headers:{'x-account-id':accountId}});
+      const d = await r.json();
+      if (!d.entries || !d.entries.length) { el.innerHTML = '<div class="empty" style="padding:20px">Sin registros de auditoría</div>'; return; }
+      el.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
+        '<thead><tr style="background:var(--surface2)">' +
+        '<th style="padding:8px 12px;text-align:left;font-weight:600">Acción</th>' +
+        '<th style="padding:8px 12px;text-align:left;font-weight:600">Actor</th>' +
+        '<th style="padding:8px 12px;text-align:left;font-weight:600">IP</th>' +
+        '<th style="padding:8px 12px;text-align:left;font-weight:600;white-space:nowrap">Fecha</th>' +
+        '</tr></thead><tbody>' +
+        d.entries.map((e, i) => '<tr style="border-top:1px solid var(--border);background:' + (i%2?'var(--surface2)':'var(--surface)') + '">' +
+          '<td style="padding:8px 12px"><span style="background:var(--surface3,#e2e8f0);border-radius:4px;padding:2px 7px;font-size:11px">' + (e.action||'-') + '</span></td>' +
+          '<td style="padding:8px 12px;color:var(--muted)">' + (e.actor_id||'-') + '</td>' +
+          '<td style="padding:8px 12px;color:var(--muted)">' + (e.ip||'-') + '</td>' +
+          '<td style="padding:8px 12px;color:var(--muted);white-space:nowrap">' + new Date(e.created_at).toLocaleString('es-MX') + '</td>' +
+          '</tr>'
+        ).join('') +
+        '</tbody></table></div>';
+    } catch(e) { el.innerHTML = '<div class="empty" style="padding:20px;color:var(--red)">Error al cargar</div>'; }
+  }
+
+  /* ── JOBS HISTORY (PDF + BULK) ── */
+  async function loadJobsHistory() {
+    const el = document.getElementById('jobs-history-list');
+    el.innerHTML = '<div class="empty" style="padding:20px">Cargando...</div>';
+    try {
+      const [pdfRes, bulkRes] = await Promise.all([
+        fetch(API + '/pdf-jobs?limit=20', {headers:{'x-account-id':accountId}}),
+        fetch(API + '/bulk-jobs?limit=20', {headers:{'x-account-id':accountId}}),
+      ]);
+      const [pdfD, bulkD] = await Promise.all([pdfRes.json(), bulkRes.json()]);
+      const sc = { ready:'#059669', processing:'#d97706', error:'#dc2626' };
+      const sb = { ready:'#d1fae5', processing:'#fef3c7', error:'#fee2e2' };
+      const rows = [
+        ...(pdfD.jobs||[]).map(j => ({ ...j, _type:'PDF', label: j.item_name||j.filename||j.job_id })),
+        ...(bulkD.jobs||[]).map(j => ({ ...j, _type:'Bulk', label: j.total + ' items (' + (j.completed||0) + '/' + j.total + ')' })),
+      ].sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+      if (!rows.length) { el.innerHTML = '<div class="empty" style="padding:20px">Sin jobs registrados</div>'; return; }
+      el.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
+        '<thead><tr style="background:var(--surface2)">' +
+        '<th style="padding:8px 12px;text-align:left;font-weight:600">Tipo</th>' +
+        '<th style="padding:8px 12px;text-align:left;font-weight:600">Descripción</th>' +
+        '<th style="padding:8px 12px;text-align:left;font-weight:600">Estado</th>' +
+        '<th style="padding:8px 12px;text-align:left;font-weight:600;white-space:nowrap">Fecha</th>' +
+        '</tr></thead><tbody>' +
+        rows.map((j, i) => '<tr style="border-top:1px solid var(--border);background:' + (i%2?'var(--surface2)':'var(--surface)') + '">' +
+          '<td style="padding:8px 12px"><span style="background:var(--surface2);border-radius:4px;padding:2px 7px;font-size:11px">' + j._type + '</span></td>' +
+          '<td style="padding:8px 12px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + j.label + '">' + j.label + '</td>' +
+          '<td style="padding:8px 12px"><span style="background:' + (sb[j.status]||'#f1f5f9') + ';color:' + (sc[j.status]||'#64748b') + ';border-radius:4px;padding:2px 7px;font-size:11px">' + (j.status||'?') + '</span>' + (j.error ? ' <span style="color:var(--red);font-size:11px" title="' + j.error + '">⚠</span>' : '') + '</td>' +
+          '<td style="padding:8px 12px;color:var(--muted);white-space:nowrap">' + new Date(j.created_at).toLocaleString('es-MX') + '</td>' +
+          '</tr>'
+        ).join('') +
+        '</tbody></table></div>';
+    } catch(e) { el.innerHTML = '<div class="empty" style="padding:20px;color:var(--red)">Error al cargar</div>'; }
+  }
+
+  /* ── APPROVAL REQUESTS ── */
+  async function loadApprovals() {
+    const el = document.getElementById('approvals-list');
+    el.innerHTML = '<div class="empty">Cargando...</div>';
+    try {
+      const r = await fetch(API + '/approvals', {headers:{'x-account-id':accountId}});
+      const d = await r.json();
+      if (!d.approvals || !d.approvals.length) {
+        document.getElementById('approvals-card').style.display = 'none';
+        return;
+      }
+      document.getElementById('approvals-card').style.display = 'block';
+      const approvalUrl = (token) => window.location.origin + '/approve/' + token;
+      el.innerHTML = d.approvals.map(a => {
+        const statusColor = a.sig_status === 'signed' ? '#059669' : a.sig_status === 'cancelled' ? '#dc2626' : '#d97706';
+        const approveUrl = approvalUrl(a.approval_token);
+        return '<div class="sig-item">' +
+          '<div class="sig-header">' +
+          '<span class="sig-name">⚖️ ' + (a.signer_name||'Sin nombre') + '</span>' +
+          '<span class="badge-status" style="background:#fef3c7;color:' + statusColor + '">' + (a.sig_status||'pending') + '</span>' +
+          '</div>' +
+          '<div style="display:flex;justify-content:space-between;align-items:flex-end">' +
+          '<div class="sig-meta">' +
+          '<span>📄 ' + a.document_filename + '</span>' +
+          '<span>📅 ' + new Date(a.created_at).toLocaleDateString('es-MX') + '</span>' +
+          '</div>' +
+          '<div class="sig-action">' +
+          '<button onclick="navigator.clipboard.writeText(\'' + approveUrl + '\')" class="action-link action-link-blue">📋 Copiar link aprobación</button>' +
+          '</div>' +
+          '</div></div>';
+      }).join('');
+    } catch(e) { el.innerHTML = '<div class="empty">Error al cargar aprobaciones</div>'; }
+  }
+
+  /* ── DOCUMENT TIMELINE MODAL ── */
+  async function showDocTimeline(docId, docName) {
+    const modal = document.getElementById('doc-timeline-modal');
+    document.getElementById('doc-timeline-title').textContent = '📋 ' + docName;
+    document.getElementById('doc-timeline-body').innerHTML = '<div class="empty">Cargando...</div>';
+    modal.style.display = 'flex';
+    try {
+      const r = await fetch(API + '/documents/' + docId + '/events', {headers:{'x-account-id':accountId}});
+      const d = await r.json();
+      const events = d.events || [];
+      const iconMap = { created:'🆕', downloaded:'⬇️', deleted:'🗑', signed:'✍️', viewed:'👁' };
+      const colorMap = { created:'#059669', downloaded:'#2563eb', deleted:'#dc2626', signed:'#7c3aed', viewed:'#64748b' };
+      if (!events.length) {
+        document.getElementById('doc-timeline-body').innerHTML = '<div class="empty">Sin eventos registrados</div>';
+        return;
+      }
+      document.getElementById('doc-timeline-body').innerHTML =
+        '<div style="display:flex;flex-direction:column;gap:0">' +
+        events.map((ev, i) => {
+          const icon = iconMap[ev.event_type] || '📌';
+          const color = colorMap[ev.event_type] || '#64748b';
+          return '<div style="display:flex;gap:12px;padding:10px 0;' + (i < events.length-1 ? 'border-bottom:1px solid var(--border)' : '') + '">' +
+            '<div style="display:flex;flex-direction:column;align-items:center;width:32px;flex-shrink:0">' +
+            '<div style="width:28px;height:28px;border-radius:50%;background:' + color + '20;display:flex;align-items:center;justify-content:center;font-size:14px">' + icon + '</div>' +
+            (i < events.length-1 ? '<div style="width:2px;flex:1;background:var(--border);margin:4px 0"></div>' : '') +
+            '</div>' +
+            '<div style="flex:1">' +
+            '<div style="font-size:13px;font-weight:600;color:' + color + '">' + (ev.event_type||'evento') + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + new Date(ev.created_at).toLocaleString('es-MX') + (ev.actor_id ? ' · ' + ev.actor_id : '') + '</div>' +
+            '</div>' +
+            '</div>';
+        }).join('') +
+        '</div>';
+    } catch(e) { document.getElementById('doc-timeline-body').innerHTML = '<div class="empty" style="color:var(--red)">Error al cargar historial</div>'; }
+  }
+
+  function closeDocTimeline() {
+    document.getElementById('doc-timeline-modal').style.display = 'none';
+  }
+
+  /* ── ZIP EXPORT ── */
+  async function exportZip() {
+    const checked = [...document.querySelectorAll('#historial-list input[type=checkbox]:checked')];
+    if (!checked.length) return;
+    const ids = checked.map(cb => parseInt(cb.dataset.id, 10));
+    const zipBtn = document.getElementById('zip-export-btn');
+    zipBtn.textContent = '⏳ Generando ZIP...';
+    zipBtn.disabled = true;
+    try {
+      const r = await fetch(API + '/export/zip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
+        body: JSON.stringify({ ids })
+      });
+      if (!r.ok) { const d = await r.json(); alert('Error: ' + (d.error || 'No se pudo generar el ZIP')); return; }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'docugen_export_' + new Date().toISOString().split('T')[0] + '.zip';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch(e) { alert('Error de conexión'); }
+    finally { zipBtn.textContent = '📦 ZIP (' + ids.length + ')'; zipBtn.disabled = false; }
+  }
+
+  // Lazy-load gallery and logs tabs on first open
   (function() {
     let _galleryLoaded = false;
+    let _logsLoaded    = false;
+    let _approvalsLoaded = false;
     const _orig = switchTab;
     switchTab = function(name) {
       _orig(name);
       if (name === 'galeria' && !_galleryLoaded && accountId) {
         _galleryLoaded = true;
         loadTemplateGallery();
+      }
+      if (name === 'logs' && !_logsLoaded && accountId) {
+        _logsLoaded = true;
+        loadErrorLogs();
+      }
+      if (name === 'firmas' && !_approvalsLoaded && accountId) {
+        _approvalsLoaded = true;
+        loadApprovals();
       }
     };
   })();
