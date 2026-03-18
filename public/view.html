@@ -1710,16 +1710,18 @@ async function loadSignatures() {
         }
       }
 
-      // Scale to fit preview area
-      const previewW = document.getElementById('preview-canvas').offsetWidth - 2;
-      const scale = previewW / 794;
-      doc.style.transform = 'scale(' + scale + ')';
-      document.getElementById('preview-canvas').style.height = (500 * scale) + 'px';
-
       document.getElementById('preview-title').textContent = tpl.name;
       document.getElementById('preview-edit-btn').onclick = () => { closePreview(); editLibTemplate(id, name); };
       document.getElementById('preview-import-btn').onclick = () => { closePreview(); importLibTemplate(id, name); };
+
+      // Open modal FIRST so offsetWidth is real, then calculate scale
       document.getElementById('preview-modal').classList.add('open');
+      requestAnimationFrame(() => {
+        const previewW = document.getElementById('preview-canvas').offsetWidth - 2;
+        const scale = previewW > 0 ? previewW / 794 : 0.6;
+        doc.style.transform = 'scale(' + scale + ')';
+        document.getElementById('preview-canvas').style.height = (680 * scale) + 'px';
+      });
     } catch(e) {
       alert('Error al cargar vista previa: ' + e.message);
     }

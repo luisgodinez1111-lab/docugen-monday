@@ -364,14 +364,30 @@ function init() {
   zoomFit();
   if (boardId) loadVariables();
 
-  // Load saved
-  const saved = localStorage.getItem('docugen_tpl_' + (params.get('tpl') || 'default'));
+  // Load saved — from localStorage or from API (when coming from gallery)
+  const tplParam = params.get('tpl') || 'default';
+  const saved = localStorage.getItem('docugen_tpl_' + tplParam);
   if (saved) {
     try {
       const j = JSON.parse(saved);
       canvas.loadFromJSON(j, canvas.renderAll.bind(canvas));
       document.getElementById('templateName').value = j.name || 'Mi Plantilla';
     } catch(e) {}
+  } else if (tplParam.startsWith('lib_') && accountId) {
+    // Gallery template: fetch canvas_json from API
+    const libId = tplParam.replace(/^lib_/, '');
+    fetch(API + '/template-library/' + libId + '?account_id=' + accountId)
+      .then(r => r.json())
+      .then(data => {
+        if (!data.template) return;
+        const tpl = data.template;
+        try {
+          const j = JSON.parse(tpl.canvas_json);
+          canvas.loadFromJSON(j, canvas.renderAll.bind(canvas));
+          document.getElementById('templateName').value = tpl.name || 'Mi Plantilla';
+        } catch(e) { console.error('Error loading library template:', e); }
+      })
+      .catch(e => console.error('Error fetching library template:', e));
   }
 }
 
