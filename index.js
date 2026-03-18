@@ -1,3 +1,29 @@
+// ── HEALTH CHECK SERVER — zero dependencies, starts in <5ms ──────────────
+// This MUST be the very first thing that runs. Railway's health check fires
+// immediately on container start. If any require() below crashes, /healthz
+// still responds because it runs in a separate http server using only Node builtins.
+const _startTime = Date.now();
+const _http = require('http');
+const _PORT = process.env.PORT || 3000;
+let _appHandler = null; // filled in once the full Express app is ready
+
+const _preServer = _http.createServer((req, res) => {
+  if (req.url === '/healthz' || req.url === '/healthz/') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok', uptime: (Date.now() - _startTime) / 1000 }));
+    return;
+  }
+  if (_appHandler) {
+    _appHandler(req, res); // delegate to full Express app once ready
+  } else {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Servidor iniciando…', code: 'STARTING_UP' }));
+  }
+});
+_preServer.listen(_PORT, () => {
+  console.log(`[STARTUP] HTTP server listening on port ${_PORT} — /healthz ready`);
+});
+
 // ── #10 SENTRY — must be first require for full auto-instrumentation ──────
 const Sentry = require('@sentry/node');
 Sentry.init({
@@ -147,44 +173,53 @@ if (!process.env.REDIS_URL) {
   logger.info('Local cron jobs started (Redis not configured)');
 }
 
-// ── STARTUP: bind port FIRST so /healthz responds immediately ──
-// Railway health check fires as soon as the container starts.
-// We must be listening on PORT before initDB() runs — otherwise the
-// health check times out while waiting for DB migrations to finish.
-const PORT = process.env.PORT || 3000;
+// ── CONNECT FULL EXPRESS APP TO THE PRE-SERVER ──
+// The _preServer is already listening (started at top of file).
+// Wire the Express app as the request handler — from this point all
+// requests (except /healthz handled above) go through Express.
+_appHandler = app;
+logger.info({ port: _PORT, env: process.env.NODE_ENV || 'development' }, 'DocuGen Express app wired');
 
-app.listen(PORT, () => {
-  logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'DocuGen HTTP server listening');
+// ── INIT DB WITH RETRY — does not block the health check ──
+// Railway DB may not be ready instantly. Retry up to 10 times (50s total)
+// before giving up. /healthz keeps responding throughout.
+async function startWithRetry(maxAttempts = 10, delayMs = 5000) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await initDB(logger);
+      logger.info({ port: _PORT, appId: process.env.MONDAY_APP_ID, attempt }, 'DocuGen server ready — DB initialised');
 
-  // Init DB asynchronously after port is bound
-  initDB(logger).then(() => {
-    logger.info({ port: PORT, appId: process.env.MONDAY_APP_ID }, 'DocuGen server ready — DB initialised');
+      // ── EMAIL / BULK / CRON WORKERS (Redis-conditional) ──
+      if (process.env.REDIS_URL) {
+        try { require('./src/workers/email.worker'); }
+        catch (workerErr) { logger.warn({ err: workerErr.message }, 'Email worker failed to start'); }
 
-    // ── EMAIL / BULK / CRON WORKERS (Redis-conditional) ──
-    if (process.env.REDIS_URL) {
-      try { require('./src/workers/email.worker'); }
-      catch (workerErr) { logger.warn({ err: workerErr.message }, 'Email worker failed to start'); }
+        try { require('./src/workers/bulk.worker'); }
+        catch (workerErr) { logger.warn({ err: workerErr.message }, 'Bulk worker failed to start'); }
 
-      try { require('./src/workers/bulk.worker'); }
-      catch (workerErr) { logger.warn({ err: workerErr.message }, 'Bulk worker failed to start'); }
-
-      try {
-        require('./src/workers/cron.worker');
-        const { registerCronJobs } = require('./src/queues/cron.queue');
-        registerCronJobs().then(() => {
-          logger.info('Cron jobs registered');
-        }).catch(err => {
-          logger.warn({ err: err.message }, 'Failed to register cron jobs');
-        });
-      } catch (workerErr) {
-        logger.warn({ err: workerErr.message }, 'Cron worker failed to start');
+        try {
+          require('./src/workers/cron.worker');
+          const { registerCronJobs } = require('./src/queues/cron.queue');
+          registerCronJobs().then(() => {
+            logger.info('Cron jobs registered');
+          }).catch(err => {
+            logger.warn({ err: err.message }, 'Failed to register cron jobs');
+          });
+        } catch (workerErr) {
+          logger.warn({ err: workerErr.message }, 'Cron worker failed to start');
+        }
       }
+      return; // success
+    } catch (err) {
+      logger.warn({ attempt, maxAttempts, err: err.message }, `initDB attempt ${attempt}/${maxAttempts} failed`);
+      if (attempt === maxAttempts) {
+        logger.error({ err: err.message }, 'FATAL: DB unreachable after all retries — exiting');
+        process.exit(1);
+      }
+      await new Promise(r => setTimeout(r, delayMs));
     }
-  }).catch(err => {
-    // Log the error clearly so Railway logs show the real cause
-    logger.error({ err: err.message, stack: err.stack }, 'FATAL: initDB failed');
-    process.exit(1);
-  });
-});
+  }
+}
+startWithRetry();
 
 module.exports = app;

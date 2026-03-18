@@ -33,9 +33,9 @@ const schema = z.object({
 
 const result = schema.safeParse(process.env);
 if (!result.success) {
-  console.error('Invalid environment variables:');
-  result.error.issues.forEach(i => console.error(' -', i.path.join('.'), i.message));
-  process.exit(1);
+  const issues = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(', ');
+  // Throw — NOT process.exit() — so the caller can catch and keep the port bound
+  throw new Error(`Invalid environment variables: ${issues}`);
 }
 
 module.exports = { env: result.data };

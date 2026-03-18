@@ -5,7 +5,15 @@ const { resendBreaker } = require('../utils/circuit-breaker');
 const { emailSignRequest, emailQuotaAlert } = require('../utils/email-templates');
 const { escapeHtml } = require('../utils/strings');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy init — RESEND_API_KEY may not be set in dev/test; instantiate only when sending
+let _resend = null;
+function getResend() {
+  if (!_resend) {
+    if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY not configured');
+    _resend = new Resend(process.env.RESEND_API_KEY);
+  }
+  return _resend;
+}
 
 let enqueueEmailJob = null;
 try {
@@ -27,7 +35,7 @@ async function sendEmail(payload) {
   }
   // Fallback: direct send (Redis unavailable or queue error)
   await resendBreaker.call(() =>
-    resend.emails.send({
+    getResend().emails.send({
       from:    payload.from || process.env.SMTP_FROM || 'DocuGen <onboarding@resend.dev>',
       to:      Array.isArray(payload.to) ? payload.to : [payload.to],
       subject: payload.subject,
