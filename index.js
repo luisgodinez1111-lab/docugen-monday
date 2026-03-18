@@ -85,9 +85,9 @@ const { makeRateLimiter } = require('./src/middleware/rateLimit');
 const { DOC_RATE_MAX, DOC_RATE_WINDOW } = require('./src/utils/config');
 const docGenRateLimit = makeRateLimiter(DOC_RATE_MAX, DOC_RATE_WINDOW);
 
-// ── OUTPUT DIRECTORY ──
-const outputsDir = path.join(__dirname, 'outputs');
-if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir);
+// ── OUTPUT DIRECTORY ── (Railway: /tmp is writable; local: outputs/ dir)
+const outputsDir = process.env.RAILWAY_ENVIRONMENT ? '/tmp/outputs' : path.join(__dirname, 'outputs');
+try { if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir, { recursive: true }); } catch {}
 
 // ── EMAIL QUEUE (optional Redis) ──
 let enqueueEmailJob = null;

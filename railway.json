@@ -1,7 +1,7 @@
 {
   "deploy": {
+    "startCommand": "node index.js",
     "healthcheckPath": "/healthz",
-    "healthcheckTimeout": 120,
-    "startCommand": "node index.js"
+    "healthcheckTimeout": 120
   }
 }
