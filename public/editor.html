@@ -364,30 +364,73 @@ function init() {
   zoomFit();
   if (boardId) loadVariables();
 
-  // Load saved — from localStorage or from API (when coming from gallery)
+  // Load saved from localStorage
   const tplParam = params.get('tpl') || 'default';
   const saved = localStorage.getItem('docugen_tpl_' + tplParam);
   if (saved) {
     try {
       const j = JSON.parse(saved);
-      canvas.loadFromJSON(j, canvas.renderAll.bind(canvas));
+      canvas.loadFromJSON(JSON.stringify(j), canvas.renderAll.bind(canvas));
       document.getElementById('templateName').value = j.name || 'Mi Plantilla';
-    } catch(e) {}
-  } else if (tplParam.startsWith('lib_') && accountId) {
-    // Gallery template: fetch canvas_json from API
-    const libId = tplParam.replace(/^lib_/, '');
-    fetch(API + '/template-library/' + libId + '?account_id=' + accountId)
+    } catch(e) { console.error('loadFromJSON error:', e); }
+  }
+
+  // Load from gallery (?lib=template-id) — fetch from API and build objects manually
+  const libId = params.get('lib');
+  if (libId && accountId) {
+    fetch(API + '/template-library/' + encodeURIComponent(libId) + '?account_id=' + accountId)
       .then(r => r.json())
       .then(data => {
-        if (!data.template) return;
-        const tpl = data.template;
-        try {
-          const j = JSON.parse(tpl.canvas_json);
-          canvas.loadFromJSON(j, canvas.renderAll.bind(canvas));
-          document.getElementById('templateName').value = tpl.name || 'Mi Plantilla';
-        } catch(e) { console.error('Error loading library template:', e); }
+        const tpl = data && data.template;
+        if (!tpl || !tpl.canvas_json) return;
+        document.getElementById('templateName').value = tpl.name || 'Mi Plantilla';
+        canvas.clear();
+        const parsed = JSON.parse(tpl.canvas_json);
+        const objects = (parsed.objects || []).slice().sort((a, b) => (a.top || 0) - (b.top || 0));
+        objects.forEach(obj => {
+          try {
+            if (obj.type === 'i-text' || obj.type === 'text') {
+              const t = new fabric.IText(obj.text || '', {
+                left:       obj.left       || 40,
+                top:        obj.top        || 40,
+                fontSize:   obj.fontSize   || 12,
+                fontFamily: obj.fontFamily || 'Arial',
+                fontWeight: obj.fontWeight || 'normal',
+                fontStyle:  obj.fontStyle  || 'normal',
+                fill:       obj.fill       || '#000000',
+                width:      obj.width      || 300,
+                textAlign:  obj.textAlign  || 'left',
+                selectable: true,
+              });
+              canvas.add(t);
+            } else if (obj.type === 'line') {
+              const x1 = obj.left || 40, y1 = obj.top || 100;
+              const x2 = x1 + Math.abs((obj.x2 || 740) - (obj.x1 || 0)), y2 = y1;
+              const l = new fabric.Line([x1, y1, x2, y2], {
+                stroke:      obj.stroke      || '#cccccc',
+                strokeWidth: obj.strokeWidth || 1,
+                selectable:  true,
+              });
+              canvas.add(l);
+            } else if (obj.type === 'rect') {
+              const r = new fabric.Rect({
+                left:   obj.left   || 40,
+                top:    obj.top    || 40,
+                width:  obj.width  || 200,
+                height: obj.height || 80,
+                fill:   obj.fill   || 'transparent',
+                stroke: obj.stroke || '#000000',
+                strokeWidth: obj.strokeWidth || 1,
+                selectable: true,
+              });
+              canvas.add(r);
+            }
+          } catch(e) { console.warn('skipping object', obj.type, e); }
+        });
+        canvas.renderAll();
+        saveHist();
       })
-      .catch(e => console.error('Error fetching library template:', e));
+      .catch(e => console.error('Error loading gallery template:', e));
   }
 }
 

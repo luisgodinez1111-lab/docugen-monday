@@ -1731,17 +1731,8 @@ async function loadSignatures() {
     document.getElementById('preview-modal').classList.remove('open');
   }
 
-  async function editLibTemplate(id, name) {
-    try {
-      const tpl = await fetchLibTemplate(id);
-      const canvas = JSON.parse(tpl.canvas_json);
-      const key = 'docugen_tpl_lib_' + id;
-      const payload = Object.assign({}, canvas, { name: tpl.name });
-      localStorage.setItem(key, JSON.stringify(payload));
-      window.open('/editor?account_id=' + accountId + (boardId ? '&boardId=' + boardId : '') + '&tpl=lib_' + id, '_blank');
-    } catch(e) {
-      alert('Error al abrir editor: ' + e.message);
-    }
+  function editLibTemplate(id, name) {
+    window.open('/editor?account_id=' + accountId + (boardId ? '&boardId=' + boardId : '') + '&lib=' + encodeURIComponent(id), '_blank');
   }
 
   async function importLibTemplate(id, name) {
