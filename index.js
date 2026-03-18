@@ -18,7 +18,12 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 // FIX-29: Validate env vars at startup — must come after dotenv.config()
-require('./src/config/env');
+// Wrapped in try-catch so the port can still bind and /healthz can respond
+// (Railway health check runs during startup — must not block on this)
+try { require('./src/config/env'); } catch (envErr) {
+  console.error('[STARTUP] env validation error:', envErr.message);
+  // Don't exit — let the server start so /healthz responds, then fail gracefully
+}
 
 const path = require('path');
 const fs = require('fs');
@@ -142,13 +147,20 @@ if (!process.env.REDIS_URL) {
   logger.info('Local cron jobs started (Redis not configured)');
 }
 
-// FIX-21: initDB() before app.listen() — prevents serving requests before schema is ready
+// ── STARTUP: bind port FIRST so /healthz responds immediately ──
+// Railway health check fires as soon as the container starts.
+// We must be listening on PORT before initDB() runs — otherwise the
+// health check times out while waiting for DB migrations to finish.
 const PORT = process.env.PORT || 3000;
-initDB(logger).then(() => {
-  app.listen(PORT, () => {
-    logger.info({ port: PORT, appId: process.env.MONDAY_APP_ID, env: process.env.NODE_ENV || 'development' }, 'DocuGen server started');
 
-    // ── #6 EMAIL WORKER ── register after server starts (Redis-conditional)
+app.listen(PORT, () => {
+  logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'DocuGen HTTP server listening');
+
+  // Init DB asynchronously after port is bound
+  initDB(logger).then(() => {
+    logger.info({ port: PORT, appId: process.env.MONDAY_APP_ID }, 'DocuGen server ready — DB initialised');
+
+    // ── EMAIL / BULK / CRON WORKERS (Redis-conditional) ──
     if (process.env.REDIS_URL) {
       try { require('./src/workers/email.worker'); }
       catch (workerErr) { logger.warn({ err: workerErr.message }, 'Email worker failed to start'); }
@@ -168,7 +180,11 @@ initDB(logger).then(() => {
         logger.warn({ err: workerErr.message }, 'Cron worker failed to start');
       }
     }
+  }).catch(err => {
+    // Log the error clearly so Railway logs show the real cause
+    logger.error({ err: err.message, stack: err.stack }, 'FATAL: initDB failed');
+    process.exit(1);
   });
-}).catch(err => { logger.error(err); if (process.env.NODE_ENV !== 'test') process.exit(1); });
+});
 
 module.exports = app;

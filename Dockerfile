@@ -19,13 +19,15 @@ RUN npm ci --omit=dev
 
 COPY --chown=docugen:docugen . .
 
+# Create outputs dir (fallback for non-Railway envs; Railway uses /tmp/outputs)
 RUN mkdir -p outputs && chown docugen:docugen outputs
 
 USER docugen
 
 EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:' + (process.env.PORT || 3000) + '/', r => r.statusCode < 500 ? process.exit(0) : process.exit(1)).on('error', () => process.exit(1))"
+# /healthz responds immediately (before DB init) — Railway uses this path
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=5 \
+  CMD node -e "require('http').get('http://localhost:' + (process.env.PORT || 3000) + '/healthz', r => r.statusCode === 200 ? process.exit(0) : process.exit(1)).on('error', () => process.exit(1))"
 
 CMD ["node", "index.js"]
