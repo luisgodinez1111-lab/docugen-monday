@@ -20,7 +20,7 @@ if (process.env.REDIS_URL) {
   });
   redisClient.on('error', (err) => {
     if (redisClient) {
-      console.error('[rateLimit] Redis error — falling back to in-memory:', err.message);
+      try { require('../services/logger.service').warn({ err: err.message }, '[rateLimit] Redis error — falling back to in-memory'); } catch {}
       redisClient = null;
     }
   });
@@ -96,7 +96,7 @@ function makeRateLimiter(maxRequests, windowMs) {
         }
         return next();
       } catch (err) {
-        console.error('[rateLimit] Redis call failed:', err.message);
+        try { require('../services/logger.service').warn({ err: err.message }, '[rateLimit] Redis call failed — falling back to in-memory'); } catch {}
         // fall through to in-memory
       }
     }

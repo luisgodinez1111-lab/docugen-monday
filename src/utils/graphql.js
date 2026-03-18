@@ -158,8 +158,31 @@ async function getMondayBoard(accessToken, boardId, limit = 50, columnFragment =
   const boards = data?.boards;
   if (!boards?.length) return null;
   const board = boards[0];
-  if (_cacheSet && board) await _cacheSet(cacheKey, board, 300).catch(() => {});
+  // FIX-12: Increased TTL from 300s (5 min) to 1800s (30 min) to reduce Monday API pressure
+  if (_cacheSet && board) await _cacheSet(cacheKey, board, 1800).catch(() => {});
   return board;
+}
+
+/**
+ * Invalidates the cached board data for a given boardId.
+ * Call this from webhook handlers when board changes are detected.
+ *
+ * @param {string|number} boardId
+ */
+async function invalidateBoardCache(boardId) {
+  if (!_cacheGet) return;
+  const id = parseInt(boardId, 10);
+  if (!id || isNaN(id)) return;
+  // Delete all cache keys for this board (different limit values)
+  // We use a known set of typical limit values used in getMondayBoard calls
+  const limits = [50, 100, 200, 500];
+  for (const limit of limits) {
+    const key = `monday_board:${id}:${limit}`;
+    try {
+      const { cacheDel } = require('../services/cache.service');
+      await cacheDel(key);
+    } catch {}
+  }
 }
 
 /**
@@ -184,4 +207,4 @@ async function createMondayUpdate(accessToken, itemId, body, opts = {}) {
   return mondayQuery(accessToken, query, { itemId: String(id), body }, DEFAULT_TIMEOUT_MS, opts);
 }
 
-module.exports = { mondayQuery, getMondayItem, getMondayBoard, createMondayUpdate };
+module.exports = { mondayQuery, getMondayItem, getMondayBoard, createMondayUpdate, invalidateBoardCache };

@@ -140,7 +140,8 @@ module.exports = function makeSignaturesRouter(deps) {
         }
         res.json({ success: true, token, sign_url: signUrl });
       }
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // PDF on-demand para portal viewer
@@ -270,7 +271,8 @@ module.exports = function makeSignaturesRouter(deps) {
       res.json({ ok: true, email: sig.signer_email.replace(/(.{2}).*(@.*)/, '$1***$2') });
     } catch(e) {
       logger.error('OTP send error:', e.message);
-      res.status(500).json({ error: 'Error enviando OTP: ' + e.message });
+      try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   });
 
@@ -296,7 +298,8 @@ module.exports = function makeSignaturesRouter(deps) {
       await pool.query('UPDATE signature_requests SET otp_verified=TRUE, identity_verified=TRUE WHERE token=$1', [req.params.token]);
       res.json({ ok: true, verified: true });
     } catch(e) {
-      res.status(500).json({ error: e.message });
+      try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   });
 
@@ -322,7 +325,8 @@ module.exports = function makeSignaturesRouter(deps) {
         group_id: sig.group_id,
         account_id: sig.account_id
       });
-    } catch(e) { res.status(500).json({ success: false, error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ success: false, error: 'Error interno del servidor' }); }
   });
 
   // DOWNLOAD endpoint — siempre sirve PDF
@@ -667,7 +671,8 @@ module.exports = function makeSignaturesRouter(deps) {
         } catch(bgErr) { logger.error('Background PDF error:', bgErr.message); }
       }); // end setImmediate
 
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // ── PORTAL LOGO (solo para portal de firmas, separado del logo de documentos) ──
@@ -682,7 +687,8 @@ module.exports = function makeSignaturesRouter(deps) {
         [req.accountId, req.file.originalname, req.file.buffer, req.file.mimetype]
       );
       res.json({ success: true });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // FIX-25: CREATE TABLE removed — portal_logos table created in initDB()
@@ -694,14 +700,16 @@ module.exports = function makeSignaturesRouter(deps) {
       if (!r.rows.length) return res.status(404).json({ error: 'No hay logo' });
       res.set('Content-Type', r.rows[0].mimetype);
       res.send(r.rows[0].data);
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   router.delete('/portal-logo/delete', requireAuth, async (req, res) => {
     try {
       await pool.query('DELETE FROM portal_logos WHERE account_id=$1', [req.accountId]);
       res.json({ success: true });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // FIX-25: CREATE TABLE removed — signature_requests table created in initDB()
@@ -720,7 +728,8 @@ module.exports = function makeSignaturesRouter(deps) {
         signatures: r.rows,
         pagination:  { page, limit, total, total_pages: Math.ceil(total / limit) },
       });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // ─── DESCARGAR DOCUMENTO FIRMADO ──────────────────────────
@@ -804,7 +813,8 @@ module.exports = function makeSignaturesRouter(deps) {
       res.set('Content-Disposition', 'attachment; filename="documento_firmado.docx"');
       res.send(modifiedDocx);
 
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // Ver estado de firma por token
@@ -814,7 +824,8 @@ module.exports = function makeSignaturesRouter(deps) {
       const r = await pool.query('SELECT status, signer_name, signed_at FROM signature_requests WHERE token=$1', [req.params.token]);
       if (!r.rows.length) return res.status(404).json({ error: 'No encontrada' });
       res.json(r.rows[0]);
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // ── QUOTE RESPONSE ENDPOINT ──
@@ -886,7 +897,8 @@ module.exports = function makeSignaturesRouter(deps) {
       res.json({ success: true, response });
     } catch(e) {
       logger.error('Quote response error:', e.message);
-      res.status(500).json({ error: e.message });
+      try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   });
 
@@ -909,7 +921,8 @@ module.exports = function makeSignaturesRouter(deps) {
         await pool.query('UPDATE signature_requests SET time_on_portal = LEAST(COALESCE(time_on_portal,0) + $1, 86400) WHERE token=$2', [time_spent, token]);
       }
       res.json({ success: true });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // ─── SISTEMA DE FIRMA AVANZADO ────────────────────────────
@@ -950,7 +963,8 @@ module.exports = function makeSignaturesRouter(deps) {
       }
 
       res.json({ success: true, group_id: groupId, signers: tokens });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // FIX-12: requireAuth + account scoping to protect audit certificate PII
@@ -968,7 +982,8 @@ module.exports = function makeSignaturesRouter(deps) {
       res.set('Content-Type', 'application/pdf');
       res.set('Content-Disposition', 'attachment; filename="certificado_auditoria.pdf"');
       res.send(pdfBuffer);
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // ─── SEND REMINDER ───────────────────────────────────────────────────────────
@@ -1011,7 +1026,8 @@ module.exports = function makeSignaturesRouter(deps) {
       } catch(e) {}
 
       res.json({ success: true, sent_to: sig.signer_email });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // ── Cancel a pending signature request ──────────────────────────────────
@@ -1032,7 +1048,8 @@ module.exports = function makeSignaturesRouter(deps) {
       );
       logger.info({ token: req.params.token, accountId: req.accountId, signer: sig.signer_name }, 'Signature request cancelled');
       res.json({ success: true });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // H1: GET /signatures/export/zip — download all signed PDFs as ZIP
@@ -1053,7 +1070,8 @@ module.exports = function makeSignaturesRouter(deps) {
       res.set('Content-Type', 'application/zip');
       res.set('Content-Disposition', 'attachment; filename="' + zipName + '"');
       res.send(zipBuffer);
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // E1: POST /signatures/:token/extend — reset expiry +7 days for pending/expired signatures
@@ -1072,7 +1090,8 @@ module.exports = function makeSignaturesRouter(deps) {
       );
       logger.info({ token: req.params.token, accountId: req.accountId }, 'Signature request extended');
       res.json({ success: true, expires_at: newExpiry });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // ─── APPROVAL REQUESTS — list pending legal doc approvals ──
@@ -1095,7 +1114,8 @@ module.exports = function makeSignaturesRouter(deps) {
         [req.accountId]
       );
       res.json({ approvals: r.rows, total: count.rows[0].total });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   return router;

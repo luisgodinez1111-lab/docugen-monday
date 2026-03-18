@@ -27,10 +27,11 @@ module.exports = function makeTemplatesRouter(deps) {
       await pool.query(`INSERT INTO templates (account_id, filename, data) VALUES ($1, $2, $3) ON CONFLICT (account_id, filename) DO UPDATE SET data = $3, updated_at = NOW()`, [accountId, safeName, req.file.buffer]);
       // I3: Audit log for template upload
       pool.query('INSERT INTO audit_log (account_id, action, details) VALUES ($1,$2,$3)',
-        [accountId, 'template.upload', JSON.stringify({ filename: safeName })]).catch(() => {});
+        [accountId, 'template.upload', JSON.stringify({ filename: safeName })]).catch(err => { try { require('../services/logger.service').warn({ err: err.message }, 'audit/email fire-and-forget failed'); } catch {} });
       res.json({ success: true, filename: safeName });
     } catch (err) {
-      res.status(500).json({ error: 'Error al guardar plantilla', details: err.message });
+      try { require('../services/logger.service').error({ err: err.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   });
 
@@ -62,7 +63,8 @@ module.exports = function makeTemplatesRouter(deps) {
       );
       res.json({ success: true, filename: req.file.originalname });
     } catch(err) {
-      res.status(500).json({ error: err.message });
+      try { require('../services/logger.service').error({ err: err.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   });
 
@@ -74,7 +76,8 @@ module.exports = function makeTemplatesRouter(deps) {
       res.set('Content-Type', result.rows[0].mimetype);
       res.send(result.rows[0].data);
     } catch(err) {
-      res.status(500).json({ error: err.message });
+      try { require('../services/logger.service').error({ err: err.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   });
 
@@ -83,7 +86,8 @@ module.exports = function makeTemplatesRouter(deps) {
     try {
       await pool.query('DELETE FROM logos WHERE account_id=$1', [req.accountId]);
       res.json({ success: true });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   router.post('/editor/save-template', requireAuth, async (req, res) => {
@@ -270,7 +274,8 @@ module.exports = function makeTemplatesRouter(deps) {
       res.json({ success: true, filename });
     } catch(err) {
       logger.error('Editor save error:', err.message);
-      res.status(500).json({ error: err.message });
+      try { require('../services/logger.service').error({ err: err.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   });
 
@@ -280,7 +285,8 @@ module.exports = function makeTemplatesRouter(deps) {
       const r = await pool.query('SELECT canvas_json FROM templates WHERE account_id=$1 AND filename=$2', [req.accountId, req.params.filename]);
       if (!r.rows.length) return res.status(404).json({ error: 'No encontrada' });
       res.json({ canvas_json: r.rows[0].canvas_json ? JSON.parse(r.rows[0].canvas_json) : null });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   router.delete('/templates/:filename', requireAuth, async (req, res) => {
@@ -288,9 +294,10 @@ module.exports = function makeTemplatesRouter(deps) {
       await pool.query('DELETE FROM templates WHERE account_id=$1 AND filename=$2', [req.accountId, req.params.filename]);
       // I3: Audit log for template delete
       pool.query('INSERT INTO audit_log (account_id, action, details) VALUES ($1,$2,$3)',
-        [req.accountId, 'template.delete', JSON.stringify({ filename: req.params.filename })]).catch(() => {});
+        [req.accountId, 'template.delete', JSON.stringify({ filename: req.params.filename })]).catch(err => { try { require('../services/logger.service').warn({ err: err.message }, 'audit/email fire-and-forget failed'); } catch {} });
       res.json({ success: true });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   router.post('/templates/:filename/duplicate', requireAuth, async (req, res) => {
@@ -304,7 +311,8 @@ module.exports = function makeTemplatesRouter(deps) {
         [req.accountId, newFilename, r.rows[0].data, r.rows[0].canvas_json]
       );
       res.json({ success: true, filename: newFilename });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   router.post('/templates/:filename/rename', requireAuth, async (req, res) => {
@@ -315,9 +323,10 @@ module.exports = function makeTemplatesRouter(deps) {
       await pool.query('UPDATE templates SET filename=$1, updated_at=NOW() WHERE account_id=$2 AND filename=$3', [newFilename, req.accountId, req.params.filename]);
       // I3: Audit log for template rename
       pool.query('INSERT INTO audit_log (account_id, action, details) VALUES ($1,$2,$3)',
-        [req.accountId, 'template.rename', JSON.stringify({ from: req.params.filename, to: newFilename })]).catch(() => {});
+        [req.accountId, 'template.rename', JSON.stringify({ from: req.params.filename, to: newFilename })]).catch(err => { try { require('../services/logger.service').warn({ err: err.message }, 'audit/email fire-and-forget failed'); } catch {} });
       res.json({ success: true, filename: newFilename });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // ── TEMPLATE EXPORT — download .docx binary for backup / version control ──
@@ -330,7 +339,8 @@ module.exports = function makeTemplatesRouter(deps) {
       res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       res.set('Content-Disposition', 'attachment; filename="' + dl.replace(/"/g, '\\"') + '"');
       res.send(r.rows[0].data);
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   return router;

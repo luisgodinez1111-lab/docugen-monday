@@ -25,8 +25,8 @@ async function requireSubscription(req, res, next) {
 // Middleware: verificar límite de documentos
 async function checkDocLimit(req, res, next) {
   try {
-    const accountId = req.accountId || req.body?.account_id || req.query?.account_id;
-    if (!accountId) return next(); // Sin accountId, dejar pasar
+    const accountId = req.accountId;
+    if (!accountId) return res.status(401).json({ error: 'No autenticado' });
     const sub = await checkSubscription(accountId);
     if (!sub.allowed) {
       const msg = sub.reason === 'trial_expired'

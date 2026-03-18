@@ -24,7 +24,7 @@ function verifyMondayHmac(opts = {}) {
 
     const signingSecret = process.env.MONDAY_SIGNING_SECRET;
     if (!signingSecret) {
-      console.error('[HMAC] MONDAY_SIGNING_SECRET no configurado — endpoint desprotegido');
+      try { require('../services/logger.service').error({}, '[HMAC] MONDAY_SIGNING_SECRET no configurado — endpoint desprotegido'); } catch {}
       return res.status(500).json({ error: 'Server misconfiguration: missing signing secret' });
     }
 
@@ -34,21 +34,22 @@ function verifyMondayHmac(opts = {}) {
     }
 
     const rawBody = JSON.stringify(req.body);
-    const expected = crypto
-      .createHmac('sha256', signingSecret)
-      .update(rawBody)
-      .digest('hex');
+    const expectedBuf = Buffer.from(
+      crypto.createHmac('sha256', signingSecret).update(rawBody).digest('hex'),
+      'hex'
+    );
 
-    // timingSafeEqual previene timing attacks
+    // FIX-5: Double-HMAC comparison — both digests are always 32 bytes regardless of input length.
+    // This prevents timing attacks from the early-exit length check.
     try {
-      const expectedBuf = Buffer.from(expected, 'hex');
-      const receivedBuf = Buffer.from(authHeader.replace(/^sha256=/, ''), 'hex');
+      const receivedRaw = Buffer.from(authHeader.replace(/^sha256=/, ''), 'hex');
+      // Derive fixed-length MACs so timingSafeEqual always compares 32 bytes
+      const secret32 = Buffer.from(signingSecret);
+      const hashExpected = crypto.createHmac('sha256', secret32).update(expectedBuf).digest();
+      const hashReceived = crypto.createHmac('sha256', secret32).update(receivedRaw).digest();
 
-      if (
-        expectedBuf.length !== receivedBuf.length ||
-        !crypto.timingSafeEqual(expectedBuf, receivedBuf)
-      ) {
-        console.warn('[HMAC] Firma inválida — posible request falsificado');
+      if (hashExpected.length !== hashReceived.length || !crypto.timingSafeEqual(hashExpected, hashReceived)) {
+        try { require('../services/logger.service').warn({}, '[HMAC] Firma inválida — posible request falsificado'); } catch {}
         return res.status(401).json({ error: 'Invalid HMAC signature' });
       }
     } catch {

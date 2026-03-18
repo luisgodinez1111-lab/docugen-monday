@@ -11,7 +11,8 @@ function verifyWorkflowJWT(req) {
     if (!token) return null;
     const secret = process.env.MONDAY_SIGNING_SECRET || process.env.MONDAY_CLIENT_SECRET;
     if (!secret) throw new Error('MONDAY_SIGNING_SECRET is required');
-    return jwt.verify(token, secret);
+    // FIX-3: Enforce exp claim — algorithms whitelist + clockTolerance:0 (never use ignoreExpiration)
+    return jwt.verify(token, secret, { algorithms: ['HS256'], clockTolerance: 0 });
   } catch(e) { return null; }
 }
 

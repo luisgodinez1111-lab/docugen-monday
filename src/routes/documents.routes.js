@@ -21,12 +21,16 @@ module.exports = function makeDocumentsRouter(deps) {
     const _accountId = req.accountId;
     const _subCheck = await checkSubscription(_accountId);
     if (!_subCheck.allowed) {
-      const msg = _subCheck.reason === "trial_expired"
-        ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
-        : _subCheck.reason === "docs_limit_reached"
-          ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
-          : "Suscripcion inactiva. Actualiza tu plan.";
-      return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
+      const _code = _subCheck.reason === 'trial_expired' ? 'TRIAL_EXPIRED'
+        : _subCheck.reason === 'docs_limit_reached' ? 'LIMIT_REACHED'
+        : 'SUBSCRIPTION_INACTIVE';
+      return res.status(402).json({
+        error: _subCheck.reason === 'trial_expired' ? 'Tu período de prueba ha expirado'
+          : _subCheck.reason === 'docs_limit_reached' ? 'Has alcanzado el límite de documentos de tu plan'
+          : 'Suscripción inactiva',
+        error_code: _code,
+        plan: _subCheck.plan
+      });
     }
 
     const { board_id, item_id, template_name } = req.body;
@@ -59,14 +63,14 @@ module.exports = function makeDocumentsRouter(deps) {
       await storageService.uploadFile(storageKey, outputBuffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
 
       const insertResult = await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id', [req.accountId, board_id, item_id, item.name, template_name, outputFilename, outputBuffer]);
-      logDocumentEvent(pool, { documentId: insertResult.rows[0].id, eventType: 'created', actorId: req.accountId }).catch(() => {});
+      logDocumentEvent(pool, { documentId: insertResult.rows[0].id, eventType: 'created', actorId: req.accountId }).catch(err => { try { require('../services/logger.service').warn({ err: err.message }, 'audit/email fire-and-forget failed'); } catch {} });
 
       await incrementDocsUsed(_accountId); // billing
       // P2-9: data_used removed from response — do not expose all template variables to client
       res.json({ success: true, filename: outputFilename, download_url: '/download/' + outputFilename });
     } catch (error) {
-      logger.error('Error:', error);
-      res.status(500).json({ error: 'Error al generar', details: error.message });
+      try { require('../services/logger.service').error({ err: error.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   });
 
@@ -100,7 +104,7 @@ module.exports = function makeDocumentsRouter(deps) {
         [id, req.accountId]
       );
       if (!result.rows.length) return res.status(404).json({ error: 'Documento no encontrado' });
-      logDocumentEvent(pool, { documentId: id, eventType: 'deleted', actorId: req.accountId }).catch(() => {});
+      logDocumentEvent(pool, { documentId: id, eventType: 'deleted', actorId: req.accountId }).catch(err => { try { require('../services/logger.service').warn({ err: err.message }, 'audit/email fire-and-forget failed'); } catch {} });
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: 'Error al eliminar documento' });
@@ -120,7 +124,7 @@ module.exports = function makeDocumentsRouter(deps) {
         [safeIds, req.accountId]
       );
       result.rows.forEach(({ id }) => {
-        logDocumentEvent(pool, { documentId: id, eventType: 'deleted', actorId: req.accountId }).catch(() => {});
+        logDocumentEvent(pool, { documentId: id, eventType: 'deleted', actorId: req.accountId }).catch(err => { try { require('../services/logger.service').warn({ err: err.message }, 'audit/email fire-and-forget failed'); } catch {} });
       });
       res.json({ success: true, deleted: result.rows.length });
     } catch (err) {
@@ -149,12 +153,16 @@ module.exports = function makeDocumentsRouter(deps) {
     const _accountId = req.accountId;
     const _subCheck = await checkSubscription(_accountId);
     if (!_subCheck.allowed) {
-      const msg = _subCheck.reason === "trial_expired"
-        ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
-        : _subCheck.reason === "docs_limit_reached"
-          ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
-          : "Suscripcion inactiva. Actualiza tu plan.";
-      return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
+      const _code = _subCheck.reason === 'trial_expired' ? 'TRIAL_EXPIRED'
+        : _subCheck.reason === 'docs_limit_reached' ? 'LIMIT_REACHED'
+        : 'SUBSCRIPTION_INACTIVE';
+      return res.status(402).json({
+        error: _subCheck.reason === 'trial_expired' ? 'Tu período de prueba ha expirado'
+          : _subCheck.reason === 'docs_limit_reached' ? 'Has alcanzado el límite de documentos de tu plan'
+          : 'Suscripción inactiva',
+        error_code: _code,
+        plan: _subCheck.plan
+      });
     }
 
     const { board_id, item_id, template_name } = req.body;
@@ -190,7 +198,7 @@ module.exports = function makeDocumentsRouter(deps) {
         'INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
         [req.accountId, board_id, item_id, item.name, template_name, baseName + '.pdf', pdfData]
       );
-      logDocumentEvent(pool, { documentId: pdfInsertResult.rows[0].id, eventType: 'created', actorId: req.accountId }).catch(() => {});
+      logDocumentEvent(pool, { documentId: pdfInsertResult.rows[0].id, eventType: 'created', actorId: req.accountId }).catch(err => { try { require('../services/logger.service').warn({ err: err.message }, 'audit/email fire-and-forget failed'); } catch {} });
       await incrementDocsUsed(_accountId);
 
       res.set({
@@ -200,8 +208,8 @@ module.exports = function makeDocumentsRouter(deps) {
       });
       res.send(pdfData);
     } catch (error) {
-      logger.error({ err: error.message, accountId: req.accountId }, 'Error generating PDF');
-      res.status(500).json({ error: 'Error al generar PDF', details: error.message });
+      try { require('../services/logger.service').error({ err: error.message, accountId: req.accountId }, 'Error generating PDF'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   });
 
@@ -211,12 +219,16 @@ module.exports = function makeDocumentsRouter(deps) {
     const _accountId = req.accountId;
     const _subCheck = await checkSubscription(_accountId);
     if (!_subCheck.allowed) {
-      const msg = _subCheck.reason === "trial_expired"
-        ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
-        : _subCheck.reason === "docs_limit_reached"
-          ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
-          : "Suscripcion inactiva. Actualiza tu plan.";
-      return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
+      const _code = _subCheck.reason === 'trial_expired' ? 'TRIAL_EXPIRED'
+        : _subCheck.reason === 'docs_limit_reached' ? 'LIMIT_REACHED'
+        : 'SUBSCRIPTION_INACTIVE';
+      return res.status(402).json({
+        error: _subCheck.reason === 'trial_expired' ? 'Tu período de prueba ha expirado'
+          : _subCheck.reason === 'docs_limit_reached' ? 'Has alcanzado el límite de documentos de tu plan'
+          : 'Suscripción inactiva',
+        error_code: _code,
+        plan: _subCheck.plan
+      });
     }
 
     const { board_id, item_id, template_name } = req.body;
@@ -231,7 +243,8 @@ module.exports = function makeDocumentsRouter(deps) {
       await pool.query('INSERT INTO pdf_jobs (job_id, account_id, status) VALUES ($1,$2,$3)', [jobId, accountId, 'processing']);
       res.json({ job_id: jobId, status: 'processing' });
     } catch(e) {
-      return res.status(500).json({ error: e.message });
+      try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      return res.status(500).json({ error: 'Error interno del servidor' });
     }
 
     // Usar setImmediate para ejecutar fuera del ciclo del request
@@ -270,11 +283,12 @@ module.exports = function makeDocumentsRouter(deps) {
         await pool.query('UPDATE pdf_jobs SET status=$1, filename=$2, item_name=$3, pdf_data=$4 WHERE job_id=$5', ['ready', baseName + '.pdf', item.name, pdfData, jobId]);
         const asyncInsertResult = await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id', [accountId, board_id, item_id, item.name, template_name, baseName + '.pdf', pdfData]);
         if (accountId) await incrementDocsUsed(accountId);
-        logDocumentEvent(pool, { documentId: asyncInsertResult.rows[0].id, eventType: 'created', actorId: accountId }).catch(() => {});
+        logDocumentEvent(pool, { documentId: asyncInsertResult.rows[0].id, eventType: 'created', actorId: accountId }).catch(err => { try { require('../services/logger.service').warn({ err: err.message }, 'audit/email fire-and-forget failed'); } catch {} });
         logger.info({ jobId, accountId, filename: baseName + '.pdf' }, 'PDF async job complete');
 
       } catch(err) {
         logger.error({ jobId, err: err.message }, 'PDF async job failed');
+        try { const Sentry = require('@sentry/node'); if (Sentry.captureException) Sentry.captureException(err); } catch {}
         await pool.query('UPDATE pdf_jobs SET status=$1, error=$2 WHERE job_id=$3', ['error', err.message, jobId]).catch(()=>{});
       }
     });
@@ -287,7 +301,8 @@ module.exports = function makeDocumentsRouter(deps) {
       if (!result.rows.length) return res.status(404).json({ error: 'Job no encontrado' });
       res.json(result.rows[0]);
     } catch(err) {
-      res.status(500).json({ error: err.message });
+      try { require('../services/logger.service').error({ err: err.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   });
 
@@ -306,8 +321,8 @@ module.exports = function makeDocumentsRouter(deps) {
         res.setHeader('Content-Disposition', 'attachment; filename="' + filename.replace(/"/g, '\\"') + '"');
         res.setHeader('Content-Type', 'application/pdf');
         pool.query('SELECT id FROM documents WHERE filename=$1 AND account_id=$2 LIMIT 1', [filename, accountId])
-          .then(dr => { if (dr.rows.length) logDocumentEvent(pool, { documentId: dr.rows[0].id, eventType: 'downloaded', actorId: accountId }).catch(() => {}); })
-          .catch(() => {});
+          .then(dr => { if (dr.rows.length) logDocumentEvent(pool, { documentId: dr.rows[0].id, eventType: 'downloaded', actorId: accountId }).catch(err => { try { require('../services/logger.service').warn({ err: err.message }, 'audit/email fire-and-forget failed'); } catch {} }); })
+          .catch(err => { try { require('../services/logger.service').warn({ err: err.message }, 'audit/email fire-and-forget failed'); } catch {} });
         return res.send(result.rows[0].pdf_data);
       }
       // Try S3 presigned URL
@@ -319,7 +334,10 @@ module.exports = function makeDocumentsRouter(deps) {
       if (!pdfPath.startsWith(path.resolve(outputsDir))) return res.status(400).json({ error: 'Ruta inválida' });
       if (!fs.existsSync(pdfPath)) return res.status(404).json({ error: 'PDF no encontrado' });
       res.download(pdfPath, filename);
-    } catch(err) { res.status(500).json({ error: err.message }); }
+    } catch(err) {
+      try { require('../services/logger.service').error({ err: err.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
   });
 
   // FIX-4: requireAuth + account scoping to prevent unauthorized file downloads
@@ -346,7 +364,10 @@ module.exports = function makeDocumentsRouter(deps) {
       if (!filePath.startsWith(path.resolve(outputsDir))) return res.status(400).json({ error: 'Ruta inválida' });
       if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Archivo no encontrado' });
       res.download(filePath, filename);
-    } catch(err) { res.status(500).json({ error: err.message }); }
+    } catch(err) {
+      try { require('../services/logger.service').error({ err: err.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
   });
 
   // ─── EXPORTAR A XLSX ──────────────────────────────────────
@@ -408,7 +429,8 @@ module.exports = function makeDocumentsRouter(deps) {
       res.send(buffer);
     } catch(e) {
       await logError(req.accountId, 'xlsx-export', e.message, e.stack);
-      res.status(500).json({ error: e.message });
+      try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   });
 
@@ -422,8 +444,8 @@ module.exports = function makeDocumentsRouter(deps) {
       if (!board) return res.status(404).json({ error: 'Board no encontrado' });
       res.json({ data: { boards: [board] } });
     } catch (error) {
-      logger.error('GraphQL error:', error.message);
-      res.status(500).json({ error: 'Error GraphQL', message: error.message });
+      try { require('../services/logger.service').error({ err: error.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   });
 
@@ -453,7 +475,8 @@ module.exports = function makeDocumentsRouter(deps) {
       }
       res.json({ variables, item_name: item.name });
     } catch (error) {
-      res.status(500).json({ error: 'Error al obtener variables', details: error.message });
+      try { require('../services/logger.service').error({ err: error.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   });
 
@@ -495,8 +518,8 @@ module.exports = function makeDocumentsRouter(deps) {
 
       res.json({ board_id: boardId, board_name: board.name, columns });
     } catch (e) {
-      logger.error({ err: e.message, boardId }, 'board-columns error');
-      res.status(500).json({ error: e.message });
+      try { require('../services/logger.service').error({ err: e.message, boardId }, 'board-columns error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   });
 
@@ -511,7 +534,10 @@ module.exports = function makeDocumentsRouter(deps) {
       );
       const c = await pool.query('SELECT COUNT(*)::int AS total FROM pdf_jobs WHERE account_id=$1', [req.accountId]);
       res.json({ jobs: r.rows, total: c.rows[0].total });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) {
+      try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
   });
 
   // ─── BULK JOBS HISTORY ────────────────────────────────────
@@ -525,7 +551,10 @@ module.exports = function makeDocumentsRouter(deps) {
       );
       const c = await pool.query('SELECT COUNT(*)::int AS total FROM bulk_jobs WHERE account_id=$1', [req.accountId]);
       res.json({ jobs: r.rows, total: c.rows[0].total });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) {
+      try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
   });
 
   // ─── ZIP EXPORT — download multiple documents as a single ZIP ──
@@ -551,7 +580,10 @@ module.exports = function makeDocumentsRouter(deps) {
       res.set('Content-Type', 'application/zip');
       res.set('Content-Disposition', 'attachment; filename="' + zipName + '"');
       res.send(zipBuffer);
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) {
+      try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
   });
 
   return router;

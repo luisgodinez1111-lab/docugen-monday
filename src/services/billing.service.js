@@ -68,7 +68,11 @@ async function checkSubscription(accountId) {
       docs_remaining: sub.docs_limit > 0 ? Math.max(0, sub.docs_limit - sub.docs_used) : -1,
       near_limit: sub.docs_limit > 0 && (sub.docs_used / sub.docs_limit) >= 0.9,
     };
-    await cacheSet(cacheKey, response, SUBSCRIPTION_CACHE_TTL);
+    // FIX-2: Use shorter cache TTL when approaching limit to reduce race window
+    const effectiveTtl = (sub.docs_limit > 0 && sub.docs_used >= sub.docs_limit - 1)
+      ? 10
+      : SUBSCRIPTION_CACHE_TTL;
+    await cacheSet(cacheKey, response, effectiveTtl);
     return response;
 
   } catch (e) {
@@ -81,11 +85,12 @@ async function checkSubscription(accountId) {
 // ── INCREMENT DOCS USED ──
 async function incrementDocsUsed(accountId) {
   try {
+    // FIX-2: cacheDel BEFORE the UPDATE so any concurrent read hits DB fresh
+    await cacheDel(`sub:${accountId}`);
     const r = await pool.query(
       'UPDATE subscriptions SET docs_used = docs_used + 1, updated_at = NOW() WHERE account_id=$1 RETURNING docs_used, docs_limit',
       [accountId]
     );
-    await cacheDel(`sub:${accountId}`);
     // Fire quota alerts at 80% and 100% — non-blocking
     if (r.rows.length) {
       const { docs_used, docs_limit } = r.rows[0];

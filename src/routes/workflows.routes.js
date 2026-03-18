@@ -25,7 +25,8 @@ module.exports = function makeWorkflowsRouter(deps) {
       let verified;
       try {
         const secret = process.env.MONDAY_SIGNING_SECRET || process.env.MONDAY_CLIENT_SECRET;
-        verified = jwt.verify(token, secret);
+        // FIX-3: Enforce exp claim — algorithms whitelist + clockTolerance:0
+        verified = jwt.verify(token, secret, { algorithms: ['HS256'], clockTolerance: 0 });
       } catch (e) {
         return res.status(401).json({ error: 'Token inválido' });
       }
@@ -68,12 +69,16 @@ module.exports = function makeWorkflowsRouter(deps) {
     // Subscription check using accountId from JWT
     const _subCheck = await checkSubscription(accountId);
     if (!_subCheck.allowed) {
-      const msg = _subCheck.reason === "trial_expired"
-        ? "Tu periodo de prueba ha expirado. Actualiza tu plan."
-        : _subCheck.reason === "docs_limit_reached"
-          ? "Limite de documentos alcanzado (" + _subCheck.docs_used + "/" + _subCheck.docs_limit + "). Actualiza tu plan."
-          : "Suscripcion inactiva. Actualiza tu plan.";
-      return res.status(402).json({ error: msg, reason: _subCheck.reason, plan: _subCheck.plan });
+      const _code = _subCheck.reason === 'trial_expired' ? 'TRIAL_EXPIRED'
+        : _subCheck.reason === 'docs_limit_reached' ? 'LIMIT_REACHED'
+        : 'SUBSCRIPTION_INACTIVE';
+      return res.status(402).json({
+        error: _subCheck.reason === 'trial_expired' ? 'Tu período de prueba ha expirado'
+          : _subCheck.reason === 'docs_limit_reached' ? 'Has alcanzado el límite de documentos de tu plan'
+          : 'Suscripción inactiva',
+        error_code: _code,
+        plan: _subCheck.plan
+      });
     }
 
     const { payload } = req.body;
@@ -251,7 +256,10 @@ module.exports = function makeWorkflowsRouter(deps) {
       }
 
       res.json({ outputFields: { success: true, sentTo: sig.signer_email, documentName: sig.document_filename } });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) {
+      try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
   });
 
   return router;

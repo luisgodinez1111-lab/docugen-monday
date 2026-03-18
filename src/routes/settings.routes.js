@@ -46,7 +46,8 @@ module.exports = function makeSettingsRouter(deps) {
     try {
       const r = await pool.query('SELECT settings FROM account_settings WHERE account_id=$1', [req.accountId]);
       res.json({ success: true, settings: r.rows.length ? r.rows[0].settings : {} });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   router.post('/settings', requireAuth, async (req, res) => {
@@ -64,9 +65,10 @@ module.exports = function makeSettingsRouter(deps) {
       );
       // I3: Audit log for settings update
       pool.query('INSERT INTO audit_log (account_id, action, details) VALUES ($1,$2,$3)',
-        [req.accountId, 'settings.update', JSON.stringify({ keys: Object.keys(clean) })]).catch(() => {});
+        [req.accountId, 'settings.update', JSON.stringify({ keys: Object.keys(clean) })]).catch(err => { try { require('../services/logger.service').warn({ err: err.message }, 'audit/email fire-and-forget failed'); } catch {} });
       res.json({ success: true });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // ── Board persistence: save/get the last used boardId per account ──
@@ -81,14 +83,16 @@ module.exports = function makeSettingsRouter(deps) {
         [req.accountId, String(board_id), board_name || null]
       );
       res.json({ success: true });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   router.get('/board/current', requireAuth, async (req, res) => {
     try {
       const r = await pool.query('SELECT board_id, board_name FROM account_boards WHERE account_id=$1', [req.accountId]);
       res.json(r.rows[0] || { board_id: null, board_name: null });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   return router;

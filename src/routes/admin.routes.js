@@ -130,7 +130,8 @@ module.exports = function makeAdminRouter(deps) {
           node_version: process.version,
         }
       });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // ─── BACKUP AUTOMÁTICO ────────────────────────────────────
@@ -149,7 +150,8 @@ module.exports = function makeAdminRouter(deps) {
     try {
       const r = await pool.query('SELECT id, created_at, tables_backed_up, total_rows, status, error FROM backups ORDER BY created_at DESC LIMIT 10');
       res.json({ backups: r.rows });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // Endpoint para descargar último backup
@@ -161,7 +163,8 @@ module.exports = function makeAdminRouter(deps) {
       res.set('Content-Type', 'application/json');
       res.set('Content-Disposition', 'attachment; filename="docugen_backup_' + new Date().toISOString().split('T')[0] + '.json"');
       res.send(r.rows[0].data);
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // ─── LOGS: ERROR LOGS ──────────────────────────────────────
@@ -177,7 +180,8 @@ module.exports = function makeAdminRouter(deps) {
         pool.query('SELECT COUNT(*)::int AS total FROM error_logs WHERE account_id=$1', [req.accountId]),
       ]);
       res.json({ errors: rows.rows, total: count.rows[0].total });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // ─── LOGS: WEBHOOK EVENTS ──────────────────────────────────
@@ -202,7 +206,8 @@ module.exports = function makeAdminRouter(deps) {
         ),
       ]);
       res.json({ events: rows.rows, total: count.rows[0].total });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // ─── LOGS: AUDIT LOG ───────────────────────────────────────
@@ -218,7 +223,8 @@ module.exports = function makeAdminRouter(deps) {
         pool.query('SELECT COUNT(*)::int AS total FROM audit_log WHERE account_id=$1', [req.accountId]),
       ]);
       res.json({ entries: rows.rows, total: count.rows[0].total });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   router.post('/migrate', async (req, res) => {
@@ -234,7 +240,8 @@ module.exports = function makeAdminRouter(deps) {
       await pool.query('ALTER TABLE tokens ADD COLUMN IF NOT EXISTS user_id TEXT');
       res.json({ success: true, message: 'Migracion completada' });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      try { require('../services/logger.service').error({ err: err.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   });
 

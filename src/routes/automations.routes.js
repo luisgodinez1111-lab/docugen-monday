@@ -48,6 +48,11 @@ module.exports = function makeAutomationsRouter(deps) {
           return; // duplicate — no further processing
         }
 
+        // FIX-12: Invalidate board cache when board structure changes are detected
+        if (event.boardId && (event.type === 'create_column' || event.type === 'delete_column' || event.type === 'update_column')) {
+          try { const { invalidateBoardCache } = require('../utils/graphql'); await invalidateBoardCache(event.boardId); } catch {}
+        }
+
         // Trigger: si columna de status cambia a valor configurado, auto-generar doc
         if (event.type === 'change_column_value') {
           const triggers = await client.query(
