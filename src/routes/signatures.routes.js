@@ -1004,5 +1004,26 @@ module.exports = function makeSignaturesRouter(deps) {
     } catch(e) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Cancel a pending signature request ──────────────────────────────────
+  router.post('/signatures/:token/cancel', requireAuth, async (req, res) => {
+    try {
+      const r = await pool.query(
+        "SELECT id, account_id, status, signer_name FROM signature_requests WHERE token=$1",
+        [req.params.token]
+      );
+      if (!r.rows.length) return res.status(404).json({ error: 'Solicitud no encontrada' });
+      const sig = r.rows[0];
+      if (sig.account_id !== req.accountId) return res.status(403).json({ error: 'Sin permiso' });
+      if (sig.status !== 'pending') return res.status(400).json({ error: 'Solo se pueden cancelar solicitudes pendientes' });
+
+      await pool.query(
+        "UPDATE signature_requests SET status='cancelled', audit_log=audit_log || $1::jsonb WHERE token=$2",
+        [JSON.stringify([{ event:'cancelled', timestamp: new Date().toISOString(), by: req.accountId }]), req.params.token]
+      );
+      logger.info({ token: req.params.token, accountId: req.accountId, signer: sig.signer_name }, 'Signature request cancelled');
+      res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+  });
+
   return router;
 };

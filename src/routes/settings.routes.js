@@ -66,5 +66,27 @@ module.exports = function makeSettingsRouter(deps) {
     } catch(e) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Board persistence: save/get the last used boardId per account ──
+  router.post('/board/save', requireAuth, async (req, res) => {
+    const { board_id, board_name } = req.body;
+    if (!board_id) return res.status(400).json({ error: 'board_id requerido' });
+    try {
+      await pool.query(
+        `INSERT INTO account_boards (account_id, board_id, board_name, updated_at)
+         VALUES ($1,$2,$3,NOW())
+         ON CONFLICT (account_id) DO UPDATE SET board_id=$2, board_name=$3, updated_at=NOW()`,
+        [req.accountId, String(board_id), board_name || null]
+      );
+      res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+  });
+
+  router.get('/board/current', requireAuth, async (req, res) => {
+    try {
+      const r = await pool.query('SELECT board_id, board_name FROM account_boards WHERE account_id=$1', [req.accountId]);
+      res.json(r.rows[0] || { board_id: null, board_name: null });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+  });
+
   return router;
 };

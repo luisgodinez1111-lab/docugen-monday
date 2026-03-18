@@ -10,6 +10,8 @@ const { getMondayItem, getMondayBoard, createMondayUpdate } = require('../utils/
 const { createDocxtemplater, injectGlobalSettings }        = require('./template.service');
 const { calcularTotales, toVarName, extractColumnValue, GRAPHQL_COLUMN_FRAGMENT } = require('../utils/docx');
 const { decryptToken }   = require('../utils/crypto');
+const { getToken }       = require('./auth.service');
+const { refreshMondayToken, isTokenExpiredOrExpiringSoon } = require('./token-refresh.service');
 const { withRetry }      = require('../utils/retry');
 const { logError }       = require('./error-log.service');
 
@@ -96,14 +98,23 @@ async function _processOneTrigger(evt) {
     return;
   }
 
-  const acc = await pool.query('SELECT access_token FROM tokens WHERE account_id=$1', [evt.account_id]);
-  if (!acc.rows.length) {
+  const tokenData = await getToken(evt.account_id);
+  if (!tokenData) {
     await pool.query("UPDATE webhook_events SET column_value='error:no_token', last_error='No token for account' WHERE id=$1", [evt.id]);
     return;
   }
 
-  const decryptedToken = decryptToken(acc.rows[0].access_token);
-  const result = await executeAutomation(evt.account_id, evt.item_id, evt.board_id, evt.column_id, decryptedToken);
+  // Proactive token refresh — prevents automation failures on expired tokens
+  let accessToken = tokenData.accessToken;
+  if (isTokenExpiredOrExpiringSoon(tokenData.expiresAt) && tokenData.refreshToken) {
+    try {
+      accessToken = await refreshMondayToken(evt.account_id, tokenData.refreshToken);
+    } catch (e) {
+      logger.warn({ accountId: evt.account_id, err: e.message }, 'Token refresh failed in automation — using existing token');
+    }
+  }
+
+  const result = await executeAutomation(evt.account_id, evt.item_id, evt.board_id, evt.column_id, accessToken);
 
   if (result.success) {
     await pool.query("UPDATE webhook_events SET column_value='done' WHERE id=$1", [evt.id]);
@@ -137,9 +148,13 @@ async function runScheduledAutomations() {
       else if (auto.cron_expression === 'monthly') shouldRun = now.getDate() === 1 && now.getHours() === 8;
       if (!shouldRun) continue;
 
-      const acc = await pool.query('SELECT access_token FROM tokens WHERE account_id=$1', [auto.account_id]);
-      if (!acc.rows.length) continue;
-      const autoToken = decryptToken(acc.rows[0].access_token);
+      const tokenData = await getToken(auto.account_id);
+      if (!tokenData) continue;
+      let autoToken = tokenData.accessToken;
+      if (isTokenExpiredOrExpiringSoon(tokenData.expiresAt) && tokenData.refreshToken) {
+        try { autoToken = await refreshMondayToken(auto.account_id, tokenData.refreshToken); }
+        catch (e) { logger.warn({ accountId: auto.account_id, err: e.message }, 'Token refresh failed in scheduled automation'); }
+      }
 
       const board = await getMondayBoard(autoToken, auto.board_id, 100, 'id text column_values { id text }').catch(() => null);
       if (!board) continue;

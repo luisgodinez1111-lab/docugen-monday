@@ -405,6 +405,20 @@
         </div>
       </div>
 
+      <!-- Column Mapping -->
+      <div class="card" id="col-mapping-card" style="display:none">
+        <div class="card-header" onclick="toggleColMapping()" style="cursor:pointer">
+          <div>
+            <div class="card-title">🔗 Mapeo de columnas</div>
+            <div class="card-subtitle">Columnas del tablero → Variables en la plantilla</div>
+          </div>
+          <span id="col-mapping-toggle" style="font-size:13px;color:var(--muted)">▼ ver</span>
+        </div>
+        <div class="card-body" id="col-mapping-body" style="display:none;padding-top:0">
+          <div id="col-mapping-list" style="display:flex;flex-direction:column;gap:4px;margin-top:8px"></div>
+        </div>
+      </div>
+
       <!-- Generar -->
       <div class="card">
         <div class="card-header">
@@ -974,7 +988,27 @@
         if (!accountId && ctx && ctx.data && ctx.data.account && ctx.data.account.id) {
           accountId = String(ctx.data.account.id);
         }
+        // Persist boardId so next load remembers it
+        if (boardId && accountId) {
+          fetch(API + '/board/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
+            body: JSON.stringify({ board_id: boardId })
+          }).catch(() => {});
+        }
       } catch(e) { console.warn('No se pudo obtener contexto de Monday:', e.message); }
+    }
+
+    // If no boardId from URL or SDK, restore last saved board for this account
+    if (!boardId && accountId) {
+      try {
+        const r = await fetch(API + '/board/current?account_id=' + accountId);
+        const d = await r.json();
+        if (d.board_id) {
+          boardId = d.board_id;
+          console.info('Restored boardId from DB:', boardId);
+        }
+      } catch(e) {}
     }
 
     // Check view-only
@@ -1011,7 +1045,7 @@
     await loadSignatures();
     await loadTriggers();
     await loadScheduledAutos();
-    if (boardId) await loadBoardItems(boardId);
+    if (boardId) { await loadBoardItems(boardId); await loadColumnMapping(); }
     await loadHistorial();
     await loadSettings();
     await loadLogo();
@@ -1048,6 +1082,39 @@
     const el = document.getElementById('tpl-' + name.replace(/[\.\s]/g,'-'));
     if (el) el.classList.add('selected');
     checkReady();
+  }
+
+  let colMappingOpen = false;
+  function toggleColMapping() {
+    colMappingOpen = !colMappingOpen;
+    document.getElementById('col-mapping-body').style.display = colMappingOpen ? 'block' : 'none';
+    document.getElementById('col-mapping-toggle').textContent = colMappingOpen ? '▲ ocultar' : '▼ ver';
+  }
+
+  async function loadColumnMapping() {
+    if (!boardId) return;
+    const card = document.getElementById('col-mapping-card');
+    card.style.display = 'block';
+    const listEl = document.getElementById('col-mapping-list');
+    listEl.innerHTML = '<div style="color:var(--muted);font-size:13px">Cargando columnas...</div>';
+    try {
+      const res = await fetch(API + '/board-columns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
+        body: JSON.stringify({ board_id: boardId })
+      });
+      const data = await res.json();
+      if (!data.columns || !data.columns.length) { listEl.innerHTML = '<div style="color:var(--muted);font-size:13px">Sin columnas disponibles</div>'; return; }
+      listEl.innerHTML = data.columns.map(col => {
+        const typeColor = { text:'#6366f1', numbers:'#059669', date:'#0891b2', status:'#d97706', people:'#7c3aed', email:'#dc2626', phone:'#0369a1' }[col.type] || '#64748b';
+        return '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;background:var(--surface2)">' +
+          '<span style="font-size:11px;background:' + typeColor + '20;color:' + typeColor + ';border-radius:4px;padding:1px 6px;min-width:54px;text-align:center">' + col.type + '</span>' +
+          '<span style="flex:1;font-size:13px;font-weight:500">' + col.title + '</span>' +
+          '<span style="font-size:12px;color:var(--muted)">→</span>' +
+          '<code style="font-size:12px;background:var(--surface3,#e2e8f0);padding:2px 7px;border-radius:4px;cursor:pointer" onclick="navigator.clipboard.writeText(\'{{' + col.variable + '}}\')" title="Copiar">{{' + col.variable + '}}</code>' +
+          '</div>';
+      }).join('');
+    } catch(e) { listEl.innerHTML = '<div style="color:var(--red);font-size:13px">Error al cargar columnas</div>'; }
   }
 
   async function renameTemplate(filename) {
@@ -1279,6 +1346,19 @@
   } catch(e) { alert('Error de conexión'); }
 }
 
+async function cancelSignature(token) {
+  if (!confirm('¿Cancelar esta solicitud de firma? El firmante ya no podrá firmar el documento.')) return;
+  try {
+    const r = await fetch(API + '/signatures/' + token + '/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-account-id': accountId }
+    });
+    const d = await r.json();
+    if (d.success) { alert('Solicitud cancelada'); await loadSignatures(); }
+    else alert('Error: ' + (d.error || 'No se pudo cancelar'));
+  } catch(e) { alert('Error de conexión'); }
+}
+
 async function loadSignatures() {
     try {
       const res = await fetch(API + '/signatures', {headers:{'x-account-id':accountId}});
@@ -1296,9 +1376,10 @@ async function loadSignatures() {
         const createdDate = s.created_at ? new Date(s.created_at).toLocaleDateString('es-MX') : '';
         const portalUrl = window.location.origin + '/sign/' + s.token;
         const remindBtn = (!signed && !expired && s.signer_email) ? '<button onclick="sendReminder(\'' + s.token + '\')" class="action-link" style="background:#f59e0b;color:#fff">🔔 Recordatorio</button> ' : '';
+        const cancelBtn = (!signed && !expired) ? '<button onclick="cancelSignature(\'' + s.token + '\')" class="action-link" style="background:#ef4444;color:#fff">🚫 Cancelar</button> ' : '';
         const actionBtn = signed
           ? '<a href="' + API + '/sign/' + s.token + '/download" target="_blank" class="action-link action-link-green">⬇ PDF Firmado</a>'
-          : remindBtn + '<button onclick="navigator.clipboard.writeText(\'' + portalUrl + '\')" class="action-link action-link-blue">📋 Copiar link</button>';
+          : remindBtn + '<button onclick="navigator.clipboard.writeText(\'' + portalUrl + '\')" class="action-link action-link-blue">📋 Copiar link</button> ' + cancelBtn;
         const emailRow = s.signer_email ? '<span>✉️ ' + s.signer_email + '</span>' : '';
         const dateRow = signed ? '<span style="color:#059669">🖊 Firmado: ' + signedDate + '</span>' : '<span>📅 Creado: ' + createdDate + '</span>';
         const ipRow = s.signer_ip ? '<span>🌐 ' + s.signer_ip + '</span>' : '';
