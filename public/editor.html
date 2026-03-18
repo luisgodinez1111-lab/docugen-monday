@@ -218,26 +218,114 @@ header { height: var(--header-h); background: var(--surface); border-bottom: 1px
 
     <!-- VARIABLES TAB -->
     <div class="panel-body" id="tab-vars" style="display:none">
-      <div class="panel-section">
-        <div class="panel-title">Variables del tablero</div>
-        <div class="vars-list" id="varsList">
-          <div style="font-size:11px;color:var(--text2);text-align:center;padding:10px 0">Cargando variables...</div>
-        </div>
-        <button class="btn btn-ghost" style="width:100%;margin-top:7px;font-size:10px" onclick="loadVariables()">⟳ Recargar</button>
+
+      <!-- Search -->
+      <div class="panel-section" style="margin-bottom:8px">
+        <input id="var-search" placeholder="🔍 Buscar variable..." oninput="filterVars(this.value)"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:5px 9px;border-radius:5px;font-size:11px;font-family:var(--sans);outline:none">
       </div>
-      <div class="panel-section">
-        <div class="panel-title">Variables especiales</div>
-        <div class="vars-list">
-          <div class="var-chip" onclick="insertVar('{{fecha_hoy}}')">{{fecha_hoy}} <span>hoy</span></div>
-          <div class="var-chip" onclick="insertVar('{{folio}}')">{{folio}} <span>folio</span></div>
-          <div class="var-chip" onclick="insertVar('{{subtotal_fmt}}')">{{subtotal_fmt}} <span>subtotal</span></div>
-          <div class="var-chip" onclick="insertVar('{{iva_fmt}}')">{{iva_fmt}} <span>IVA 16%</span></div>
-          <div class="var-chip" onclick="insertVar('{{total_fmt}}')">{{total_fmt}} <span>total</span></div>
-          <div class="var-chip" onclick="insertVar('{{total_letras}}')">{{total_letras}} <span>letras</span></div>
-          <div class="var-chip" onclick="insertVar('{{rfc}}')">{{rfc}} <span>RFC</span></div>
-          <div class="var-chip" onclick="insertVar('{{direccion}}')">{{direccion}} <span>dirección</span></div>
+
+      <div id="vars-all">
+
+        <!-- 🏢 Empresa (from Ajustes) -->
+        <div class="panel-section var-group">
+          <div class="panel-title">🏢 Tu empresa</div>
+          <div class="vars-list">
+            <div class="var-chip" onclick="insertVar('{{empresa}}')">{{empresa}} <span>nombre empresa</span></div>
+            <div class="var-chip" onclick="insertVar('{{rfc}}')">{{rfc}} <span>RFC fiscal</span></div>
+            <div class="var-chip" onclick="insertVar('{{domicilio}}')">{{domicilio}} <span>domicilio fiscal</span></div>
+            <div class="var-chip" onclick="insertVar('{{telefono_empresa}}')">{{telefono_empresa}} <span>teléfono</span></div>
+            <div class="var-chip" onclick="insertVar('{{email_empresa}}')">{{email_empresa}} <span>email empresa</span></div>
+            <div class="var-chip" onclick="insertVar('{{moneda}}')">{{moneda}} <span>MXN / USD / EUR</span></div>
+            <div class="var-chip" onclick="insertVar('{%logo}')"><span style="color:var(--success)">{%logo}</span> <span>logo empresa</span></div>
+          </div>
         </div>
-      </div>
+
+        <!-- 📅 Fecha y hora -->
+        <div class="panel-section var-group">
+          <div class="panel-title">📅 Fecha y hora</div>
+          <div class="vars-list">
+            <div class="var-chip" onclick="insertVar('{{fecha_hoy}}')">{{fecha_hoy}} <span>dd/mm/aaaa</span></div>
+            <div class="var-chip" onclick="insertVar('{{fecha_larga}}')">{{fecha_larga}} <span>15 de enero de 2025</span></div>
+            <div class="var-chip" onclick="insertVar('{{hora_actual}}')">{{hora_actual}} <span>HH:MM</span></div>
+          </div>
+        </div>
+
+        <!-- 👤 Cliente / Item de Monday -->
+        <div class="panel-section var-group">
+          <div class="panel-title">👤 Cliente (Monday)</div>
+          <div class="vars-list">
+            <div class="var-chip" onclick="insertVar('{{nombre}}')">{{nombre}} <span>nombre del item</span></div>
+            <div class="var-chip" onclick="insertVar('{{email}}')">{{email}} <span>email</span></div>
+            <div class="var-chip" onclick="insertVar('{{telefono}}')">{{telefono}} <span>teléfono</span></div>
+            <div class="var-chip" onclick="insertVar('{{empresa_cliente}}')">{{empresa_cliente}} <span>empresa cliente</span></div>
+            <div class="var-chip" onclick="insertVar('{{descripcion}}')">{{descripcion}} <span>descripción</span></div>
+            <div class="var-chip" onclick="insertVar('{{direccion}}')">{{direccion}} <span>dirección</span></div>
+          </div>
+        </div>
+
+        <!-- 💰 Totales y cálculos -->
+        <div class="panel-section var-group">
+          <div class="panel-title">💰 Totales y cálculos</div>
+          <div class="vars-list">
+            <div class="var-chip" onclick="insertVar('{{subtotal}}')">{{subtotal}} <span>subtotal (número)</span></div>
+            <div class="var-chip" onclick="insertVar('{{subtotal_fmt}}')">{{subtotal_fmt}} <span>subtotal formateado</span></div>
+            <div class="var-chip" onclick="insertVar('{{iva}}')">{{iva}} <span>IVA (número)</span></div>
+            <div class="var-chip" onclick="insertVar('{{iva_fmt}}')">{{iva_fmt}} <span>IVA formateado</span></div>
+            <div class="var-chip" onclick="insertVar('{{iva_pct_display}}')">{{iva_pct_display}} <span>ej: 16%</span></div>
+            <div class="var-chip" onclick="insertVar('{{total}}')">{{total}} <span>total (número)</span></div>
+            <div class="var-chip" onclick="insertVar('{{total_fmt}}')">{{total_fmt}} <span>total formateado</span></div>
+            <div class="var-chip" onclick="insertVar('{{total_letras}}')">{{total_letras}} <span>total en letras</span></div>
+          </div>
+        </div>
+
+        <!-- 📋 Subitems (líneas de tabla) -->
+        <div class="panel-section var-group">
+          <div class="panel-title">📋 Subitems / tabla</div>
+          <div class="vars-list">
+            <div class="var-chip" onclick="insertVar('{{#subitems}}')"><span style="color:#FF9F0A">{{#subitems}}</span> <span>inicio bucle</span></div>
+            <div class="var-chip" onclick="insertVar('{{/subitems}}')"><span style="color:#FF9F0A">{{/subitems}}</span> <span>fin bucle</span></div>
+            <div class="var-chip" onclick="insertVar('{{subitem_nombre}}')">{{subitem_nombre}} <span>nombre subitem</span></div>
+            <div class="var-chip" onclick="insertVar('{{cantidad}}')">{{cantidad}} <span>cantidad</span></div>
+            <div class="var-chip" onclick="insertVar('{{precio_unitario}}')">{{precio_unitario}} <span>precio unitario</span></div>
+            <div class="var-chip" onclick="insertVar('{{subtotal_linea}}')">{{subtotal_linea}} <span>subtotal línea</span></div>
+          </div>
+        </div>
+
+        <!-- 📄 Documento -->
+        <div class="panel-section var-group">
+          <div class="panel-title">📄 Documento</div>
+          <div class="vars-list">
+            <div class="var-chip" onclick="insertVar('{{folio}}')">{{folio}} <span>número de folio</span></div>
+            <div class="var-chip" onclick="insertVar('{{numero_documento}}')">{{numero_documento}} <span>número doc</span></div>
+            <div class="var-chip" onclick="insertVar('{{vigencia}}')">{{vigencia}} <span>fecha vigencia</span></div>
+            <div class="var-chip" onclick="insertVar('{{condiciones_pago}}')">{{condiciones_pago}} <span>condiciones</span></div>
+            <div class="var-chip" onclick="insertVar('{{notas}}')">{{notas}} <span>notas / observaciones</span></div>
+          </div>
+        </div>
+
+        <!-- ✍️ Firmas -->
+        <div class="panel-section var-group">
+          <div class="panel-title">✍️ Firmas</div>
+          <div class="vars-list">
+            <div class="var-chip" onclick="insertVar('{{firma_nombre}}')">{{firma_nombre}} <span>nombre firmante</span></div>
+            <div class="var-chip" onclick="insertVar('{{firma_puesto}}')">{{firma_puesto}} <span>puesto firmante</span></div>
+            <div class="var-chip" onclick="insertVar('{{firma_empresa}}')">{{firma_empresa}} <span>empresa firmante</span></div>
+          </div>
+        </div>
+
+        <!-- 🔧 Variables del tablero (dinámicas) -->
+        <div class="panel-section var-group">
+          <div class="panel-title">🔧 Columnas del tablero</div>
+          <div class="vars-list" id="varsList">
+            <div style="font-size:10px;color:var(--text2);padding:6px 0">
+              Se generan automáticamente desde las columnas de tu tablero de Monday.
+            </div>
+          </div>
+          <button class="btn btn-ghost" style="width:100%;margin-top:6px;font-size:10px" onclick="loadVariables()">⟳ Cargar desde tablero</button>
+        </div>
+
+      </div><!-- /vars-all -->
     </div>
   </div>
 
@@ -747,6 +835,20 @@ function addDateBlock() {
 }
 
 // ─── VARIABLES ────────────────────────────────────────────
+function filterVars(q) {
+  const term = q.toLowerCase().replace(/[{}]/g, '');
+  document.querySelectorAll('.var-group').forEach(group => {
+    let anyVisible = false;
+    group.querySelectorAll('.var-chip').forEach(chip => {
+      const text = chip.textContent.toLowerCase();
+      const show = !term || text.includes(term);
+      chip.style.display = show ? '' : 'none';
+      if (show) anyVisible = true;
+    });
+    group.style.display = anyVisible ? '' : 'none';
+  });
+}
+
 function insertVar(v) {
   const obj = canvas.getActiveObject();
   if (obj && obj.type === 'i-text') {
