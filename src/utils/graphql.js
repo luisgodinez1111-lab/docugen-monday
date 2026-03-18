@@ -15,8 +15,14 @@
  */
 'use strict';
 
-const axios = require('axios');
+const axios  = require('axios');
+const https  = require('https');
 const { mondayBreaker } = require('./circuit-breaker');
+
+// Same TLS workaround as oauth.routes.js — needed on Railway
+const _mondayAgent = process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0'
+  ? new https.Agent({ rejectUnauthorized: false })
+  : undefined;
 
 // C1/C2: Optional cache service — gracefully degraded if not available
 let _cacheGet, _cacheSet;
@@ -57,6 +63,7 @@ async function mondayQuery(accessToken, query, variables = {}, timeout = DEFAULT
           'API-Version':  MONDAY_API_VERSION,
         },
         timeout,
+        ...(_mondayAgent ? { httpsAgent: _mondayAgent } : {}),
       }
     );
 
