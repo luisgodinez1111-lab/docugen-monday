@@ -73,15 +73,24 @@ module.exports = function makeTemplatesRouter(deps) {
   router.get('/templates', requireAuth, async (req, res) => {
     const accountId = req.accountId;
     try {
-      // #7 Pagination
       const { limit, page, offset } = parsePagination(req.query);
       const [countRes, result] = await Promise.all([
         pool.query('SELECT COUNT(*) FROM templates WHERE account_id=$1', [accountId]),
-        pool.query('SELECT filename, created_at, updated_at, (canvas_json IS NOT NULL) as has_editor, version, variables FROM templates WHERE account_id=$1 ORDER BY COALESCE(updated_at, created_at) DESC LIMIT $2 OFFSET $3', [accountId, limit, offset]),
+        // Try with new columns first; if migration 012 hasn't run, fall back to base columns
+        pool.query(
+          'SELECT filename, created_at, updated_at, (canvas_json IS NOT NULL) as has_editor, version, variables FROM templates WHERE account_id=$1 ORDER BY COALESCE(updated_at, created_at) DESC LIMIT $2 OFFSET $3',
+          [accountId, limit, offset]
+        ).catch(() =>
+          pool.query(
+            'SELECT filename, created_at, updated_at, (canvas_json IS NOT NULL) as has_editor FROM templates WHERE account_id=$1 ORDER BY COALESCE(updated_at, created_at) DESC LIMIT $2 OFFSET $3',
+            [accountId, limit, offset]
+          )
+        ),
       ]);
       const total = parseInt(countRes.rows[0].count, 10);
       res.json({ templates: result.rows, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
     } catch (err) {
+      try { logger.error({ err: err.message }, 'GET /templates error'); } catch {}
       res.status(500).json({ error: 'Error al listar plantillas' });
     }
   });

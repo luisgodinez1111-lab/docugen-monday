@@ -83,9 +83,15 @@ function nextRetryAt(attemptNumber) {
 
 async function processPendingTriggers() {
   try {
+    // next_retry_at added by migration 012 — fall back to simpler query if column missing
     const pending = await pool.query(
       "SELECT * FROM webhook_events WHERE event_type='trigger_fired' AND column_value='pending' AND attempts < $1 AND (next_retry_at IS NULL OR next_retry_at <= NOW()) LIMIT 10",
       [MAX_ATTEMPTS]
+    ).catch(() =>
+      pool.query(
+        "SELECT * FROM webhook_events WHERE event_type='trigger_fired' AND column_value='pending' AND attempts < $1 LIMIT 10",
+        [MAX_ATTEMPTS]
+      )
     );
     if (!pending.rows.length) return;
 

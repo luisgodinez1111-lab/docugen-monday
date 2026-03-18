@@ -742,6 +742,12 @@ module.exports = function makeSignaturesRouter(deps) {
         pool.query(
           'SELECT id, document_filename, signer_name, signer_email, status, signed_at, created_at, token, email_status, email_sent_at FROM signature_requests WHERE account_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
           [req.accountId, limit, offset]
+        ).catch(() =>
+          // Fallback if migration 012 hasn't added email_status/email_sent_at yet
+          pool.query(
+            'SELECT id, document_filename, signer_name, signer_email, status, signed_at, created_at, token FROM signature_requests WHERE account_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+            [req.accountId, limit, offset]
+          )
         ),
         pool.query('SELECT COUNT(*)::int AS total FROM signature_requests WHERE account_id=$1', [req.accountId]),
       ]);
