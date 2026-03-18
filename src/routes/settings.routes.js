@@ -58,7 +58,11 @@ module.exports = function makeSettingsRouter(deps) {
     try {
       const existing = await pool.query('SELECT settings FROM account_settings WHERE account_id=$1', [req.accountId]);
       const current  = existing.rows.length ? existing.rows[0].settings : {};
+      // Deep merge: for array fields (custom_fields) replace entirely when provided;
+      // for scalar fields use the incoming value (Object.assign behavior).
       const merged   = Object.assign({}, current, clean);
+      // custom_fields: incoming array fully replaces existing (no partial merge needed)
+      if (clean.custom_fields !== undefined) merged.custom_fields = clean.custom_fields;
       await pool.query(
         'INSERT INTO account_settings (account_id, settings) VALUES ($1,$2) ON CONFLICT (account_id) DO UPDATE SET settings=$2, updated_at=NOW()',
         [req.accountId, JSON.stringify(merged)]

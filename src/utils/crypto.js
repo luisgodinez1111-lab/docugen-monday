@@ -56,17 +56,21 @@ function resetKeyRegistry() {
 }
 
 // ── ENC_KEY (backward compat export) ─────────────────────────────────────────
-// FIX-27: Derive from registry so it works when ENCRYPTION_KEYS is set instead of
-// TOKEN_ENCRYPTION_KEY. Lazy getter so env vars are set before first access.
-const ENC_KEY = (() => {
-  try {
-    const reg = loadKeyRegistry();
-    const firstKey = Object.values(reg)[0];
-    return Buffer.from(firstKey, 'hex');
-  } catch {
-    return null;
+// Lazy getter — throws on first access if key is not configured, so callers
+// fail loudly instead of receiving null and silently skipping decryption.
+let _encKey = undefined;
+function getEncKey() {
+  if (_encKey === undefined) {
+    const reg = loadKeyRegistry(); // throws if misconfigured
+    _encKey = Buffer.from(Object.values(reg)[0], 'hex');
   }
-})();
+  return _encKey;
+}
+// Proxy so existing `const { ENC_KEY } = require(...)` destructuring still works
+const ENC_KEY = new Proxy({}, {
+  get(_t, prop) { return getEncKey()[prop]; },
+  apply(_t, _ctx, args) { return getEncKey()(...args); },
+});
 
 // ── Core crypto ──────────────────────────────────────────────────────────────
 function encryptToken(plaintext) {

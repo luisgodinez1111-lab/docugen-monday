@@ -51,11 +51,9 @@ class CircuitBreaker {
     if (this.state === STATE.HALF_OPEN) {
       this.successCount++;
       if (this.successCount >= this.successThreshold) {
-        const wasOpen = true;
         this.state = STATE.CLOSED;
-        // Alert: service recovered
+        this.successCount = 0; // reset so next HALF_OPEN cycle starts fresh
         this._alert('info', `Circuit "${this.name}" CLOSED — service recovered`);
-        void wasOpen; // suppress lint
       }
     }
   }

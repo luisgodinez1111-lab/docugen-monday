@@ -40,6 +40,10 @@ const DEFAULT_TSA_URL = process.env.TSA_URL || 'https://timestamp.sectigo.com';
  * @returns {Buffer} - TSQ en DER
  */
 function buildTsq(docHash) {
+  // Validate input — SHA-256 must be exactly 32 bytes
+  if (!Buffer.isBuffer(docHash) || docHash.length !== 32) {
+    throw new Error(`buildTsq: docHash must be a 32-byte SHA-256 Buffer, got ${docHash?.length ?? typeof docHash}`);
+  }
   // OID SHA-256: 2.16.840.1.101.3.4.2.1
   const sha256Oid = Buffer.from([
     0x30, 0x0d, // SEQUENCE
@@ -87,9 +91,13 @@ function buildTsq(docHash) {
 }
 
 /**
- * Codifica la longitud en DER (maneja longitudes > 127).
+ * Codifica la longitud en DER (maneja longitudes > 127, hasta 65535).
  */
 function encodeLength(len) {
+  if (typeof len !== 'number' || len < 0 || !Number.isInteger(len)) {
+    throw new Error(`encodeLength: invalid length value ${len}`);
+  }
+  if (len > 0xFFFF) throw new Error(`encodeLength: length ${len} exceeds DER 2-byte limit`);
   if (len < 0x80) return Buffer.from([len]);
   if (len < 0x100) return Buffer.from([0x81, len]);
   return Buffer.from([0x82, (len >> 8) & 0xff, len & 0xff]);

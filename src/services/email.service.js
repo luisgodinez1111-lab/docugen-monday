@@ -63,7 +63,9 @@ async function sendSignatureEmail(email, name, url, docName) {
  * P0-1 fix: was called but never defined.
  */
 async function sendApprovalEmails(admins, approvalToken, docName, signerName, accountId) {
-  const approvalUrl = (process.env.APP_URL || '') + '/approve/' + approvalToken;
+  // Sanitize token to only allow hex chars (approvalToken is randomBytes hex)
+  const safeToken = String(approvalToken || '').replace(/[^a-zA-Z0-9_\-]/g, '');
+  const approvalUrl = (process.env.APP_URL || '') + '/approve/' + safeToken;
   const targets = admins.length > 0
     ? admins
     : process.env.ADMIN_EMAIL ? [{ email: process.env.ADMIN_EMAIL, name: 'Admin' }] : [];

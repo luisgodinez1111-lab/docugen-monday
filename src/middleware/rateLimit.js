@@ -39,12 +39,13 @@ return current
 
 // ── In-memory fallback ─────────────────────────────────────────────────────
 const memStore = new Map();
+// Prune every 2 minutes; evict entries older than 5 minutes to prevent unbounded growth
 setInterval(() => {
-  const cutoff = Date.now() - 60 * 60 * 1000;
+  const cutoff = Date.now() - 5 * 60 * 1000;
   for (const [key, entry] of memStore.entries()) {
     if (entry.windowStart < cutoff) memStore.delete(key);
   }
-}, 10 * 60 * 1000).unref();
+}, 2 * 60 * 1000).unref();
 
 function memCheck(key, maxRequests, windowMs, res) {
   const now = Date.now();

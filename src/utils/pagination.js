@@ -8,8 +8,8 @@
  * @returns {{ page: number, limit: number, offset: number }}
  */
 function parsePagination(query, defaultLimit = 20, maxLimit = 100) {
-  const limit  = Math.min(Math.max(parseInt(query.limit)  || defaultLimit, 1), maxLimit);
-  const page   = Math.max(parseInt(query.page) || 1, 1);
+  const limit  = Math.min(Math.max(parseInt(query.limit,  10) || defaultLimit, 1), maxLimit);
+  const page   = Math.max(parseInt(query.page, 10) || 1, 1);
   const offset = (page - 1) * limit;
   return { limit, page, offset };
 }

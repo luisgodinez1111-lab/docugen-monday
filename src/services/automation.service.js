@@ -49,7 +49,7 @@ async function executeAutomation(accountId, itemId, boardId, templateName, acces
     await injectGlobalSettings(data, accountId);
     doc.render(data);
     const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
-    const outputFilename = item.name.replace(/[^a-zA-Z0-9]/g, '_') + '_auto_' + Date.now() + '.docx';
+    const outputFilename = item.name.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 80) + '_auto_' + Date.now() + '.docx';
     await fsP.mkdir(outputsDir, { recursive: true });
     await fsP.writeFile(path.join(outputsDir, outputFilename), outputBuffer);
 
@@ -220,7 +220,9 @@ async function runScheduledAutomations() {
         catch (e) { logger.warn({ accountId: auto.account_id, err: e.message }, 'Token refresh failed in scheduled automation'); }
       }
 
-      const board = await getMondayBoard(autoToken, auto.board_id, 100, 'id text column_values { id text }').catch(() => null);
+      // Limit 200: boards with >200 items will process the first 200; a full cursor-based
+      // pagination requires Monday's cursor API which is a future enhancement.
+      const board = await getMondayBoard(autoToken, auto.board_id, 200, 'id text column_values { id text }').catch(() => null);
       if (!board) continue;
       let items = board.items_page?.items || [];
 

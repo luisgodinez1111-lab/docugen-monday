@@ -4,9 +4,24 @@ const fs   = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 
+// SSL config: prefer full validation when DB_SSL_CA is provided.
+// Set DB_SSL_REJECT_UNAUTHORIZED=false only for managed DBs (Railway/Supabase)
+// that use self-signed certs and no CA bundle is available.
+function buildSslConfig() {
+  if (process.env.NODE_ENV !== 'production') return false;
+  const ca = process.env.DB_SSL_CA;
+  if (ca) return { rejectUnauthorized: true, ca };
+  // Warn once at startup when running without cert validation
+  if (process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false') {
+    console.warn('[DB] SSL: rejectUnauthorized=true — set DB_SSL_CA or DB_SSL_REJECT_UNAUTHORIZED=false for Railway');
+  }
+  const reject = process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false';
+  return { rejectUnauthorized: reject };
+}
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  ssl: buildSslConfig(),
   max:                    10,
   idleTimeoutMillis:  15_000,
   connectionTimeoutMillis: 15_000,

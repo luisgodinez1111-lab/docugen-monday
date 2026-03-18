@@ -57,7 +57,9 @@ module.exports = function makeAutomationsRouter(deps) {
         if (event.type === 'change_column_value') {
           const triggers = await client.query(
             'SELECT * FROM webhook_triggers WHERE board_id=$1 AND column_id=$2 AND trigger_value=$3',
-            [String(event.boardId), event.columnId, event.value?.label?.text || event.value]
+            // Normalize trigger value: support label.text (status), plain string, and numeric/date values
+            [String(event.boardId), event.columnId,
+              event.value?.label?.text ?? event.value?.text ?? (typeof event.value === 'object' ? JSON.stringify(event.value) : String(event.value ?? ''))]
           );
           for (const trigger of triggers.rows) {
             logger.info({ action: trigger.action, itemId: event.itemId }, 'Webhook trigger fired');
@@ -146,7 +148,15 @@ module.exports = function makeAutomationsRouter(deps) {
 
     const { board_id, item_ids, template_name } = req.body;
     if (!item_ids || !item_ids.length || !template_name) return res.status(400).json(makeError('VALIDATION_ERROR', 'Faltan parámetros: item_ids, template_name'));
+    if (!Array.isArray(item_ids)) return res.status(400).json(makeError('VALIDATION_ERROR', 'item_ids debe ser un array'));
     if (item_ids.length > 100) return res.status(400).json(makeError('VALIDATION_ERROR', 'Máximo 100 items a la vez'));
+    // Validate each element: must be a non-empty string or positive integer
+    const invalidItems = item_ids.filter(id => {
+      if (id == null) return true;
+      const str = String(id).trim();
+      return !str || str.length > 50 || !/^\d+$/.test(str);
+    });
+    if (invalidItems.length) return res.status(400).json(makeError('VALIDATION_ERROR', `item_ids contiene valores inválidos: ${invalidItems.slice(0,3).join(', ')}`));
 
     // ── Async path: BullMQ queue (returns immediately with job ID) ──
     if (typeof enqueueBulkItem === 'function') {

@@ -81,8 +81,8 @@ module.exports = function makeSignaturesRouter(deps) {
       try {
         if (item_id) {
           const docQ = await pool.query(
-            "SELECT doc_data FROM documents WHERE item_id=$1 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1",
-            [String(item_id)]
+            "SELECT doc_data FROM documents WHERE account_id=$1 AND item_id=$2 AND doc_data IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+            [req.accountId, String(item_id)]
           );
           logger.debug({ count: docQ.rows.length }, 'FIRMA docs by item_id');
           if (docQ.rows.length) signDocData = docQ.rows[0].doc_data;

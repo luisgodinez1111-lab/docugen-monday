@@ -85,12 +85,13 @@ async function checkSubscription(accountId) {
 // ── INCREMENT DOCS USED ──
 async function incrementDocsUsed(accountId) {
   try {
-    // FIX-2: cacheDel BEFORE the UPDATE so any concurrent read hits DB fresh
+    // Double cacheDel: before UPDATE (concurrent reads hit DB) + after UPDATE (clear any re-cached stale value)
     await cacheDel(`sub:${accountId}`);
     const r = await pool.query(
       'UPDATE subscriptions SET docs_used = docs_used + 1, updated_at = NOW() WHERE account_id=$1 RETURNING docs_used, docs_limit',
       [accountId]
     );
+    await cacheDel(`sub:${accountId}`); // clear again in case a read re-cached during the UPDATE
     // Fire quota alerts at 80% and 100% — non-blocking
     if (r.rows.length) {
       const { docs_used, docs_limit } = r.rows[0];
@@ -107,12 +108,19 @@ async function _checkQuotaAlert(accountId, docsUsed, docsLimit) {
   const threshold = pct >= 1 ? 100 : pct >= 0.8 ? 80 : null;
   if (!threshold) return;
 
-  // Durable dedup via DB — only one alert per (account, threshold)
-  const already = await pool.query(
-    'SELECT 1 FROM quota_notifications WHERE account_id=$1 AND threshold=$2 AND sent_at > NOW() - INTERVAL \'24 hours\'',
+  // Atomic insert-first: only the request that wins the INSERT gets to send the email.
+  // ON CONFLICT only updates when the last alert was > 24 hours ago.
+  const inserted = await pool.query(
+    `INSERT INTO quota_notifications (account_id, threshold, sent_at)
+     VALUES ($1,$2,NOW())
+     ON CONFLICT (account_id, threshold) DO UPDATE
+       SET sent_at = NOW()
+       WHERE quota_notifications.sent_at < NOW() - INTERVAL '24 hours'
+     RETURNING id`,
     [accountId, threshold]
-  ).catch(() => ({ rows: [true] }));  // on error, suppress (don't spam)
-  if (already.rows.length) return;
+  ).catch(() => ({ rows: [] }));
+  // No RETURNING row = either error or already sent within 24h — skip
+  if (!inserted.rows.length) return;
 
   // Get account email from settings
   const settings = await pool.query(
@@ -120,12 +128,6 @@ async function _checkQuotaAlert(accountId, docsUsed, docsLimit) {
   ).catch(() => ({ rows: [] }));
   const email = settings.rows[0]?.settings?.email_empresa;
   if (!email) return;
-
-  // Upsert notification record before sending (prevent race)
-  await pool.query(
-    'INSERT INTO quota_notifications (account_id, threshold, sent_at) VALUES ($1,$2,NOW()) ON CONFLICT (account_id, threshold) DO UPDATE SET sent_at=NOW()',
-    [accountId, threshold]
-  ).catch(() => {});
 
   const { sendQuotaAlert } = require('./email.service');
   await sendQuotaAlert(email, { docsUsed, docsLimit, pct: Math.round(pct * 100) });

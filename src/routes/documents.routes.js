@@ -56,20 +56,22 @@ module.exports = function makeDocumentsRouter(deps) {
       // FIX-32: Remove duplicate injectGlobalSettings call — only call once before render
       await injectGlobalSettings(data, req.accountId);
 
-      logger.debug('Variables para plantilla:', JSON.stringify(data, null, 2));
+      logger.debug({ templateName: template_name, itemId: item_id, varCount: Object.keys(data).length }, 'Template variables prepared');
 
       const zip = new PizZip(tplResult.rows[0].data);
       const doc = await createDocxtemplater(zip, req.accountId);
       doc.render(data);
 
       const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
-      const outputFilename = item.name.replace(/[^a-zA-Z0-9]/g, '_') + '_' + Date.now() + '.docx';
+      const outputFilename = item.name.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 80) + '_' + Date.now() + '.docx';
       const storageKey = 'outputs/' + outputFilename;
       await storageService.uploadFile(storageKey, outputBuffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
 
-      // FIX 11 — deduplication check
-      const docHash = require('crypto').createHash('md5')
-        .update(`${req.accountId}:${item_id}:${template_name}:${new Date().toISOString().split('T')[0]}`)
+      // Dedup hash: include template version so a template update on the same day
+      // does NOT return the old cached document.
+      const tplVersion = tplResult.rows[0].version || '0';
+      const docHash = require('crypto').createHash('sha256')
+        .update(`${req.accountId}:${item_id}:${template_name}:v${tplVersion}:${new Date().toISOString().split('T')[0]}`)
         .digest('hex');
       if (req.query.skip_if_exists === 'true') {
         const existing = await pool.query(
@@ -82,7 +84,11 @@ module.exports = function makeDocumentsRouter(deps) {
       }
 
       const insertResult = await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data, doc_hash) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id', [req.accountId, board_id, item_id, item.name, template_name, outputFilename, outputBuffer, docHash]);
-      logDocumentEvent(pool, { documentId: insertResult.rows[0].id, eventType: 'created', actorId: req.accountId }).catch(err => { try { require('../services/logger.service').warn({ err: err.message }, 'audit/email fire-and-forget failed'); } catch {} });
+      // Audit log: await with 3s timeout so a slow DB doesn't block the response
+      await Promise.race([
+        logDocumentEvent(pool, { documentId: insertResult.rows[0].id, eventType: 'created', actorId: req.accountId }),
+        new Promise(r => setTimeout(r, 3000)),
+      ]).catch(err => logger.warn({ err: err.message }, 'audit log failed'));
 
       await incrementDocsUsed(_accountId); // billing
       // P2-9: data_used removed from response — do not expose all template variables to client
@@ -110,12 +116,14 @@ module.exports = function makeDocumentsRouter(deps) {
       );
       const docs = docsResult.rows;
       const headers = ['ID', 'Nombre', 'Plantilla', 'Creado', 'Archivo'];
+      // CSV escape: double-quote, then strip CR/LF to prevent row injection
+      const csvField = v => `"${String(v || '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`;
       const rows = docs.map(d => [
         d.id,
-        `"${(d.item_name || '').replace(/"/g, '""')}"`,
-        `"${(d.template_name || '').replace(/"/g, '""')}"`,
+        csvField(d.item_name),
+        csvField(d.template_name),
         d.created_at ? d.created_at.toISOString() : '',
-        `"${(d.filename || '').replace(/"/g, '""')}"`,
+        csvField(d.filename),
       ]);
       const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
       res.setHeader('Content-Type', 'text/csv');
@@ -641,6 +649,12 @@ module.exports = function makeDocumentsRouter(deps) {
         [safeIds, req.accountId]
       );
       if (!result.rows.length) return res.status(404).json({ error: 'No se encontraron documentos' });
+      // DoS protection: reject if total uncompressed size > 200 MB
+      const MAX_ZIP_BYTES = 200 * 1024 * 1024;
+      const totalBytes = result.rows.reduce((sum, row) => sum + (row.doc_data?.length || 0), 0);
+      if (totalBytes > MAX_ZIP_BYTES) {
+        return res.status(400).json({ error: 'El tamaño total de los documentos excede el límite de 200 MB por ZIP' });
+      }
       const PizZip = require('pizzip');
       const zip = new PizZip();
       result.rows.forEach(row => {

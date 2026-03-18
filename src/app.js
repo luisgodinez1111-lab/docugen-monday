@@ -43,7 +43,8 @@ module.exports = function createApp(deps) {
     },
     credentials: true,
   }));
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: '5mb' }));
+  app.use(express.urlencoded({ extended: false, limit: '5mb' }));
 
   // FIX-33: X-Frame-Options ALLOW-FROM removed (deprecated) — CSP frame-ancestors handles this
   // FIX-34: Duplicate HSTS and X-XSS-Protection removed — helmet already sets them
@@ -76,7 +77,8 @@ module.exports = function createApp(deps) {
       return obj;
     }
     if (req.body && typeof req.body === 'object') {
-      const skipKeys = ['event', 'data', 'signature_data', 'challenge'];
+      // Only skip raw binary/opaque fields; 'data' removed so nested keys are sanitized
+      const skipKeys = ['event', 'signature_data', 'challenge'];
       for (const key of Object.keys(req.body)) {
         if (!skipKeys.includes(key)) {
           req.body[key] = sanitizeDeep(req.body[key]);

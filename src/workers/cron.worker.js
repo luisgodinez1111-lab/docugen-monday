@@ -51,5 +51,14 @@ if (redisAvailable && REDIS_URL) {
     logger.error({ job: job?.name, err: err.message }, 'Cron worker: job failed');
   });
 
+  // Graceful shutdown: wait for current job to finish before process exits
+  const shutdown = async (signal) => {
+    logger.info({ signal }, 'Cron worker: shutting down gracefully');
+    await worker.close();
+    process.exit(0);
+  };
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT',  () => shutdown('SIGINT'));
+
   logger.info({ queue: QUEUE_NAME, concurrency: 1 }, 'Cron worker started');
 }

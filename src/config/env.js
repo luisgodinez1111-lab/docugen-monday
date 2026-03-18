@@ -34,8 +34,17 @@ const schema = z.object({
 const result = schema.safeParse(process.env);
 if (!result.success) {
   const issues = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(', ');
-  // Throw — NOT process.exit() — so the caller can catch and keep the port bound
-  throw new Error(`Invalid environment variables: ${issues}`);
+  // Throw — NOT process.exit() — so the caller can catch and keep the port bound for /healthz
+  const err = new Error(`Invalid environment variables: ${issues}`);
+  err.code = 'ENV_INVALID';
+  throw err;
+}
+
+// TOKEN_ENCRYPTION_KEY must be valid hex when provided
+if (result.data.TOKEN_ENCRYPTION_KEY) {
+  if (!/^[0-9a-fA-F]+$/.test(result.data.TOKEN_ENCRYPTION_KEY)) {
+    throw Object.assign(new Error('TOKEN_ENCRYPTION_KEY must be a valid hex string'), { code: 'ENV_INVALID' });
+  }
 }
 
 module.exports = { env: result.data };

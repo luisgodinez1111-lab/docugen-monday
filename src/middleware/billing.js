@@ -6,7 +6,7 @@ const { checkSubscription, getAccountPlanLimits, getMonthlyUsage } = require('..
 async function requireSubscription(req, res, next) {
   try {
     const accountId = req.accountId;
-    if (!accountId) return next(); // Sin accountId, dejar pasar (manejado por requireAuth)
+    if (!accountId) return res.status(401).json({ error: 'No autenticado' });
     const { pool } = require('../services/db.service');
     const r = await pool.query("SELECT * FROM subscriptions WHERE account_id=$1 AND status IN ('active','trial') ORDER BY subscribed_at DESC LIMIT 1", [accountId]);
     if (!r.rows.length) {
@@ -32,8 +32,8 @@ async function checkDocLimit(req, res, next) {
       const msg = sub.reason === 'trial_expired'
         ? 'Tu periodo de prueba ha expirado. Actualiza tu plan.'
         : sub.reason === 'docs_limit_reached'
-          ? 'Limite de documentos alcanzado (' + sub.docs_used + '/' + sub.docs_limit + '). Actualiza tu plan.'
-          : 'Suscripcion inactiva. Actualiza tu plan.';
+          ? `Límite de documentos alcanzado (${sub.docs_used ?? 0}/${sub.docs_limit ?? 0}). Actualiza tu plan.`
+          : 'Suscripción inactiva. Actualiza tu plan.';
       // P2-5: upgrade_url debe apuntar al marketplace de Monday, no a un sitio externo
       // Ref: https://developer.monday.com/apps/docs/monetization
       return res.status(402).json({ error: sub.reason, message: msg, upgrade_url: 'https://monday.com/marketplace' });

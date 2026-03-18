@@ -75,7 +75,7 @@ canvas{display:block;touch-action:none;cursor:crosshair}
   `}
 </div>
 <script>
-const TOKEN = '${sig.token}';
+const TOKEN = ${JSON.stringify(String(sig.token || ''))};
 let currentTab = 'draw';
 let uploadedSigData = null;
 
@@ -214,7 +214,7 @@ function generateAuditCertificate(signers) {
   <div class="section">
     <div class="section-title">INFORMACIÓN DEL DOCUMENTO</div>
     <table><tr><th>Campo</th><th>Valor</th></tr>
-    <tr><td>Documento</td><td>${doc.document_filename}</td></tr>
+    <tr><td>Documento</td><td>${he(doc.document_filename)}</td></tr>
     <tr><td>Estado</td><td><span class="badge ${allSigned ? 'signed' : 'pending'}">${allSigned ? '✅ COMPLETADO' : '⏳ PENDIENTE'}</span></td></tr>
     <tr><td>Firmantes requeridos</td><td>${signers.length}</td></tr>
     <tr><td>Firmantes completados</td><td>${signers.filter(s => s.status === 'signed').length}</td></tr>
@@ -225,8 +225,8 @@ function generateAuditCertificate(signers) {
     <table><tr><th>#</th><th>Firmante</th><th>Email</th><th>Estado</th><th>Fecha</th><th>IP</th></tr>
     ${signers.map(s => `<tr>
       <td>${s.signer_order || 1}</td>
-      <td>${s.signer_name || '—'}</td>
-      <td>${s.signer_email || '—'}</td>
+      <td>${he(s.signer_name || '—')}</td>
+      <td>${he(s.signer_email || '—')}</td>
       <td><span class="badge ${s.status === 'signed' ? 'signed' : 'pending'}">${s.status === 'signed' ? '✅ Firmado' : '⏳ Pendiente'}</span></td>
       <td>${s.signed_at ? new Date(s.signed_at).toLocaleString('es-MX') : '—'}</td>
       <td class="hash">${s.signer_ip || '—'}</td>

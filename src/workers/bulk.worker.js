@@ -17,17 +17,19 @@ async function processItem(job) {
   const result = await executeAutomation(accountId, itemId, boardId, templateName, accessToken);
 
   if (result.success) {
-    await pool.query(
+    const upd = await pool.query(
       `UPDATE bulk_jobs SET completed=completed+1, results=results||$1::jsonb, updated_at=NOW(),
-       status=CASE WHEN completed+1+failed=total THEN 'done' ELSE status END WHERE id=$2`,
+       status=CASE WHEN completed+1+failed=total THEN 'done' ELSE status END WHERE id=$2 RETURNING id`,
       [JSON.stringify([{ item_id: itemId, success: true, filename: result.filename }]), bulkJobId]
     );
+    if (!upd.rows.length) logger.warn({ bulkJobId }, 'Bulk job row not found during success update');
   } else {
-    await pool.query(
+    const upd = await pool.query(
       `UPDATE bulk_jobs SET failed=failed+1, results=results||$1::jsonb, updated_at=NOW(),
-       status=CASE WHEN completed+failed+1=total THEN 'done' ELSE status END WHERE id=$2`,
+       status=CASE WHEN completed+failed+1=total THEN 'done' ELSE status END WHERE id=$2 RETURNING id`,
       [JSON.stringify([{ item_id: itemId, success: false, error: result.error }]), bulkJobId]
     );
+    if (!upd.rows.length) logger.warn({ bulkJobId }, 'Bulk job row not found during failure update');
     logger.warn({ itemId, accountId, error: result.error }, 'Bulk item failed');
   }
 }
@@ -43,6 +45,15 @@ if (redisAvailable && REDIS_URL) {
   bulkWorker.on('failed', (job, err) => {
     logger.error({ jobId: job?.id, err: err.message }, 'Bulk worker job failed');
   });
+
+  // Graceful shutdown: drain in-progress jobs before process exits
+  const gracefulShutdown = async (signal) => {
+    logger.info({ signal }, 'Bulk worker: shutting down gracefully');
+    await bulkWorker.close();
+    process.exit(0);
+  };
+  process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.once('SIGINT',  () => gracefulShutdown('SIGINT'));
 
   logger.info({ queue: QUEUE_NAME, concurrency: 5 }, 'Bulk worker started');
 }

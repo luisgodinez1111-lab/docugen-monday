@@ -120,7 +120,11 @@ function extractColumnValue(col) {
 }
 
 function numeroALetras(num, currency = 'MXN') {
-  const currencyLabel = { MXN: 'PESOS M.N.', USD: 'DÓLARES', EUR: 'EUROS', COP: 'PESOS COP' }[currency] || 'PESOS M.N.';
+  const CURRENCY_LABELS = { MXN: 'PESOS M.N.', USD: 'DÓLARES', EUR: 'EUROS', COP: 'PESOS COP', GBP: 'LIBRAS ESTERLINAS' };
+  if (currency && !CURRENCY_LABELS[currency]) {
+    console.warn(`[numeroALetras] Unknown currency "${currency}" — defaulting to MXN`);
+  }
+  const currencyLabel = CURRENCY_LABELS[currency] || 'PESOS M.N.';
   const unidades = ['','uno','dos','tres','cuatro','cinco','seis','siete','ocho','nueve','diez','once','doce','trece','catorce','quince','dieciseis','diecisiete','dieciocho','diecinueve'];
   const decenas = ['','diez','veinte','treinta','cuarenta','cincuenta','sesenta','setenta','ochenta','noventa'];
   const centenas = ['','cien','doscientos','trescientos','cuatrocientos','quinientos','seiscientos','setecientos','ochocientos','novecientos'];

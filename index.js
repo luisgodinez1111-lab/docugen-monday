@@ -67,9 +67,11 @@ try {
       timestamp: pino.stdTimeFunctions.isoTime,
       redact: { paths: ['accessToken', 'req.headers.authorization'], censor: '[REDACTED]' },
     },
-    isDev
-      ? pino.transport({ target: 'pino-pretty', options: { colorize: true, translateTime: 'SYS:HH:MM:ss.l', ignore: 'pid,hostname,service' } })
-      : process.stdout
+    (() => {
+      if (!isDev) return process.stdout;
+      try { return pino.transport({ target: 'pino-pretty', options: { colorize: true, translateTime: 'SYS:HH:MM:ss.l', ignore: 'pid,hostname,service' } }); }
+      catch { return process.stdout; } // pino-pretty not installed — fallback to JSON
+    })()
   );
 } catch {
   logger = {
@@ -166,8 +168,19 @@ const app = createApp({
 // When Redis is not available: fall back to node-cron running in-process.
 if (!process.env.REDIS_URL) {
   const cron = require('node-cron');
-  cron.schedule('* * * * *', () => processPendingTriggers().catch(console.error));
-  cron.schedule('* * * * *', () => runScheduledAutomations().catch(console.error));
+  // Guard flags prevent overlapping executions when a job takes > 1 minute
+  let _triggersRunning = false;
+  let _scheduledRunning = false;
+  cron.schedule('* * * * *', () => {
+    if (_triggersRunning) return;
+    _triggersRunning = true;
+    processPendingTriggers().catch(console.error).finally(() => { _triggersRunning = false; });
+  });
+  cron.schedule('* * * * *', () => {
+    if (_scheduledRunning) return;
+    _scheduledRunning = true;
+    runScheduledAutomations().catch(console.error).finally(() => { _scheduledRunning = false; });
+  });
   cron.schedule('0 3 * * *', () => processDeletionQueue().catch(console.error));
   cron.schedule('0 2 * * *', () => runBackup().catch(console.error));
   logger.info('Local cron jobs started (Redis not configured)');

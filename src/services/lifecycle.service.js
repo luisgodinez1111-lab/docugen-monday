@@ -7,7 +7,10 @@ async function processDeletionQueue() {
   try {
     const result = await pool.query(`
       SELECT account_id FROM deletion_queue
-      WHERE scheduled_for <= NOW() AND executed_at IS NULL
+      WHERE scheduled_for <= NOW()
+        AND executed_at IS NULL
+        AND account_id IS NOT NULL
+        AND account_id <> ''
     `);
     for (const row of result.rows) {
       const accountId = row.account_id;
@@ -39,10 +42,10 @@ async function processDeletionQueue() {
           await pool.query('DELETE FROM ' + table + ' WHERE account_id = $1', [accountId]).catch(() => {});
         }
         await pool.query('UPDATE deletion_queue SET executed_at = NOW() WHERE account_id = $1', [accountId]);
-        console.info('Data deleted for uninstalled account:', accountId);
-      } catch(e) { console.error('Error deleting account:', accountId, e.message); }
+        try { require('./logger.service').info({ accountId }, 'Account data deleted (uninstall)'); } catch { console.info('Data deleted for uninstalled account:', accountId); }
+      } catch(e) { try { require('./logger.service').error({ accountId, err: e.message }, 'Error deleting account'); } catch { console.error('Error deleting account:', accountId, e.message); } }
     }
-  } catch(e) { console.error('processDeletionQueue error:', e.message); }
+  } catch(e) { try { require('./logger.service').error({ err: e.message }, 'processDeletionQueue error'); } catch { console.error('processDeletionQueue error:', e.message); } }
 }
 
 module.exports = { processDeletionQueue };

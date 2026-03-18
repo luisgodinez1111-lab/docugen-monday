@@ -43,12 +43,14 @@ module.exports = function makeTemplatesRouter(deps) {
       );
       if (existing.rows.length) {
         const old = existing.rows[0];
-        const prevVersions = Array.isArray(old.previous_versions) ? old.previous_versions : [];
+        let prevVersions = Array.isArray(old.previous_versions) ? old.previous_versions : [];
         prevVersions.push({
           version: old.version || 1,
           filename: safeName,
           archived_at: new Date().toISOString(),
         });
+        // Limit history to 20 versions to prevent unbounded JSON blob growth
+        if (prevVersions.length > 20) prevVersions = prevVersions.slice(-20);
         const newVersion = (old.version || 1) + 1;
         await pool.query(
           'UPDATE templates SET data=$1, version=$2, previous_versions=$3, variables=$4, updated_at=NOW() WHERE account_id=$5 AND filename=$6',
@@ -247,7 +249,7 @@ module.exports = function makeTemplatesRouter(deps) {
           if (obj.tableType === 'products' && obj.tableCols) {
             // Real table with loop
             const cols = obj.tableCols;
-            const expandHex = c => { const h = c.replace('#',''); return h.length === 3 ? h.split('').map(x=>x+x).join('') : h; };
+            // reuse expandHex defined above (line ~165)
           const headerColor = expandHex(obj.tableHeaderColor || '#2D5BE3');
             const loopName = obj.tableLoop || 'subelementos';
             const colWidthPct = Math.floor(100 / cols.length);

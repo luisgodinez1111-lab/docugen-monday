@@ -25,16 +25,25 @@ async function refreshMondayToken(accountId, refreshToken) {
     const clientId     = process.env.MONDAY_CLIENT_ID;
     const clientSecret = process.env.MONDAY_CLIENT_SECRET;
 
-    const response = await fetch('https://auth.monday.com/oauth2/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type:    'refresh_token',
-        client_id:     clientId,
-        client_secret: clientSecret,
-        refresh_token: refreshToken,
-      }),
-    });
+    // 15s timeout prevents the refresh from hanging indefinitely
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15_000);
+    let response;
+    try {
+      response = await fetch('https://auth.monday.com/oauth2/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        signal: controller.signal,
+        body: new URLSearchParams({
+          grant_type:    'refresh_token',
+          client_id:     clientId,
+          client_secret: clientSecret,
+          refresh_token: refreshToken,
+        }),
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();

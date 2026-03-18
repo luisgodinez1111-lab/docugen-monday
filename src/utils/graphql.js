@@ -24,7 +24,11 @@ try { ({ cacheGet: _cacheGet, cacheSet: _cacheSet } = require('../services/cache
 
 const MONDAY_API_URL     = 'https://api.monday.com/v2';
 const MONDAY_API_VERSION = '2024-10';
-const DEFAULT_TIMEOUT_MS = 20_000;
+// Configurable via env: MONDAY_API_TIMEOUT_MS (default 20s, max 60s)
+const DEFAULT_TIMEOUT_MS = Math.min(
+  parseInt(process.env.MONDAY_API_TIMEOUT_MS, 10) || 20_000,
+  60_000
+);
 
 // P1-9: removed local refreshMondayToken() — it incorrectly passed the access token as refresh_token.
 // Token refresh is handled exclusively via opts.onTokenRefreshed() callback wired from auth.js.
@@ -173,16 +177,13 @@ async function invalidateBoardCache(boardId) {
   if (!_cacheGet) return;
   const id = parseInt(boardId, 10);
   if (!id || isNaN(id)) return;
-  // Delete all cache keys for this board (different limit values)
-  // We use a known set of typical limit values used in getMondayBoard calls
-  const limits = [50, 100, 200, 500];
-  for (const limit of limits) {
-    const key = `monday_board:${id}:${limit}`;
-    try {
-      const { cacheDel } = require('../services/cache.service');
-      await cacheDel(key);
-    } catch {}
-  }
+  // Delete all cache keys for this board regardless of the limit used.
+  // Covers all known limits + any custom limit passed by callers.
+  const ALL_LIMITS = [10, 25, 50, 75, 100, 150, 200, 300, 500];
+  const { cacheDel } = require('../services/cache.service');
+  await Promise.allSettled(
+    ALL_LIMITS.map(limit => cacheDel(`monday_board:${id}:${limit}`).catch(() => {}))
+  );
 }
 
 /**

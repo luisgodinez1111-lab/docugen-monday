@@ -5,7 +5,7 @@ const { getToken, saveToken } = require('../services/auth.service');
 const { refreshMondayToken, isTokenExpiredOrExpiringSoon } = require('../services/token-refresh.service');
 
 async function requireAuth(req, res, next) {
-  const accountId = req.headers['x-account-id'] || req.query.account_id;
+  const accountId = (req.headers['x-account-id'] || req.query.account_id || '').trim();
   if (!accountId) return res.status(401).json({ error: 'Se requiere account_id' });
 
   const tokenData = await getToken(accountId);
