@@ -4,7 +4,7 @@
 ALTER TABLE templates ADD COLUMN IF NOT EXISTS version INT NOT NULL DEFAULT 1;
 ALTER TABLE templates ADD COLUMN IF NOT EXISTS previous_versions JSONB DEFAULT '[]';
 ALTER TABLE templates ADD COLUMN IF NOT EXISTS variables JSONB DEFAULT '[]';
-CREATE INDEX IF NOT EXISTS idx_templates_account_name ON templates(account_id, template_name);
+CREATE INDEX IF NOT EXISTS idx_templates_account_name ON templates(account_id, filename);
 
 -- Webhook retry backoff (FIX 4)
 ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMP;
@@ -22,4 +22,4 @@ ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
 
 -- Document deduplication (FIX 11)
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS doc_hash TEXT;
-CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(account_id, doc_hash) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(account_id, doc_hash);
