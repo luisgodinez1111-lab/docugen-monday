@@ -46,4 +46,32 @@ function emailSignConfirm(signerName, docName, downloadUrl, signerIp) {
 </body></html>`;
 }
 
-module.exports = { emailSignRequest, emailSignConfirm };
+function emailQuotaAlert(pct, docsUsed, docsLimit, upgradeUrl) {
+  const isLimit = pct >= 100;
+  const color   = isLimit ? '#dc2626' : '#d97706';
+  const icon    = isLimit ? '🚨' : '⚠️';
+  const title   = isLimit ? 'Límite de documentos alcanzado' : 'Acercándote al límite de documentos';
+  const msg     = isLimit
+    ? `Has utilizado todos tus documentos disponibles (<b>${docsUsed}/${docsLimit}</b>). La generación de nuevos documentos está bloqueada hasta que actualices tu plan.`
+    : `Has utilizado el <b>${pct}%</b> de tus documentos (<b>${docsUsed}/${docsLimit}</b>). Cuando llegues al límite, no podrás generar más documentos.`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:system-ui,sans-serif;background:#f5f5f5;padding:32px">
+  <div style="max-width:480px;margin:0 auto;background:white;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
+    <div style="background:${color};padding:24px 28px">
+      <div style="color:white;font-size:20px;font-weight:700">${icon} DocuGen — ${title}</div>
+    </div>
+    <div style="padding:28px">
+      <p style="color:#444;font-size:14px;line-height:1.6;margin:0 0 20px">${msg}</p>
+      <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px 16px;margin-bottom:24px">
+        <div style="font-size:13px;color:#666">Uso actual</div>
+        <div style="height:8px;background:#e5e7eb;border-radius:4px;margin:8px 0">
+          <div style="height:8px;background:${color};border-radius:4px;width:${Math.min(pct,100)}%"></div>
+        </div>
+        <div style="font-size:13px;font-weight:600;color:${color}">${docsUsed} / ${docsLimit} documentos</div>
+      </div>
+      ${upgradeUrl ? `<a href="${esc(upgradeUrl)}" style="display:block;text-align:center;background:${color};color:white;text-decoration:none;padding:13px;border-radius:8px;font-size:14px;font-weight:600">🚀 Actualizar plan</a>` : ''}
+    </div>
+  </div>
+</body></html>`;
+}
+
+module.exports = { emailSignRequest, emailSignConfirm, emailQuotaAlert };

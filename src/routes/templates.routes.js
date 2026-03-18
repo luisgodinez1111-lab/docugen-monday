@@ -15,6 +15,11 @@ module.exports = function makeTemplatesRouter(deps) {
 
   router.post('/templates/upload', requireAuth, upload.single('template'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No se recibio archivo' });
+    // MIME validation: DOCX magic bytes = PK\x03\x04 (ZIP-based format)
+    const buf = req.file.buffer;
+    if (buf.length < 4 || buf[0] !== 0x50 || buf[1] !== 0x4B || buf[2] !== 0x03 || buf[3] !== 0x04) {
+      return res.status(400).json({ error: 'El archivo debe ser un .docx válido' });
+    }
     const accountId = req.accountId; // from requireAuth — never trust body/query
     // P2-6: Sanitize filename to prevent path traversal and special character injection
     const safeName = path.basename(req.file.originalname).replace(/[^a-zA-Z0-9._\-]/g, '_');
@@ -303,6 +308,19 @@ module.exports = function makeTemplatesRouter(deps) {
       const newFilename = newName.endsWith('.docx') ? newName : newName + '.docx';
       await pool.query('UPDATE templates SET filename=$1, updated_at=NOW() WHERE account_id=$2 AND filename=$3', [newFilename, req.accountId, req.params.filename]);
       res.json({ success: true, filename: newFilename });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── TEMPLATE EXPORT — download .docx binary for backup / version control ──
+  router.get('/templates/:filename/export', requireAuth, async (req, res) => {
+    try {
+      const filename = path.basename(req.params.filename);
+      const r = await pool.query('SELECT data, filename FROM templates WHERE account_id=$1 AND filename=$2', [req.accountId, filename]);
+      if (!r.rows.length) return res.status(404).json({ error: 'Plantilla no encontrada' });
+      const dl = r.rows[0].filename;
+      res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.set('Content-Disposition', 'attachment; filename="' + dl.replace(/"/g, '\\"') + '"');
+      res.send(r.rows[0].data);
     } catch(e) { res.status(500).json({ error: e.message }); }
   });
 

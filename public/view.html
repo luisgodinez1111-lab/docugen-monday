@@ -560,7 +560,10 @@
       <div class="card">
         <div class="card-header">
           <div class="card-title" data-i18n="historial_title">Documentos generados</div>
-          <span class="pill pill-gray">Últimos 20</span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span class="pill pill-gray">Últimos 20</span>
+            <button id="batch-delete-btn" class="btn btn-sm" style="display:none;background:#ef4444;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer" onclick="batchDeleteDocs()">🗑 Eliminar seleccionados</button>
+          </div>
         </div>
         <div id="historial-list"><div class="empty" style="padding:28px">Cargando historial...</div></div>
       </div>
@@ -1070,6 +1073,7 @@
         '<div class="template-actions">' +
         '<button class="icon-btn" onclick="event.stopPropagation();renameTemplate(\'' + t + '\')" title="Renombrar">✎</button>' +
         '<button class="icon-btn" onclick="event.stopPropagation();duplicateTemplate(\'' + t + '\')" title="Duplicar">⧉</button>' +
+        '<a class="icon-btn" href="' + API + '/templates/' + encodeURIComponent(t) + '/export?account_id=' + accountId + '" download="' + t + '" onclick="event.stopPropagation()" title="Exportar .docx">⬇</a>' +
         '<button class="icon-btn danger" onclick="event.stopPropagation();deleteTemplate(\'' + t + '\')" title="Eliminar">🗑</button>' +
         '</div></div>'
       ).join('');
@@ -1239,11 +1243,21 @@
   }
 
   /* ── GENERATE ── */
+  let _isGenerating = false;
+  function _setGenerating(val) {
+    _isGenerating = val;
+    ['generate-btn','generate-pdf-btn','generate-xlsx-btn'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = val;
+    });
+  }
+
   async function generateDocument(format = 'docx') {
     if (!selectedTemplate || !selectedItem) return;
+    if (_isGenerating) return;
     const btn = format === 'pdf' ? document.getElementById('generate-pdf-btn') : document.getElementById('generate-btn');
     const status = document.getElementById('generate-status');
-    btn.disabled = true;
+    _setGenerating(true);
     btn.innerHTML = '<div class="spinner"></div> Generando...';
     status.innerHTML = '';
     try {
@@ -1258,9 +1272,10 @@
       clearTimeout(timeout);
       if (format === 'pdf') {
         const job = await res.json();
-        if (!job.job_id) { status.innerHTML = '<div class="status error">✗ Error iniciando PDF</div>'; btn.disabled = false; btn.innerHTML = '⬇ PDF'; return; }
+        if (!job.job_id) { status.innerHTML = '<div class="status error">✗ Error iniciando PDF</div>'; return; }
         status.innerHTML = '<div class="status info">⏳ Generando PDF...</div>';
-        btn.disabled = false; btn.innerHTML = '⬇ PDF';
+        // PDF runs async — release buttons so user can do other things while polling
+        _setGenerating(false); btn.innerHTML = '⬇ PDF';
         const poll = setInterval(async () => {
           try {
             const s = await fetch(API + '/pdf-status/' + job.job_id, {headers:{'x-account-id':accountId}});
@@ -1289,7 +1304,8 @@
     } catch(e) {
       status.innerHTML = '<div class="status error">✗ ' + (e.name === 'AbortError' ? 'Timeout' : 'Error de conexión') + '</div>';
     } finally {
-      if (format !== 'pdf') { btn.disabled = false; btn.innerHTML = '⬇ Word'; }
+      _setGenerating(false);
+      if (format !== 'pdf') btn.innerHTML = '⬇ Word';
     }
   }
 
@@ -1510,9 +1526,10 @@ async function loadSignatures() {
       list.innerHTML = data.documents.map(doc => {
         const fecha = new Date(doc.created_at).toLocaleDateString('es-MX', {day:'2-digit',month:'short',year:'numeric'});
         const hora = new Date(doc.created_at).toLocaleTimeString('es-MX', {hour:'2-digit',minute:'2-digit'});
-        return '<div class="doc-row">' +
+        return '<div class="doc-row" data-doc-id="' + doc.id + '" style="gap:8px">' +
+          '<input type="checkbox" style="cursor:pointer;flex-shrink:0" onchange="updateBatchBtn()" data-id="' + doc.id + '">' +
           '<span style="font-size:18px">📄</span>' +
-          '<div class="doc-info">' +
+          '<div class="doc-info" style="flex:1">' +
           '<div class="doc-name">' + doc.item_name + '</div>' +
           '<div class="doc-meta">' + doc.template_name + ' · ' + fecha + ' ' + hora + '</div>' +
           '</div>' +
@@ -1520,6 +1537,30 @@ async function loadSignatures() {
           '</div>';
       }).join('');
     } catch(e) { document.getElementById('historial-list').innerHTML = '<div class="empty" style="padding:28px">Error al cargar</div>'; }
+  }
+
+  function updateBatchBtn() {
+    const checked = document.querySelectorAll('#historial-list input[type=checkbox]:checked');
+    const btn = document.getElementById('batch-delete-btn');
+    btn.style.display = checked.length ? 'inline-block' : 'none';
+    btn.textContent = '🗑 Eliminar (' + checked.length + ')';
+  }
+
+  async function batchDeleteDocs() {
+    const checked = [...document.querySelectorAll('#historial-list input[type=checkbox]:checked')];
+    if (!checked.length) return;
+    if (!confirm('¿Eliminar ' + checked.length + ' documento(s)? Esta acción no se puede deshacer.')) return;
+    const ids = checked.map(cb => parseInt(cb.dataset.id, 10));
+    try {
+      const r = await fetch(API + '/documents/batch', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
+        body: JSON.stringify({ ids })
+      });
+      const d = await r.json();
+      if (d.success) { await loadHistorial(); document.getElementById('batch-delete-btn').style.display = 'none'; }
+      else alert('Error: ' + (d.error || 'No se pudo eliminar'));
+    } catch(e) { alert('Error de conexión'); }
   }
 
   /* ── AJUSTES ── */

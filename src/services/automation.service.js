@@ -2,6 +2,7 @@
 
 const { MAX_AUTOMATION_ATTEMPTS, AUTOMATION_CONCURRENCY } = require('../utils/config');
 const fs     = require('fs');
+const fsP    = require('fs').promises;
 const path   = require('path');
 const PizZip = require('pizzip');
 const logger = require('./logger.service');
@@ -49,8 +50,8 @@ async function executeAutomation(accountId, itemId, boardId, templateName, acces
     doc.render(data);
     const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
     const outputFilename = item.name.replace(/[^a-zA-Z0-9]/g, '_') + '_auto_' + Date.now() + '.docx';
-    if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir, { recursive: true });
-    fs.writeFileSync(path.join(outputsDir, outputFilename), outputBuffer);
+    await fsP.mkdir(outputsDir, { recursive: true });
+    await fsP.writeFile(path.join(outputsDir, outputFilename), outputBuffer);
 
     await pool.query(
       'INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7)',

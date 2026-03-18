@@ -107,6 +107,27 @@ module.exports = function makeDocumentsRouter(deps) {
     }
   });
 
+  // ── BATCH SOFT-DELETE ─────────────────────────────────────────────────────
+  router.delete('/documents/batch', requireAuth, async (req, res) => {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids debe ser un array no vacío' });
+    if (ids.length > 100) return res.status(400).json({ error: 'Máximo 100 documentos por lote' });
+    const safeIds = ids.map(id => parseInt(id, 10)).filter(n => Number.isFinite(n) && n > 0);
+    if (!safeIds.length) return res.status(400).json({ error: 'IDs inválidos' });
+    try {
+      const result = await pool.query(
+        'UPDATE documents SET deleted_at = NOW() WHERE id = ANY($1::int[]) AND account_id = $2 AND deleted_at IS NULL RETURNING id',
+        [safeIds, req.accountId]
+      );
+      result.rows.forEach(({ id }) => {
+        logDocumentEvent(pool, { documentId: id, eventType: 'deleted', actorId: req.accountId }).catch(() => {});
+      });
+      res.json({ success: true, deleted: result.rows.length });
+    } catch (err) {
+      res.status(500).json({ error: 'Error al eliminar documentos' });
+    }
+  });
+
   router.get('/documents/:id/events', requireAuth, async (req, res) => {
     const { id } = req.params;
     try {

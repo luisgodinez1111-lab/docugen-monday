@@ -2,7 +2,7 @@
 
 const { Resend } = require('resend');
 const { resendBreaker } = require('../utils/circuit-breaker');
-const { emailSignRequest } = require('../utils/email-templates');
+const { emailSignRequest, emailQuotaAlert } = require('../utils/email-templates');
 const { escapeHtml } = require('../utils/strings');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -85,4 +85,17 @@ async function sendApprovalEmails(admins, approvalToken, docName, signerName, ac
   }
 }
 
-module.exports = { sendEmail, sendSignatureEmail, sendApprovalEmails };
+/**
+ * Notify account owner when their document quota hits 80% or 100%.
+ */
+async function sendQuotaAlert(email, { docsUsed, docsLimit, pct }) {
+  const upgradeUrl = process.env.APP_URL ? process.env.APP_URL + '/view?tab=ajustes' : '';
+  await sendEmail({
+    to:      email,
+    subject: pct >= 100 ? '🚨 DocuGen — Límite de documentos alcanzado' : '⚠️ DocuGen — Acercándote al límite de documentos',
+    html:    emailQuotaAlert(pct, docsUsed, docsLimit, upgradeUrl),
+    type:    'quota_alert',
+  });
+}
+
+module.exports = { sendEmail, sendSignatureEmail, sendApprovalEmails, sendQuotaAlert };
