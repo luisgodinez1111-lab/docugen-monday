@@ -63,14 +63,23 @@ module.exports = function makeOauthRouter(deps) {
 
     // P2-1: state criptográfico (crypto.randomBytes, no Math.random) — stored in Redis or Map
     const state = crypto.randomBytes(16).toString('hex');
-    await stateStore.set(state, state, 15 * 60 * 1000);
+
+    // B3: PKCE — generate code_verifier and code_challenge
+    const verifier = crypto.randomBytes(32).toString('base64url');
+    const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+
+    // Store state mapped to verifier so callback can retrieve it
+    // Format: JSON string { state, verifier }
+    await stateStore.set(state, JSON.stringify({ state, verifier }), 15 * 60 * 1000);
 
     res.redirect(
       'https://auth.monday.com/oauth2/authorize' +
       '?client_id=' + clientId +
       '&redirect_uri=' + redirectUri +
       '&scope=' + encodeURIComponent(scopes) +
-      '&state=' + state
+      '&state=' + state +
+      '&code_challenge=' + challenge +
+      '&code_challenge_method=S256'
     );
   });
 
@@ -79,19 +88,32 @@ module.exports = function makeOauthRouter(deps) {
     if (!code) return res.status(400).json({ error: 'No se recibio codigo' });
 
     // P2-1: Validar state anti-CSRF antes de usar el code
-    const savedState = await stateStore.get(state);
-    if (!state || !savedState) {
+    const savedRaw = await stateStore.get(state);
+    if (!state || !savedRaw) {
       return res.status(400).json({ error: 'Estado OAuth inválido o expirado. Inicia el flujo nuevamente.' });
     }
     await stateStore.delete(state); // use-once: eliminar tras validar
 
+    // B3: Extract verifier from stored PKCE data
+    let codeVerifier;
     try {
-      const response = await axios.post('https://auth.monday.com/oauth2/token', {
+      const saved = JSON.parse(savedRaw);
+      codeVerifier = saved.verifier;
+    } catch {
+      // Fallback: stored value is plain state (legacy, no PKCE)
+      codeVerifier = undefined;
+    }
+
+    try {
+      const tokenPayload = {
         client_id: process.env.MONDAY_CLIENT_ID,
         client_secret: process.env.MONDAY_CLIENT_SECRET,
         code,
-        redirect_uri: process.env.REDIRECT_URI
-      }, { timeout: 15000 });
+        redirect_uri: process.env.REDIRECT_URI,
+      };
+      if (codeVerifier) tokenPayload.code_verifier = codeVerifier;
+
+      const response = await axios.post('https://auth.monday.com/oauth2/token', tokenPayload, { timeout: 15000 });
       const { access_token, refresh_token } = response.data;
       const decoded = jwt.decode(access_token);
       const accountId = decoded?.actid?.toString() || 'default';

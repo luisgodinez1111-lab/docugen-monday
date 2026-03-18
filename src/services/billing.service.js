@@ -59,7 +59,15 @@ async function checkSubscription(accountId) {
       return { allowed: false, reason: 'docs_limit_reached', plan: sub.plan_id, docs_used: sub.docs_used, docs_limit: sub.docs_limit };
     }
 
-    const response = { allowed: true, plan: sub.plan_id, status: sub.status, docs_used: sub.docs_used, docs_limit: sub.docs_limit };
+    const response = {
+      allowed: true,
+      plan: sub.plan_id,
+      status: sub.status,
+      docs_used: sub.docs_used,
+      docs_limit: sub.docs_limit,
+      docs_remaining: sub.docs_limit > 0 ? Math.max(0, sub.docs_limit - sub.docs_used) : -1,
+      near_limit: sub.docs_limit > 0 && (sub.docs_used / sub.docs_limit) >= 0.9,
+    };
     await cacheSet(cacheKey, response, SUBSCRIPTION_CACHE_TTL);
     return response;
 

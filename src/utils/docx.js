@@ -54,21 +54,24 @@ function toVarName(title) {
 }
 
 function extractColumnValue(col) {
-  if (col.column && (col.column.type === 'mirror' || col.column.type === 'board_relation')) {
+  if (!col) return '';
+  const val = col?.value;
+  if (col?.column && (col.column.type === 'mirror' || col.column.type === 'board_relation')) {
     return col.display_value || col.text || '';
   }
-  if (col.column && col.column.type === 'location') {
+  if (col?.column && col.column.type === 'location') {
     if (col.text) return col.text;
-    try { const val = JSON.parse(col.value || '{}'); return val.address || ''; } catch(e) { return ''; }
+    try { const parsed = JSON.parse(val || '{}'); return parsed.address || ''; } catch(e) { return ''; }
   }
   return col.text || col.display_value || '';
 }
 
-function numeroALetras(num) {
+function numeroALetras(num, currency = 'MXN') {
+  const currencyLabel = { MXN: 'PESOS M.N.', USD: 'DÓLARES', EUR: 'EUROS', COP: 'PESOS COP' }[currency] || 'PESOS M.N.';
   const unidades = ['','uno','dos','tres','cuatro','cinco','seis','siete','ocho','nueve','diez','once','doce','trece','catorce','quince','dieciseis','diecisiete','dieciocho','diecinueve'];
   const decenas = ['','diez','veinte','treinta','cuarenta','cincuenta','sesenta','setenta','ochenta','noventa'];
   const centenas = ['','cien','doscientos','trescientos','cuatrocientos','quinientos','seiscientos','setecientos','ochocientos','novecientos'];
-  if (num === 0) return 'CERO 00/100 M.N.';
+  if (num === 0) return 'CERO 00/100 ' + currencyLabel;
   const entero = Math.floor(num);
   const decimales = Math.round((num - entero) * 100);
   function convertir(n) {
@@ -79,10 +82,10 @@ function numeroALetras(num) {
     return convertir(Math.floor(n/1000000)) + ' MILLONES' + (n%1000000 ? ' ' + convertir(n%1000000) : '');
   }
   const letras = convertir(entero).toUpperCase();
-  return letras + ' ' + (decimales > 0 ? decimales + '/100 M.N.' : '00/100 M.N.');
+  return letras + ' ' + (decimales > 0 ? decimales + '/100 ' + currencyLabel : '00/100 ' + currencyLabel);
 }
 
-function calcularTotales(data, subitems, columnValues, ivaRate = 0.16) {
+function calcularTotales(data, subitems, columnValues, ivaRate = 0.16, currency = 'MXN') {
   // Calcular desde subitems
   if (subitems && subitems.length > 0) {
     let subtotalGeneral = 0;
@@ -90,12 +93,12 @@ function calcularTotales(data, subitems, columnValues, ivaRate = 0.16) {
       const subData = { nombre: sub.name, numero: String(index + 1) };
       let cantidad = null;
       let precio = null;
-      sub.column_values.forEach(col => {
+      (sub.column_values || []).forEach(col => {
         const k = toVarName(col.column.title);
         const val = extractColumnValue(col);
         subData[k] = val;
         if (col.column.type === 'numbers') {
-          const num = parseFloat(val) || 0;
+          const num = parseFloat(String(val || '').replace(/[^\d.-]/g, '')) || 0;
           if (k.includes('cantidad') || k.includes('qty')) { cantidad = num; }
           else if (k.includes('precio') || k.includes('price') || k.includes('costo') || k.includes('unit')) { precio = num; }
           else if (cantidad === null) { cantidad = num; }
@@ -122,7 +125,7 @@ function calcularTotales(data, subitems, columnValues, ivaRate = 0.16) {
     data.iva_fmt = iva.toLocaleString('es-MX', { minimumFractionDigits: 2 });
     data.total = total.toFixed(2);
     data.total_fmt = total.toLocaleString('es-MX', { minimumFractionDigits: 2 });
-    data.total_letras = numeroALetras(total);
+    data.total_letras = numeroALetras(total, currency);
     data.iva_rate = ivaRate;
     data.iva_pct_display = (ivaRate * 100).toFixed(0) + '%';
     data.tiene_iva = iva > 0;
@@ -137,14 +140,14 @@ function calcularTotales(data, subitems, columnValues, ivaRate = 0.16) {
       return col.column.type === 'numbers' && (k.includes('monto') || k.includes('total') || k.includes('precio') || k.includes('importe'));
     });
     if (montoCol) {
-      const monto = parseFloat(extractColumnValue(montoCol)) || 0;
+      const monto = parseFloat(String(extractColumnValue(montoCol) || '').replace(/[^\d.-]/g, '')) || 0;
       const iva = monto * ivaRate;
       const total = monto + iva;
       data.iva = iva.toFixed(2);
       data.iva_fmt = iva.toLocaleString('es-MX', { minimumFractionDigits: 2 });
       data.total_con_iva = total.toFixed(2);
       data.total_con_iva_fmt = total.toLocaleString('es-MX', { minimumFractionDigits: 2 });
-      data.total_letras = numeroALetras(total);
+      data.total_letras = numeroALetras(total, currency);
       data.iva_rate = ivaRate;
       data.iva_pct_display = (ivaRate * 100).toFixed(0) + '%';
       data.tiene_iva = iva > 0;

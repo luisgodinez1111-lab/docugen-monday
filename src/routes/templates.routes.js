@@ -25,6 +25,9 @@ module.exports = function makeTemplatesRouter(deps) {
     const safeName = path.basename(req.file.originalname).replace(/[^a-zA-Z0-9._\-]/g, '_');
     try {
       await pool.query(`INSERT INTO templates (account_id, filename, data) VALUES ($1, $2, $3) ON CONFLICT (account_id, filename) DO UPDATE SET data = $3, updated_at = NOW()`, [accountId, safeName, req.file.buffer]);
+      // I3: Audit log for template upload
+      pool.query('INSERT INTO audit_log (account_id, action, details) VALUES ($1,$2,$3)',
+        [accountId, 'template.upload', JSON.stringify({ filename: safeName })]).catch(() => {});
       res.json({ success: true, filename: safeName });
     } catch (err) {
       res.status(500).json({ error: 'Error al guardar plantilla', details: err.message });
@@ -283,6 +286,9 @@ module.exports = function makeTemplatesRouter(deps) {
   router.delete('/templates/:filename', requireAuth, async (req, res) => {
     try {
       await pool.query('DELETE FROM templates WHERE account_id=$1 AND filename=$2', [req.accountId, req.params.filename]);
+      // I3: Audit log for template delete
+      pool.query('INSERT INTO audit_log (account_id, action, details) VALUES ($1,$2,$3)',
+        [req.accountId, 'template.delete', JSON.stringify({ filename: req.params.filename })]).catch(() => {});
       res.json({ success: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
   });
@@ -307,6 +313,9 @@ module.exports = function makeTemplatesRouter(deps) {
       if (!newName) return res.status(400).json({ error: 'Nuevo nombre requerido' });
       const newFilename = newName.endsWith('.docx') ? newName : newName + '.docx';
       await pool.query('UPDATE templates SET filename=$1, updated_at=NOW() WHERE account_id=$2 AND filename=$3', [newFilename, req.accountId, req.params.filename]);
+      // I3: Audit log for template rename
+      pool.query('INSERT INTO audit_log (account_id, action, details) VALUES ($1,$2,$3)',
+        [req.accountId, 'template.rename', JSON.stringify({ from: req.params.filename, to: newFilename })]).catch(() => {});
       res.json({ success: true, filename: newFilename });
     } catch(e) { res.status(500).json({ error: e.message }); }
   });

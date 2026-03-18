@@ -140,6 +140,7 @@ header { height: var(--header-h); background: var(--surface); border-bottom: 1px
   <div class="spacer"></div>
   <div style="display:flex;gap:6px">
     <button class="btn btn-ghost" onclick="previewTemplate()">👁 Preview</button>
+    <button class="btn btn-ghost" onclick="validateTemplateVars()" title="Validar variables {{...}} en la plantilla">✓ Validar variables</button>
     <button class="btn btn-ghost" onclick="undo()">↩</button>
     <button class="btn btn-ghost" onclick="redo()">↪</button>
     <button class="btn btn-primary" onclick="saveTemplate()">💾 Guardar</button>
@@ -905,6 +906,32 @@ async function loadVariables() {
   }
 }
 
+// ─── G2: VARIABLE VALIDATION ──────────────────────────────
+function validateTemplateVars() {
+  const textObjs = canvas.getObjects().filter(o => o.type === 'i-text' || o.type === 'text');
+  const allText = textObjs.map(o => o.text || '').join('\n');
+  const found = [...new Set((allText.match(/\{\{([^}]+)\}\}/g) || []))];
+  if (!found.length) { showToast('No se encontraron variables {{...}} en la plantilla', 'info'); return; }
+
+  // Known system variables from var chips in the panel
+  const knownEls = document.querySelectorAll('.var-chip');
+  const knownVars = new Set([...knownEls].map(el => {
+    const m = el.textContent.match(/\{\{([^}]+)\}\}/);
+    return m ? m[1].trim() : null;
+  }).filter(Boolean));
+
+  const unknown = found.filter(v => {
+    const name = v.replace(/\{\{|\}\}/g, '').trim();
+    return !knownVars.has(name);
+  });
+
+  if (unknown.length === 0) {
+    showToast('✓ Todas las variables son válidas (' + found.length + ' encontradas)', 'success');
+  } else {
+    showToast('⚠ Variables desconocidas: ' + unknown.join(', '), 'warning');
+  }
+}
+
 // ─── SELECTION ────────────────────────────────────────────
 function onSel() {
   const obj = canvas.getActiveObject();
@@ -1039,8 +1066,8 @@ function showToast(msg, type='') {
 document.addEventListener('keydown', e => {
   if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
   if (e.key === 'Delete' || e.key === 'Backspace') delSel();
-  if ((e.metaKey||e.ctrlKey) && e.key==='z') { e.preventDefault(); undo(); }
-  if ((e.metaKey||e.ctrlKey) && e.key==='y') { e.preventDefault(); redo(); }
+  if ((e.metaKey||e.ctrlKey) && e.key==='z' && !e.shiftKey) { e.preventDefault(); undo(); }
+  if ((e.metaKey||e.ctrlKey) && (e.key==='y' || (e.key==='z' && e.shiftKey))) { e.preventDefault(); redo(); }
   if ((e.metaKey||e.ctrlKey) && e.key==='s') { e.preventDefault(); saveTemplate(); }
   if ((e.metaKey||e.ctrlKey) && e.key==='d') { e.preventDefault(); duplicateSelected(); }
 });

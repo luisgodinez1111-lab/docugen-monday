@@ -58,8 +58,9 @@
     .pill-blue { background:var(--accent-light); color:var(--accent); }
 
     /* ── TAB BAR ── */
-    .tab-bar { display:flex; align-items:center; gap:2px; padding:4px; background:rgba(118,118,128,0.12); border-radius:11px; margin:12px 20px; }
-    .tab { flex:1; display:flex; align-items:center; justify-content:center; gap:5px; padding:7px 4px; border-radius:8px; border:none; background:transparent; font-family:var(--sans); font-size:12px; font-weight:500; color:var(--muted); cursor:pointer; transition:all 0.2s; white-space:nowrap; }
+    .tab-bar { display:flex; align-items:center; gap:2px; padding:4px; background:rgba(118,118,128,0.12); border-radius:11px; margin:12px 20px; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; flex-wrap:nowrap; }
+    .tab-bar::-webkit-scrollbar { display:none; }
+    .tab { flex:1; flex-shrink:0; display:flex; align-items:center; justify-content:center; gap:5px; padding:7px 4px; border-radius:8px; border:none; background:transparent; font-family:var(--sans); font-size:12px; font-weight:500; color:var(--muted); cursor:pointer; transition:all 0.2s; white-space:nowrap; }
     .tab.active { background:var(--surface); color:var(--text); box-shadow:var(--shadow); font-weight:600; }
     .tab-icon { font-size:13px; }
 
@@ -200,7 +201,7 @@
     /* ── PREVIEW MODAL ── */
     .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center; padding:20px; }
     .modal-overlay.open { display:flex; }
-    .modal-box { background:var(--surface); border-radius:var(--radius); box-shadow:0 20px 60px rgba(0,0,0,0.3); width:100%; max-width:520px; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; }
+    .modal-box { background:var(--surface); border-radius:var(--radius); box-shadow:0 20px 60px rgba(0,0,0,0.3); width:100%; max-width:520px; max-height:min(90vh, 600px); overflow-y:auto; display:flex; flex-direction:column; }
     .modal-header { display:flex; align-items:center; justify-content:space-between; padding:16px 18px; border-bottom:1px solid var(--border); flex-shrink:0; }
     .modal-title { font-size:15px; font-weight:600; }
     .modal-close { background:none; border:none; font-size:20px; cursor:pointer; color:var(--muted); line-height:1; padding:4px; }
@@ -476,7 +477,10 @@
       <div class="card">
         <div class="card-header">
           <div class="card-title" data-i18n="firmas_list">Solicitudes de firma</div>
-          <button onclick="loadSignatures()" class="btn btn-sm btn-ghost">↻ Actualizar</button>
+          <div style="display:flex;gap:6px;align-items:center">
+            <a href="" id="sigs-zip-btn" class="btn btn-sm btn-ghost" style="display:none" title="Descargar todos los PDFs firmados">📦 ZIP firmas</a>
+            <button onclick="loadSignatures()" class="btn btn-sm btn-ghost">↻ Actualizar</button>
+          </div>
         </div>
         <div class="card-body" style="padding:8px">
           <div id="signaturesList"><div class="empty">Cargando...</div></div>
@@ -922,7 +926,7 @@
         }
       }).catch(function() {});
     }
-  } catch(e) { console.log('Monday SDK:', e.message); }
+  } catch(e) { console.warn('[DocuGen] Monday SDK init error:', e.message); }
 
   // ── TRADUCCIONES ──
   const i18n = {
@@ -1051,6 +1055,15 @@
   async function init() {
     if (!accountId) { document.getElementById('auth-wall').style.display = 'flex'; return; }
 
+    // D2: Show loading indicator while init completes
+    const mainContent = document.getElementById('main-content');
+    const _loadingDiv = document.createElement('div');
+    _loadingDiv.id = '_init-loading';
+    _loadingDiv.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);z-index:9999;font-size:14px;color:var(--muted)';
+    _loadingDiv.innerHTML = '<div style="text-align:center"><div class="spinner" style="width:24px;height:24px;border:3px solid rgba(0,122,255,0.2);border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite;margin:0 auto 12px"></div>Cargando DocuGen...</div>';
+    document.body.appendChild(_loadingDiv);
+
+    try {
     // ── Obtener boardId desde el SDK de Monday si no viene en URL ──
     if (!boardId && window.monday) {
       try {
@@ -1129,6 +1142,11 @@
     await loadSettings();
     await loadLogo();
     await loadUsageBadge();
+    } finally {
+      // D2: Remove loading indicator
+      const _ld = document.getElementById('_init-loading');
+      if (_ld) _ld.remove();
+    }
   }
 
   function startAuth() { window.location.href = API + '/oauth/start'; }
@@ -1313,9 +1331,11 @@
 
   function checkReady() {
     const ready = !!(selectedTemplate && selectedItem);
-    document.getElementById('generate-btn').disabled = !ready;
-    document.getElementById('generate-pdf-btn').disabled = !ready;
-    document.getElementById('generate-xlsx-btn').disabled = !ready;
+    const tooltip = ready ? '' : 'Selecciona una plantilla y un item del tablero primero';
+    ['generate-btn','generate-pdf-btn','generate-xlsx-btn'].forEach(id => {
+      const btn = document.getElementById(id);
+      if (btn) { btn.disabled = !ready; btn.title = tooltip; }
+    });
   }
 
   /* ── GENERATE ── */
@@ -1378,7 +1398,10 @@
         }
       }
     } catch(e) {
-      status.innerHTML = '<div class="status error">✗ ' + (e.name === 'AbortError' ? 'Timeout' : 'Error de conexión') + '</div>';
+      const msg = e.name === 'AbortError'
+        ? 'Tiempo de espera agotado — el servidor tardó demasiado. Intenta de nuevo.'
+        : 'Error de conexión. Verifica tu internet e intenta de nuevo.';
+      status.innerHTML = '<div class="status error">✗ ' + msg + '</div>';
     } finally {
       _setGenerating(false);
       if (format !== 'pdf') btn.innerHTML = '⬇ Word';
@@ -1418,6 +1441,10 @@
       if (data.success) {
         document.getElementById('signatureResult').innerHTML =
           '<div class="status success" style="word-break:break-all">✓ Link generado: <a href="' + data.sign_url + '" target="_blank" style="color:var(--accent)">' + data.sign_url + '</a></div>';
+        // D5: Reset form after success
+        document.getElementById('signerName').value = '';
+        document.getElementById('signerEmail').value = '';
+        document.getElementById('docType').selectedIndex = 0;
         await loadSignatures();
       } else {
         document.getElementById('signatureResult').innerHTML = '<div class="status error">✗ ' + data.error + '</div>';
@@ -1469,15 +1496,18 @@ async function loadSignatures() {
         const portalUrl = window.location.origin + '/sign/' + s.token;
         const remindBtn = (!signed && !expired && s.signer_email) ? '<button onclick="sendReminder(\'' + s.token + '\')" class="action-link" style="background:#f59e0b;color:#fff">🔔 Recordatorio</button> ' : '';
         const cancelBtn = (!signed && !expired) ? '<button onclick="cancelSignature(\'' + s.token + '\')" class="action-link" style="background:#ef4444;color:#fff">🚫 Cancelar</button> ' : '';
+        const extendBtn = expired ? '<button onclick="extendSignature(\'' + s.token + '\')" class="action-link" style="background:#6366f1;color:#fff">🔄 Renovar (+7 días)</button> ' : '';
         const actionBtn = signed
           ? '<a href="' + API + '/sign/' + s.token + '/download" target="_blank" class="action-link action-link-green">⬇ PDF Firmado</a>'
-          : remindBtn + '<button onclick="navigator.clipboard.writeText(\'' + portalUrl + '\')" class="action-link action-link-blue">📋 Copiar link</button> ' + cancelBtn;
+          : expired
+            ? extendBtn + '<button onclick="navigator.clipboard.writeText(\'' + portalUrl + '\')" class="action-link action-link-blue">📋 Copiar link</button>'
+            : remindBtn + '<button onclick="navigator.clipboard.writeText(\'' + portalUrl + '\')" class="action-link action-link-blue">📋 Copiar link</button> ' + cancelBtn;
         const emailRow = s.signer_email ? '<span>✉️ ' + s.signer_email + '</span>' : '';
         const dateRow = signed ? '<span style="color:#059669">🖊 Firmado: ' + signedDate + '</span>' : '<span>📅 Creado: ' + createdDate + '</span>';
         const ipRow = s.signer_ip ? '<span>🌐 ' + s.signer_ip + '</span>' : '';
         return '<div class="sig-item">' +
           '<div class="sig-header">' +
-          '<span class="sig-name">' + (s.signer_name || 'Sin nombre') + '</span>' +
+          '<span class="sig-name" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (s.signer_name || 'Sin nombre') + '</span>' +
           '<span class="badge-status" style="background:' + statusBg + ';color:' + statusColor + '">' + statusIcon + ' ' + statusLabel + '</span>' +
           '</div>' +
           '<div style="display:flex;justify-content:space-between;align-items:flex-end">' +
@@ -1488,7 +1518,24 @@ async function loadSignatures() {
           '<div class="sig-action">' + actionBtn + '</div>' +
           '</div></div>';
       }).join('');
+      // H3: Show/hide ZIP button based on whether signed docs exist
+      const hasSigned = data.signatures.some(s => s.status === 'signed');
+      const zipBtn = document.getElementById('sigs-zip-btn');
+      if (zipBtn) { zipBtn.href = API + '/signatures/export/zip?account_id=' + accountId; zipBtn.style.display = hasSigned ? 'inline-flex' : 'none'; }
     } catch(e) {}
+  }
+
+  // H2: extendSignature function
+  async function extendSignature(token) {
+    if (!confirm('¿Renovar esta solicitud de firma por 7 días más?')) return;
+    try {
+      const r = await fetch(API + '/signatures/' + token + '/extend', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-account-id': accountId }
+      });
+      const d = await r.json();
+      if (d.success) { alert('Solicitud renovada hasta ' + new Date(d.expires_at).toLocaleDateString('es-MX')); await loadSignatures(); }
+      else alert('Error: ' + (d.error || 'No se pudo renovar'));
+    } catch(e) { alert('Error de conexión'); }
   }
 
   /* ── AUTOMATION ── */
@@ -1593,28 +1640,54 @@ async function loadSignatures() {
   }
 
   /* ── HISTORIAL ── */
-  async function loadHistorial() {
+  let _historialPage = 1;
+  function _renderHistorialDocs(docs, list, append) {
+    const rows = docs.map(doc => {
+      const fecha = new Date(doc.created_at).toLocaleDateString('es-MX', {day:'2-digit',month:'short',year:'numeric'});
+      const hora = new Date(doc.created_at).toLocaleTimeString('es-MX', {hour:'2-digit',minute:'2-digit'});
+      return '<div class="doc-row" data-doc-id="' + doc.id + '" style="gap:8px">' +
+        '<input type="checkbox" style="cursor:pointer;flex-shrink:0" onchange="updateBatchBtn()" data-id="' + doc.id + '">' +
+        '<span style="font-size:18px">📄</span>' +
+        '<div class="doc-info" style="flex:1">' +
+        '<div class="doc-name">' + doc.item_name + '</div>' +
+        '<div class="doc-meta">' + doc.template_name + ' · ' + fecha + ' ' + hora + '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0">' +
+        '<a href="' + API + '/download/' + doc.filename + '" target="_blank" style="font-size:12px;color:var(--accent);text-decoration:none;font-weight:500;white-space:nowrap">⬇ Descargar</a>' +
+        '<button onclick="showDocTimeline(' + doc.id + ',\'' + (doc.item_name||'').replace(/'/g,"\\'") + '\')" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--muted)" title="Ver historial">📋</button>' +
+        '</div>' +
+        '</div>';
+    }).join('');
+    if (append) {
+      // Remove existing "load more" button before appending
+      const old = list.querySelector('#historial-load-more');
+      if (old) old.remove();
+      list.insertAdjacentHTML('beforeend', rows);
+    } else {
+      list.innerHTML = rows;
+    }
+  }
+  async function loadHistorial(page) {
+    _historialPage = page || 1;
     try {
-      const res = await fetch(API + '/documents', {headers:{'x-account-id':accountId}});
+      const res = await fetch(API + '/documents?limit=20&page=' + _historialPage, {headers:{'x-account-id':accountId}});
       const data = await res.json();
       const list = document.getElementById('historial-list');
-      if (!data.documents || !data.documents.length) { list.innerHTML = '<div class="empty" style="padding:28px">No hay documentos generados aún</div>'; return; }
-      list.innerHTML = data.documents.map(doc => {
-        const fecha = new Date(doc.created_at).toLocaleDateString('es-MX', {day:'2-digit',month:'short',year:'numeric'});
-        const hora = new Date(doc.created_at).toLocaleTimeString('es-MX', {hour:'2-digit',minute:'2-digit'});
-        return '<div class="doc-row" data-doc-id="' + doc.id + '" style="gap:8px">' +
-          '<input type="checkbox" style="cursor:pointer;flex-shrink:0" onchange="updateBatchBtn()" data-id="' + doc.id + '">' +
-          '<span style="font-size:18px">📄</span>' +
-          '<div class="doc-info" style="flex:1">' +
-          '<div class="doc-name">' + doc.item_name + '</div>' +
-          '<div class="doc-meta">' + doc.template_name + ' · ' + fecha + ' ' + hora + '</div>' +
-          '</div>' +
-          '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0">' +
-          '<a href="' + API + '/download/' + doc.filename + '" target="_blank" style="font-size:12px;color:var(--accent);text-decoration:none;font-weight:500;white-space:nowrap">⬇ Descargar</a>' +
-          '<button onclick="showDocTimeline(' + doc.id + ',\'' + (doc.item_name||'').replace(/'/g,"\\'") + '\')" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--muted)" title="Ver historial">📋</button>' +
-          '</div>' +
-          '</div>';
-      }).join('');
+      if (!data.documents || !data.documents.length) {
+        if (_historialPage === 1) list.innerHTML = '<div class="empty" style="padding:28px">No hay documentos generados aún</div>';
+        return;
+      }
+      _renderHistorialDocs(data.documents, list, _historialPage > 1);
+      // D4: Show "Cargar más" if more pages exist
+      if (data.pagination && data.pagination.total_pages > _historialPage) {
+        const moreBtn = document.createElement('button');
+        moreBtn.id = 'historial-load-more';
+        moreBtn.className = 'btn btn-ghost btn-sm';
+        moreBtn.style.cssText = 'display:block;margin:10px auto';
+        moreBtn.textContent = 'Cargar más';
+        moreBtn.onclick = () => loadHistorial(_historialPage + 1);
+        list.appendChild(moreBtn);
+      }
     } catch(e) { document.getElementById('historial-list').innerHTML = '<div class="empty" style="padding:28px">Error al cargar</div>'; }
   }
 
@@ -1702,6 +1775,11 @@ async function loadSignatures() {
     } catch(e) {}
   }
 
+  function _escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
   let customFields = [];
   function renderCustomFields(fields) {
     customFields = fields || [];
@@ -1709,8 +1787,8 @@ async function loadSignatures() {
     if (!customFields.length) { list.innerHTML = '<div class="empty">Sin campos personalizados</div>'; return; }
     list.innerHTML = customFields.map((f, i) =>
       '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px">' +
-      '<span style="font-family:monospace;font-size:11px;color:var(--accent);background:var(--accent-light);padding:2px 6px;border-radius:4px">{{' + f.key + '}}</span>' +
-      '<span style="flex:1;font-size:12px;color:var(--muted)">' + f.value + '</span>' +
+      '<span style="font-family:monospace;font-size:11px;color:var(--accent);background:var(--accent-light);padding:2px 6px;border-radius:4px">{{' + _escHtml(f.key) + '}}</span>' +
+      '<span style="flex:1;font-size:12px;color:var(--muted)">' + _escHtml(f.value) + '</span>' +
       '<button onclick="deleteCustomField(' + i + ')" class="icon-btn danger">🗑</button>' +
       '</div>'
     ).join('');
@@ -1823,6 +1901,18 @@ async function loadSignatures() {
         badge.title = sub.reason === 'trial_expired'
           ? 'Trial expirado — actualiza tu plan'
           : 'Limite alcanzado — actualiza tu plan';
+      }
+
+      // I2: near_limit warning near generate buttons
+      if (sub.near_limit) {
+        const genStatus = document.getElementById('generate-status');
+        if (genStatus && !genStatus.querySelector('.near-limit-warn')) {
+          const warn = document.createElement('div');
+          warn.className = 'status near-limit-warn';
+          warn.style.cssText = 'background:#fef3c7;color:#92400e;border:1px solid #fcd34d';
+          warn.innerHTML = '⚠️ Casi en el límite — te quedan ' + (sub.docs_remaining || 0) + ' documento(s)';
+          genStatus.prepend(warn);
+        }
       }
     } catch(e) { /* silencioso */ }
   }

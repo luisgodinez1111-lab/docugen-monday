@@ -6,6 +6,7 @@ const fs = require('fs');
 const PizZip = require('pizzip');
 // P3-5: multer moved to module top level (was inside factory function)
 const multer = require('multer');
+const { makeRateLimiter } = require('../middleware/rateLimit');
 
 module.exports = function makeSignaturesRouter(deps) {
   const {
@@ -18,6 +19,9 @@ module.exports = function makeSignaturesRouter(deps) {
     generateAuditCertificate,
   } = deps;
   const router = Router();
+
+  // B1: Rate limiter for public sign endpoints (30 req/min per account/IP)
+  const signRateLimit = makeRateLimiter(30, 60_000);
 
   // FIX-9: XML escape helper for OOXML injection prevention
   function xmlEscape(s) {
@@ -44,6 +48,9 @@ module.exports = function makeSignaturesRouter(deps) {
   router.post('/signatures/request', requireAuth, checkSigLimit, async (req, res) => {
     const { document_filename, signer_name, signer_email, item_id, board_id, doc_type } = req.body;
     if (!document_filename || !signer_name) return res.status(400).json({ error: 'Faltan datos' });
+    if (signer_name.length > 255) return res.status(400).json({ error: 'Nombre demasiado largo (máx 255 caracteres)' });
+    if (signer_email && signer_email.length > 254) return res.status(400).json({ error: 'Email demasiado largo' });
+    if (signer_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(signer_email)) return res.status(400).json({ error: 'Email inválido' });
     try {
       const token = crypto.randomBytes(32).toString('hex');
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 días
@@ -137,7 +144,7 @@ module.exports = function makeSignaturesRouter(deps) {
   });
 
   // PDF on-demand para portal viewer
-  router.get('/sign/:token/preview-pdf', async (req, res) => {
+  router.get('/sign/:token/preview-pdf', signRateLimit, async (req, res) => {
     try {
       const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
       if (!r.rows.length) return res.status(404).send('No encontrado');
@@ -220,7 +227,7 @@ module.exports = function makeSignaturesRouter(deps) {
 
   // INFO endpoint - debe ir ANTES del portal
   // Enviar OTP al firmante
-  router.post('/sign/:token/send-otp', async (req, res) => {
+  router.post('/sign/:token/send-otp', signRateLimit, async (req, res) => {
     try {
       const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1 AND status=$2', [req.params.token, 'pending']);
       if (!r.rows.length) return res.status(404).json({ error: 'Link no válido' });
@@ -268,7 +275,7 @@ module.exports = function makeSignaturesRouter(deps) {
   });
 
   // Verificar OTP
-  router.post('/sign/:token/verify-otp', async (req, res) => {
+  router.post('/sign/:token/verify-otp', signRateLimit, async (req, res) => {
     try {
       const { otp } = req.body;
       const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
@@ -293,7 +300,7 @@ module.exports = function makeSignaturesRouter(deps) {
     }
   });
 
-  router.get('/sign/:token/info', async (req, res) => {
+  router.get('/sign/:token/info', signRateLimit, async (req, res) => {
     try {
       const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
       if (!r.rows.length) return res.status(404).json({ success: false, error: 'Token no válido' });
@@ -474,11 +481,11 @@ module.exports = function makeSignaturesRouter(deps) {
   });
 
   // PORTAL - debe ir DESPUÉS de /info y /download
-  router.get('/sign/:token', async (req, res) => {
+  router.get('/sign/:token', signRateLimit, async (req, res) => {
     return res.sendFile(require('path').join(__dirname, '../..', 'public', 'portal.html'));
   });
 
-  router.post('/sign/:token', async (req, res) => {
+  router.post('/sign/:token', signRateLimit, async (req, res) => {
     const { signature_data, signer_name } = req.body;
     if (!signature_data) return res.status(400).json({ error: 'Firma requerida' });
     // P0-4: reject oversized signature_data to prevent DB abuse
@@ -802,7 +809,7 @@ module.exports = function makeSignaturesRouter(deps) {
 
   // Ver estado de firma por token
   // FIX-20: signer_ip removed from public endpoint — it's PII and should not be exposed without auth
-  router.get('/signatures/:token/status', async (req, res) => {
+  router.get('/signatures/:token/status', signRateLimit, async (req, res) => {
     try {
       const r = await pool.query('SELECT status, signer_name, signed_at FROM signature_requests WHERE token=$1', [req.params.token]);
       if (!r.rows.length) return res.status(404).json({ error: 'No encontrada' });
@@ -811,7 +818,7 @@ module.exports = function makeSignaturesRouter(deps) {
   });
 
   // ── QUOTE RESPONSE ENDPOINT ──
-  router.post('/sign/:token/quote-response', async (req, res) => {
+  router.post('/sign/:token/quote-response', signRateLimit, async (req, res) => {
     try {
       const { token } = req.params;
       const { response, comment } = req.body; // response: 'accepted' | 'rejected' | 'changes_requested'
@@ -826,6 +833,9 @@ module.exports = function makeSignaturesRouter(deps) {
 
       if (s.doc_type !== 'quote') return res.status(400).json({ error: 'Este documento no es una cotización' });
       if (s.quote_response) return res.status(400).json({ error: 'Ya respondiste esta cotización' });
+      if (s.status !== 'pending') return res.status(400).json({ error: 'Esta solicitud ya no está pendiente' });
+      const ageDays = (Date.now() - new Date(s.created_at)) / (1000 * 60 * 60 * 24);
+      if (ageDays > 30) return res.status(400).json({ error: 'Esta cotización ha expirado (más de 30 días)' });
 
       // Registrar respuesta
       await pool.query(
@@ -1022,6 +1032,46 @@ module.exports = function makeSignaturesRouter(deps) {
       );
       logger.info({ token: req.params.token, accountId: req.accountId, signer: sig.signer_name }, 'Signature request cancelled');
       res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // H1: GET /signatures/export/zip — download all signed PDFs as ZIP
+  router.get('/signatures/export/zip', requireAuth, async (req, res) => {
+    try {
+      const r = await pool.query(
+        "SELECT token, document_filename, doc_data FROM signature_requests WHERE account_id=$1 AND status='signed' AND doc_data IS NOT NULL ORDER BY signed_at DESC LIMIT 50",
+        [req.accountId]
+      );
+      if (!r.rows.length) return res.status(404).json({ error: 'No hay documentos firmados para exportar' });
+      const zip = new PizZip();
+      r.rows.forEach(row => {
+        const fname = 'firmado_' + row.token.slice(0, 8) + '_' + row.document_filename;
+        zip.file(fname, row.doc_data);
+      });
+      const zipBuffer = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+      const zipName = 'firmas_' + new Date().toISOString().split('T')[0] + '.zip';
+      res.set('Content-Type', 'application/zip');
+      res.set('Content-Disposition', 'attachment; filename="' + zipName + '"');
+      res.send(zipBuffer);
+    } catch(e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // E1: POST /signatures/:token/extend — reset expiry +7 days for pending/expired signatures
+  router.post('/signatures/:token/extend', requireAuth, async (req, res) => {
+    try {
+      const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
+      if (!r.rows.length) return res.status(404).json({ error: 'Solicitud no encontrada' });
+      const sig = r.rows[0];
+      if (sig.account_id !== req.accountId) return res.status(403).json({ error: 'Sin permiso' });
+      if (sig.status === 'signed') return res.status(400).json({ error: 'El documento ya fue firmado' });
+      if (sig.status === 'cancelled') return res.status(400).json({ error: 'No se puede renovar una solicitud cancelada' });
+      const newExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      await pool.query(
+        "UPDATE signature_requests SET status='pending', expires_at=$1, audit_log=audit_log || $2::jsonb WHERE token=$3",
+        [newExpiry, JSON.stringify([{ event: 'extended', timestamp: new Date().toISOString(), by: req.accountId, new_expiry: newExpiry }]), req.params.token]
+      );
+      logger.info({ token: req.params.token, accountId: req.accountId }, 'Signature request extended');
+      res.json({ success: true, expires_at: newExpiry });
     } catch(e) { res.status(500).json({ error: e.message }); }
   });
 

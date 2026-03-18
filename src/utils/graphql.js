@@ -2,6 +2,8 @@
  * src/utils/graphql.js
  * Wrapper seguro para la API GraphQL de Monday.com.
  *
+ * C1/C2: Optional cache for getMondayItem (2 min TTL) and getMondayBoard (5 min TTL)
+ *
  * Mejoras:
  *   #5 — Token refresh automático en 401 / error Unauthorized
  *   #8 — Circuit breaker (mondayBreaker) para fallar rápido cuando Monday está caído
@@ -15,6 +17,10 @@
 
 const axios = require('axios');
 const { mondayBreaker } = require('./circuit-breaker');
+
+// C1/C2: Optional cache service — gracefully degraded if not available
+let _cacheGet, _cacheSet;
+try { ({ cacheGet: _cacheGet, cacheSet: _cacheSet } = require('../services/cache.service')); } catch {}
 
 const MONDAY_API_URL     = 'https://api.monday.com/v2';
 const MONDAY_API_VERSION = '2024-10';
@@ -87,6 +93,13 @@ async function getMondayItem(accessToken, itemId, columnFragment, opts = {}) {
   const id = parseInt(itemId, 10);
   if (!id || isNaN(id)) throw new Error(`itemId inválido: ${itemId}`);
 
+  // C1: 2-minute cache
+  const cacheKey = `monday_item:${id}`;
+  if (_cacheGet) {
+    const cached = await _cacheGet(cacheKey).catch(() => null);
+    if (cached) return cached;
+  }
+
   const query = `
     query GetItem($ids: [ID!]!) {
       items(ids: $ids) {
@@ -100,7 +113,9 @@ async function getMondayItem(accessToken, itemId, columnFragment, opts = {}) {
   const data  = await mondayQuery(accessToken, query, { ids: [String(id)] }, DEFAULT_TIMEOUT_MS, opts);
   const items = data?.items;
   if (!items?.length) return null;
-  return items[0];
+  const item = items[0];
+  if (_cacheSet && item) await _cacheSet(cacheKey, item, 120).catch(() => {});
+  return item;
 }
 
 /**
@@ -115,6 +130,13 @@ async function getMondayItem(accessToken, itemId, columnFragment, opts = {}) {
 async function getMondayBoard(accessToken, boardId, limit = 50, columnFragment = 'id text', opts = {}) {
   const id = parseInt(boardId, 10);
   if (!id || isNaN(id)) throw new Error(`boardId inválido: ${boardId}`);
+
+  // C2: 5-minute cache
+  const cacheKey = `monday_board:${id}:${limit}`;
+  if (_cacheGet) {
+    const cached = await _cacheGet(cacheKey).catch(() => null);
+    if (cached) return cached;
+  }
 
   const query = `
     query GetBoard($ids: [ID!]!, $limit: Int!) {
@@ -135,7 +157,9 @@ async function getMondayBoard(accessToken, boardId, limit = 50, columnFragment =
   const data   = await mondayQuery(accessToken, query, { ids: [String(id)], limit }, DEFAULT_TIMEOUT_MS, opts);
   const boards = data?.boards;
   if (!boards?.length) return null;
-  return boards[0];
+  const board = boards[0];
+  if (_cacheSet && board) await _cacheSet(cacheKey, board, 300).catch(() => {});
+  return board;
 }
 
 /**

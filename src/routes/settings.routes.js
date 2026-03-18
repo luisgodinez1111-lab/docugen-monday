@@ -62,6 +62,9 @@ module.exports = function makeSettingsRouter(deps) {
         'INSERT INTO account_settings (account_id, settings) VALUES ($1,$2) ON CONFLICT (account_id) DO UPDATE SET settings=$2, updated_at=NOW()',
         [req.accountId, JSON.stringify(merged)]
       );
+      // I3: Audit log for settings update
+      pool.query('INSERT INTO audit_log (account_id, action, details) VALUES ($1,$2,$3)',
+        [req.accountId, 'settings.update', JSON.stringify({ keys: Object.keys(clean) })]).catch(() => {});
       res.json({ success: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
   });
