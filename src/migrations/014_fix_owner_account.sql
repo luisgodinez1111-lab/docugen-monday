@@ -1,4 +1,6 @@
--- 013_owner_enterprise.sql — Assign enterprise plan to app owner account
+-- 014_fix_owner_account.sql — Fix owner account id and ensure enterprise plan
+DELETE FROM subscriptions WHERE account_id = '18402626437';
+
 INSERT INTO subscriptions (account_id, plan_id, status, docs_used, docs_limit, is_trial, subscribed_at, updated_at)
 VALUES ('242041401', 'enterprise', 'active', 0, 999999, false, NOW(), NOW())
 ON CONFLICT (account_id) DO UPDATE
@@ -7,6 +9,3 @@ ON CONFLICT (account_id) DO UPDATE
       docs_limit = 999999,
       is_trial   = false,
       updated_at = NOW();
-
--- Also clean up the wrong account id if it was inserted
-DELETE FROM subscriptions WHERE account_id = '18402626437';
