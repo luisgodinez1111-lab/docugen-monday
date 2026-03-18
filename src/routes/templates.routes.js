@@ -58,11 +58,10 @@ module.exports = function makeTemplatesRouter(deps) {
     }
   });
 
-  // Obtener logo de cuenta
-  router.get('/logo', async (req, res) => {
-    const accountId = req.query.account_id || 'default';
+  // Obtener logo de cuenta — requireAuth: account_id desde token, nunca desde query param
+  router.get('/logo', requireAuth, async (req, res) => {
     try {
-      const result = await pool.query('SELECT data, mimetype, filename FROM logos WHERE account_id = $1', [accountId]);
+      const result = await pool.query('SELECT data, mimetype, filename FROM logos WHERE account_id = $1', [req.accountId]);
       if (!result.rows.length) return res.status(404).json({ error: 'No hay logo' });
       res.set('Content-Type', result.rows[0].mimetype);
       res.send(result.rows[0].data);

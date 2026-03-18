@@ -1,31 +1,24 @@
 'use strict';
 /**
  * src/middleware/rateLimit.js
- * Redis-backed sliding-window rate limiter with in-memory fallback.
+ * Redis-backed fixed-window rate limiter with in-memory fallback.
  *
- * When REDIS_URL is set: uses Redis INCR + PEXPIRE (atomic enough for DocuGen's
- * traffic scale — see NOTE below).
- * When Redis is unavailable: degrades gracefully to the original Map-based limiter.
- *
- * NOTE: INCR then PEXPIRE is not 100% atomic (two round-trips). For very high
- * concurrency a Lua script would be safer, but for DocuGen's 20 req/min-per-account
- * use case the race window is inconsequential.
+ * Redis path: atomic Lua script (INCR + PEXPIRE in one round-trip) — no race
+ * window between the two commands; safe at any concurrency level.
+ * Fallback: Map-based with periodic stale-entry pruning.
  */
 
 const Redis = require('ioredis');
 
-const REDIS_URL = process.env.REDIS_URL;
-
 // ── Redis client (optional) ────────────────────────────────────────────────
 let redisClient = null;
-if (REDIS_URL) {
-  redisClient = new Redis(REDIS_URL, {
+if (process.env.REDIS_URL) {
+  redisClient = new Redis(process.env.REDIS_URL, {
     lazyConnect:          true,
     maxRetriesPerRequest: 1,
     enableReadyCheck:     false,
   });
   redisClient.on('error', (err) => {
-    // Degrade gracefully — log once, fall back to in-memory
     if (redisClient) {
       console.error('[rateLimit] Redis error — falling back to in-memory:', err.message);
       redisClient = null;
@@ -33,22 +26,31 @@ if (REDIS_URL) {
   });
 }
 
-// ── In-memory fallback (original Map-based implementation) ─────────────────
-const memStore = new Map();
+// ── Lua script: atomic INCR + PEXPIRE ─────────────────────────────────────
+// Returns the new counter value. Sets TTL only on the first increment so we
+// don't accidentally reset the window on every call.
+const RATE_LIMIT_SCRIPT = `
+local current = redis.call('INCR', KEYS[1])
+if current == 1 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+return current
+`;
 
-// Prune stale entries every 10 minutes
+// ── In-memory fallback ─────────────────────────────────────────────────────
+const memStore = new Map();
 setInterval(() => {
   const cutoff = Date.now() - 60 * 60 * 1000;
   for (const [key, entry] of memStore.entries()) {
     if (entry.windowStart < cutoff) memStore.delete(key);
   }
-}, 10 * 60 * 1000).unref(); // .unref() so this timer doesn't keep the process alive
+}, 10 * 60 * 1000).unref();
 
 function memCheck(key, maxRequests, windowMs, res) {
   const now = Date.now();
   if (!memStore.has(key)) {
     memStore.set(key, { count: 1, windowStart: now });
-    return true; // allow
+    return true;
   }
   const entry = memStore.get(key);
   if (now - entry.windowStart > windowMs) {
@@ -60,8 +62,8 @@ function memCheck(key, maxRequests, windowMs, res) {
   if (entry.count > maxRequests) {
     const retryAfter = Math.ceil((entry.windowStart + windowMs - now) / 1000);
     res.status(429).json({
-      error:        'Too many requests',
-      message:      'Rate limit exceeded. Please wait before generating more documents.',
+      error:      'Too many requests',
+      message:    'Rate limit exceeded. Please wait before generating more documents.',
       retryAfter,
     });
     return false;
@@ -70,12 +72,6 @@ function memCheck(key, maxRequests, windowMs, res) {
 }
 
 // ── Factory ────────────────────────────────────────────────────────────────
-/**
- * Creates an Express middleware that rate-limits by account_id.
- * @param {number} maxRequests - Max requests per window
- * @param {number} windowMs    - Window duration in milliseconds
- * @returns {Function} Express middleware
- */
 function makeRateLimiter(maxRequests, windowMs) {
   return async (req, res, next) => {
     const accountId = req.accountId
@@ -84,29 +80,27 @@ function makeRateLimiter(maxRequests, windowMs) {
       || req.query?.account_id
       || 'unknown';
 
-    // Redis path
     if (redisClient) {
       const windowKey = Math.floor(Date.now() / windowMs);
       const key = `rl:${accountId}:${windowKey}`;
       try {
-        const count = await redisClient.incr(key);
-        if (count === 1) await redisClient.pexpire(key, windowMs);
+        // Single atomic round-trip via Lua — no race between INCR and PEXPIRE
+        const count = await redisClient.eval(RATE_LIMIT_SCRIPT, 1, key, windowMs);
         if (count > maxRequests) {
           const ttl = await redisClient.pttl(key);
           return res.status(429).json({
-            error:        'Too many requests',
-            message:      'Rate limit exceeded. Please wait before generating more documents.',
-            retryAfter:   Math.max(1, Math.ceil(ttl / 1000)),
+            error:      'Too many requests',
+            message:    'Rate limit exceeded. Please wait before generating more documents.',
+            retryAfter: Math.max(1, Math.ceil(ttl / 1000)),
           });
         }
         return next();
       } catch (err) {
-        // Redis failed mid-request — degrade to in-memory, don't block
         console.error('[rateLimit] Redis call failed:', err.message);
+        // fall through to in-memory
       }
     }
 
-    // In-memory fallback
     const memKey = `${accountId}`;
     if (!memCheck(memKey, maxRequests, windowMs, res)) return;
     next();

@@ -9,6 +9,7 @@ const openApiSpec = require('./docs/openapi');
 
 module.exports = function createApp(deps) {
   const { logger, sanitizeStr, requireAuth, pool } = deps;
+  const { HTTP_REQUEST_TIMEOUT_MS } = require('./utils/config');
 
   const app = express();
   app.use(helmet.hsts({ maxAge: 31536000, includeSubDomains: true, preload: true }));
@@ -37,6 +38,14 @@ module.exports = function createApp(deps) {
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+  });
+
+  // ── REQUEST TIMEOUT ── abort hanging requests after HTTP_REQUEST_TIMEOUT_MS
+  app.use((req, res, next) => {
+    res.setTimeout(HTTP_REQUEST_TIMEOUT_MS, () => {
+      if (!res.headersSent) res.status(503).json({ error: 'Request timeout' });
+    });
     next();
   });
 

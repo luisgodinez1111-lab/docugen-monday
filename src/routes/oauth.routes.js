@@ -4,35 +4,53 @@ const crypto = require('crypto');
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
 
-// P2-1: OAuth state store — persisted in Redis when REDIS_URL is set, fallback to Map otherwise
-const stateStore = {
-  async set(key, value, ttlMs) {
-    if (process.env.REDIS_URL) {
-      const Redis = require('ioredis');
-      if (!stateStore._redis) stateStore._redis = new Redis(process.env.REDIS_URL, { lazyConnect: false });
-      await stateStore._redis.set('oauth_state:' + key, value, 'PX', ttlMs);
-    } else {
-      stateStore._map = stateStore._map || new Map();
-      stateStore._map.set(key, value);
-      setTimeout(() => stateStore._map.delete(key), ttlMs);
-    }
-  },
-  async get(key) {
-    if (process.env.REDIS_URL) {
-      if (!stateStore._redis) stateStore._redis = new Redis(process.env.REDIS_URL, { lazyConnect: false });
-      return stateStore._redis.get('oauth_state:' + key);
-    }
-    return stateStore._map?.get(key) ?? null;
-  },
-  async delete(key) {
-    if (process.env.REDIS_URL) {
-      if (!stateStore._redis) return;
-      await stateStore._redis.del('oauth_state:' + key);
-    } else {
-      stateStore._map?.delete(key);
-    }
+// OAuth state store — Redis when available, Map fallback.
+// Map fallback: stores {value, expiresAt} and checks on get() — no per-entry setTimeout
+// so there are no unbounded timer callbacks under load (no memory leak).
+// A periodic sweep prunes expired entries every 5 min.
+const Redis = require('ioredis');
+
+const stateStore = (() => {
+  // ── Redis client — initialised once at module load if REDIS_URL is set ──
+  let _redis = null;
+  if (process.env.REDIS_URL) {
+    _redis = new Redis(process.env.REDIS_URL, {
+      lazyConnect:          true,
+      maxRetriesPerRequest: 1,
+      enableReadyCheck:     false,
+    });
+    _redis.on('error', () => { _redis = null; }); // degrade to Map on error
   }
-};
+
+  // ── In-memory fallback — expiry checked at read time, not via setTimeout ──
+  const _map = new Map();
+  // Sweep expired entries every 5 minutes (timer doesn't prevent process exit)
+  setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of _map) { if (v.expiresAt <= now) _map.delete(k); }
+  }, 5 * 60 * 1000).unref();
+
+  return {
+    async set(key, value, ttlMs) {
+      if (_redis) {
+        await _redis.set('oauth_state:' + key, value, 'PX', ttlMs).catch(() => {});
+      } else {
+        _map.set(key, { value, expiresAt: Date.now() + ttlMs });
+      }
+    },
+    async get(key) {
+      if (_redis) return _redis.get('oauth_state:' + key).catch(() => null);
+      const entry = _map.get(key);
+      if (!entry) return null;
+      if (entry.expiresAt <= Date.now()) { _map.delete(key); return null; }
+      return entry.value;
+    },
+    async delete(key) {
+      if (_redis) await _redis.del('oauth_state:' + key).catch(() => {});
+      else _map.delete(key);
+    },
+  };
+})();
 
 module.exports = function makeOauthRouter(deps) {
   const { saveToken, getToken, logger } = deps;

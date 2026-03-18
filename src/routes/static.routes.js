@@ -3,10 +3,27 @@ const { Router } = require('express');
 const path = require('path');
 
 module.exports = function makeStaticRouter(deps) {
+  const { pool, mondayBreaker, resendBreaker, tsaBreaker } = deps;
   const router = Router();
 
-  router.get('/', (req, res) => {
-    res.json({ status: 'ok', message: 'DocuGen for monday', version: '3.0.0' });
+  // Health check — includes DB pool metrics and circuit breaker states
+  router.get('/', async (req, res) => {
+    // Pool metrics (pg exposes these on the Pool object)
+    const poolStats = pool
+      ? { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount }
+      : null;
+
+    const breakers = [mondayBreaker, resendBreaker, tsaBreaker]
+      .filter(Boolean)
+      .map(b => b.status);
+
+    res.json({
+      status:   'ok',
+      message:  'DocuGen for monday',
+      version:  '3.0.0',
+      pool:     poolStats,
+      breakers,
+    });
   });
 
   // P3-2: MONDAY_APP_ID is validated by env.js at startup — no hardcoded fallback needed

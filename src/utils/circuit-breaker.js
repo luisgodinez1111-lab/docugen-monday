@@ -2,24 +2,14 @@
 /**
  * src/utils/circuit-breaker.js
  * Three-state circuit breaker (CLOSED → OPEN → HALF_OPEN) for external APIs.
- * Pure JS — no extra dependencies.
  *
- * States:
- *   CLOSED    — normal operation, failures are counted
- *   OPEN      — fast-fail, no requests sent until timeout expires
- *   HALF_OPEN — probe mode: one success closes, one failure re-opens
+ * When the breaker opens it emits a Sentry event so ops has visibility.
+ * When it closes again it emits a recovery event.
  */
 
 const STATE = Object.freeze({ CLOSED: 'CLOSED', OPEN: 'OPEN', HALF_OPEN: 'HALF_OPEN' });
 
 class CircuitBreaker {
-  /**
-   * @param {string} name - Service name for logging
-   * @param {object} opts
-   * @param {number} [opts.failureThreshold=5]  - Failures before opening
-   * @param {number} [opts.successThreshold=2]  - Successes in HALF_OPEN before closing
-   * @param {number} [opts.timeout=30000]        - ms to stay OPEN before probing
-   */
   constructor(name, opts = {}) {
     this.name             = name;
     this.failureThreshold = opts.failureThreshold ?? 5;
@@ -31,12 +21,6 @@ class CircuitBreaker {
     this.nextAttemptTime  = 0;
   }
 
-  /**
-   * Executes fn() through the circuit breaker.
-   * @param {() => Promise<any>} fn
-   * @returns {Promise<any>}
-   * @throws {Error} with code 'CIRCUIT_OPEN' when the breaker is open
-   */
   async call(fn) {
     if (this.state === STATE.OPEN) {
       if (Date.now() < this.nextAttemptTime) {
@@ -48,7 +32,6 @@ class CircuitBreaker {
         err.retryAfterMs = retryAfterMs;
         throw err;
       }
-      // Timeout expired — move to HALF_OPEN for a probe
       this.state = STATE.HALF_OPEN;
       this.successCount = 0;
     }
@@ -68,7 +51,11 @@ class CircuitBreaker {
     if (this.state === STATE.HALF_OPEN) {
       this.successCount++;
       if (this.successCount >= this.successThreshold) {
+        const wasOpen = true;
         this.state = STATE.CLOSED;
+        // Alert: service recovered
+        this._alert('info', `Circuit "${this.name}" CLOSED — service recovered`);
+        void wasOpen; // suppress lint
       }
     }
   }
@@ -76,12 +63,32 @@ class CircuitBreaker {
   _onFailure() {
     this.failureCount++;
     if (this.state === STATE.HALF_OPEN || this.failureCount >= this.failureThreshold) {
+      const wasAlreadyOpen = this.state === STATE.OPEN;
       this.state = STATE.OPEN;
       this.nextAttemptTime = Date.now() + this.timeout;
+      // Alert only on the transition, not on every subsequent fast-fail
+      if (!wasAlreadyOpen) {
+        this._alert('error', `Circuit "${this.name}" OPENED after ${this.failureCount} failures — fast-failing for ${this.timeout / 1000}s`);
+      }
     }
   }
 
-  /** Returns a snapshot of current breaker state for monitoring */
+  /**
+   * Emit alert to Sentry (if configured) and always log to stderr.
+   * Uses lazy require to avoid circular dependency with Sentry init.
+   */
+  _alert(level, message) {
+    console.error(`[circuit-breaker] ${message}`);
+    try {
+      const Sentry = require('@sentry/node');
+      if (level === 'error') {
+        Sentry.captureMessage(message, 'error');
+      } else {
+        Sentry.addBreadcrumb({ message, level: 'info', category: 'circuit-breaker' });
+      }
+    } catch { /* Sentry not configured — stderr only */ }
+  }
+
   get status() {
     return {
       name:          this.name,
@@ -94,7 +101,7 @@ class CircuitBreaker {
   get isOpen() { return this.state === STATE.OPEN; }
 }
 
-// ── Singletons — one per external service ──────────────────────────────────
+// ── Singletons ──────────────────────────────────────────────────────────────
 const mondayBreaker = new CircuitBreaker('monday-api',    { failureThreshold: 5, timeout: 30_000 });
 const resendBreaker = new CircuitBreaker('resend-email',  { failureThreshold: 3, timeout: 60_000 });
 const tsaBreaker    = new CircuitBreaker('tsa-timestamp', { failureThreshold: 3, timeout: 120_000 });

@@ -1,5 +1,6 @@
 'use strict';
 
+const { MAX_AUTOMATION_ATTEMPTS, AUTOMATION_CONCURRENCY } = require('../utils/config');
 const fs     = require('fs');
 const path   = require('path');
 const PizZip = require('pizzip');
@@ -66,7 +67,7 @@ async function executeAutomation(accountId, itemId, boardId, templateName, acces
 
 // ── PROCESS PENDING TRIGGERS ──
 // Fixed: max 3 attempts, concurrent processing, structured logging
-const MAX_ATTEMPTS = 3;
+const MAX_ATTEMPTS = MAX_AUTOMATION_ATTEMPTS;
 
 async function processPendingTriggers() {
   try {
@@ -121,7 +122,7 @@ async function _processOneTrigger(evt) {
 
 // ── RUN SCHEDULED AUTOMATIONS ──
 // Fixed: concurrent batches (max 5), no 500ms sleep
-const CONCURRENCY = 5;
+const CONCURRENCY = AUTOMATION_CONCURRENCY;
 
 async function runScheduledAutomations() {
   try {

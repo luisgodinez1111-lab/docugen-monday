@@ -2,6 +2,7 @@
 
 const { pool }                         = require('./db.service');
 const { cacheGet, cacheSet, cacheDel } = require('./cache.service');
+const { TRIAL_DURATION_MS, SUBSCRIPTION_CACHE_TTL, LIMITS_CACHE_TTL } = require('../utils/config');
 
 // ── PLAN LIMITS MAP ──
 const PLAN_LIMITS = {
@@ -36,13 +37,13 @@ async function checkSubscription(accountId) {
     );
 
     if (result.rows.length === 0) {
-      const trialEnds = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+      const trialEnds = new Date(Date.now() + TRIAL_DURATION_MS);
       await pool.query(
         'INSERT INTO subscriptions (account_id, plan_id, status, docs_used, docs_limit, trial_ends_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (account_id) DO NOTHING',
         [accountId, 'trial', 'trial', 0, 10, trialEnds]
       );
       const sub = { allowed: true, plan: 'trial', docs_used: 0, docs_limit: 10, trial_ends_at: trialEnds };
-      await cacheSet(cacheKey, sub, 30);
+      await cacheSet(cacheKey, sub, SUBSCRIPTION_CACHE_TTL);
       return sub;
     }
 
@@ -59,7 +60,7 @@ async function checkSubscription(accountId) {
     }
 
     const response = { allowed: true, plan: sub.plan_id, status: sub.status, docs_used: sub.docs_used, docs_limit: sub.docs_limit };
-    await cacheSet(cacheKey, response, 60);
+    await cacheSet(cacheKey, response, SUBSCRIPTION_CACHE_TTL);
     return response;
 
   } catch (e) {
@@ -95,7 +96,7 @@ async function getAccountPlanLimits(accountId) {
   if (!r.rows.length) return null;
   const key = (r.rows[0].plan_id || 'trial').toLowerCase().replace(/[^a-z]/g, '');
   const limits = PLAN_LIMITS[key] || PLAN_LIMITS.trial;
-  await cacheSet(cacheKey, limits, 60);
+  await cacheSet(cacheKey, limits, LIMITS_CACHE_TTL);
   return limits;
 }
 

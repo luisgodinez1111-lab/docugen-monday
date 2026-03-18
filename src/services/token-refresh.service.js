@@ -1,23 +1,24 @@
 'use strict';
 
 const { saveToken } = require('./auth.service');
+const { REFRESH_IN_FLIGHT_TTL_MS, PROACTIVE_REFRESH_WINDOW_MS } = require('../utils/config');
 
-// In-flight refresh promises per account (prevent concurrent refresh storms)
+// In-flight refresh promises per account (prevent concurrent refresh storms).
+// Each entry: { promise, insertedAt } — stale entries (> TTL) are evicted to
+// prevent leaks if the process never crashes but entries somehow get orphaned.
 const refreshInFlight = new Map();
 
-/**
- * Refresh the OAuth token for an account.
- * Deduplicates concurrent refresh calls for the same account so that parallel
- * requests don't trigger multiple simultaneous refresh round-trips.
- *
- * @param {string} accountId
- * @param {string} refreshToken
- * @returns {Promise<string>} new access token
- */
+// Stale-entry sweep — runs every TTL interval, doesn't block process exit
+setInterval(() => {
+  const cutoff = Date.now() - REFRESH_IN_FLIGHT_TTL_MS;
+  for (const [id, entry] of refreshInFlight) {
+    if (entry.insertedAt < cutoff) refreshInFlight.delete(id);
+  }
+}, REFRESH_IN_FLIGHT_TTL_MS).unref();
+
 async function refreshMondayToken(accountId, refreshToken) {
-  // Deduplicate: if already refreshing for this account, wait for it
   if (refreshInFlight.has(accountId)) {
-    return refreshInFlight.get(accountId);
+    return refreshInFlight.get(accountId).promise;
   }
 
   const refreshPromise = (async () => {
@@ -42,18 +43,15 @@ async function refreshMondayToken(accountId, refreshToken) {
 
     const data = await response.json();
     const newAccessToken  = data.access_token;
-    // Some providers don't rotate the refresh token; keep the old one in that case.
     const newRefreshToken = data.refresh_token || refreshToken;
-
-    // Store expiry — Monday tokens typically expire in 1 hour (3600 s)
-    const expiresIn = data.expires_in || 3600;
-    const expiresAt = new Date(Date.now() + expiresIn * 1000);
+    const expiresIn       = data.expires_in || 3600;
+    const expiresAt       = new Date(Date.now() + expiresIn * 1000);
 
     await saveToken(accountId, newAccessToken, newRefreshToken, expiresAt);
     return newAccessToken;
   })();
 
-  refreshInFlight.set(accountId, refreshPromise);
+  refreshInFlight.set(accountId, { promise: refreshPromise, insertedAt: Date.now() });
 
   try {
     return await refreshPromise;
@@ -62,16 +60,8 @@ async function refreshMondayToken(accountId, refreshToken) {
   }
 }
 
-/**
- * Returns true if the token is already expired or will expire within the
- * proactive window (default: 10 minutes).
- * Returns false when expiresAt is unknown — the reactive 401 path handles that.
- *
- * @param {Date|string|null} expiresAt
- * @param {number} proactiveWindowMs  milliseconds before expiry to start refreshing
- */
-function isTokenExpiredOrExpiringSoon(expiresAt, proactiveWindowMs = 10 * 60 * 1000) {
-  if (!expiresAt) return false; // unknown expiry — let reactive 401 handle it
+function isTokenExpiredOrExpiringSoon(expiresAt, proactiveWindowMs = PROACTIVE_REFRESH_WINDOW_MS) {
+  if (!expiresAt) return false;
   return new Date(expiresAt).getTime() < Date.now() + proactiveWindowMs;
 }
 

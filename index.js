@@ -82,7 +82,8 @@ const { verifyMondayHmac } = require('./src/middleware/hmac');
 const { makeRateLimiter } = require('./src/middleware/rateLimit');
 
 // ── #3 RATE LIMIT POR ACCOUNT_ID ──────
-const docGenRateLimit = makeRateLimiter(20, 60 * 1000);
+const { DOC_RATE_MAX, DOC_RATE_WINDOW } = require('./src/utils/config');
+const docGenRateLimit = makeRateLimiter(DOC_RATE_MAX, DOC_RATE_WINDOW);
 
 // ── OUTPUT DIRECTORY ──
 const outputsDir = path.join(__dirname, 'outputs');
@@ -94,39 +95,39 @@ try {
   enqueueEmailJob = require('./src/queues/email.queue').enqueueEmailJob;
 } catch { /* Redis not configured — direct send fallback is used */ }
 
-// ── ASSEMBLE APP ──
+// ── ASSEMBLE APP — grouped namespaces replace the 40-param flat object ──────
 const createApp = require('./src/app');
 const app = createApp({
-  pool, withTransaction, initDB,
-  saveToken, getToken,
-  requireAuth,
+  // ── Infrastructure ──
+  pool, withTransaction, initDB, logger, Sentry, outputsDir,
+  // ── Auth / Security ──
+  saveToken, getToken, requireAuth, verifyMondayHmac,
+  encryptToken, decryptToken, generateDocHash,
+  generateOtp, hashOtp, verifyOtp,
+  // ── Billing ──
   checkDocLimit, checkSigLimit, requireSubscription,
   PLAN_LIMITS, getPlanLimits, checkSubscription, incrementDocsUsed,
   getAccountPlanLimits, getMonthlyUsage,
-  logError,
+  // ── Document generation ──
   injectGlobalSettings, createDocxtemplater,
-  processDeletionQueue,
-  sendEmail, sendSignatureEmail, sendApprovalEmails,
-  runBackup,
-  executeAutomation, processPendingTriggers, runScheduledAutomations,
-  verifyMondayHmac,
-  docGenRateLimit,
-  logger,
-  sanitizeStr, escapeHtml, sanitizeInput,
   GRAPHQL_COLUMN_FRAGMENT, convertDocxToPdf, toVarName, extractColumnValue,
   numeroALetras, calcularTotales,
-  encryptToken, decryptToken, generateDocHash,
-  parsePagination,
-  withRetry,
-  emailSignRequest, emailSignConfirm,
-  verifyWorkflowJWT, severityError,
-  signPage, signedPage, expiredPage, generateAuditCertificate,
+  // ── Monday.com integration ──
   getMondayItem, getMondayBoard, createMondayUpdate, mondayQuery,
-  generateOtp, hashOtp, verifyOtp,
-  getTimestamp,
+  verifyWorkflowJWT, severityError,
   mondayBreaker, resendBreaker, tsaBreaker,
-  outputsDir,
-  Sentry,
+  // ── Email / Signatures ──
+  sendEmail, sendSignatureEmail, sendApprovalEmails,
+  emailSignRequest, emailSignConfirm,
+  signPage, signedPage, expiredPage, generateAuditCertificate,
+  // ── Automations / Background ──
+  executeAutomation, processPendingTriggers, runScheduledAutomations,
+  processDeletionQueue, runBackup,
+  // ── Utilities ──
+  sanitizeStr, escapeHtml, sanitizeInput,
+  parsePagination, withRetry,
+  logError, docGenRateLimit,
+  getTimestamp,
 });
 
 // ── CRON JOBS ──
