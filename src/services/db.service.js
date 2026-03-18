@@ -11,11 +11,9 @@ function buildSslConfig() {
   if (process.env.NODE_ENV !== 'production') return false;
   const ca = process.env.DB_SSL_CA;
   if (ca) return { rejectUnauthorized: true, ca };
-  // Warn once at startup when running without cert validation
-  if (process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false') {
-    console.warn('[DB] SSL: rejectUnauthorized=true — set DB_SSL_CA or DB_SSL_REJECT_UNAUTHORIZED=false for Railway');
-  }
-  const reject = process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false';
+  // Railway and most managed Postgres providers use self-signed certs.
+  // Default to rejectUnauthorized:false unless explicitly set to 'true'.
+  const reject = process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true';
   return { rejectUnauthorized: reject };
 }
 
