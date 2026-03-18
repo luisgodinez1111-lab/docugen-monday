@@ -5,12 +5,9 @@ const https  = require('https');
 const axios  = require('axios');
 const jwt    = require('jsonwebtoken');
 
-// Railway (and some other hosts) route outbound HTTPS through a proxy with a
-// self-signed cert. When NODE_TLS_REJECT_UNAUTHORIZED=0 is set we skip
-// certificate verification only for the Monday OAuth token exchange.
-const _mondayAgent = process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0'
-  ? new https.Agent({ rejectUnauthorized: false })
-  : undefined;
+// Railway routes outbound HTTPS through a proxy with a self-signed cert.
+// Disable cert verification for the Monday OAuth token exchange only.
+const _mondayAgent = new https.Agent({ rejectUnauthorized: false });
 
 // OAuth state store — Redis when available, Map fallback.
 // Map fallback: stores {value, expiresAt} and checks on get() — no per-entry setTimeout
@@ -123,7 +120,7 @@ module.exports = function makeOauthRouter(deps) {
 
       const response = await axios.post('https://auth.monday.com/oauth2/token', tokenPayload, {
         timeout: 15000,
-        ...(_mondayAgent ? { httpsAgent: _mondayAgent } : {}),
+        httpsAgent: _mondayAgent,
       });
       const { access_token, refresh_token } = response.data;
       const decoded = jwt.decode(access_token);
