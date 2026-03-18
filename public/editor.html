@@ -322,7 +322,7 @@ header { height: var(--header-h); background: var(--surface); border-bottom: 1px
               Se generan automáticamente desde las columnas de tu tablero de Monday.
             </div>
           </div>
-          <button class="btn btn-ghost" style="width:100%;margin-top:6px;font-size:10px" onclick="loadVariables()">⟳ Cargar desde tablero</button>
+          <button class="btn btn-ghost" style="width:100%;margin-top:6px;font-size:10px" onclick="loadVariables()">⟳ Actualizar columnas</button>
         </div>
 
       </div><!-- /vars-all -->
@@ -863,24 +863,45 @@ function insertVar(v) {
 }
 
 async function loadVariables() {
-  if (!accountId || !boardId) { showToast('Necesitas account_id y boardId en la URL', 'error'); return; }
+  const list = document.getElementById('varsList');
+  if (!accountId || !boardId) {
+    list.innerHTML = '<div style="font-size:10px;color:var(--text2);padding:6px 0">Abre el editor desde un tablero de Monday para ver sus columnas aquí.</div>';
+    return;
+  }
+  list.innerHTML = '<div style="font-size:10px;color:var(--text2);padding:6px 0">Cargando columnas...</div>';
   try {
     const res = await fetch(API + '/board-columns', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
-      body: JSON.stringify({ account_id: accountId, board_id: boardId })
+      body: JSON.stringify({ board_id: boardId })
     });
     const data = await res.json();
-    const vars = (data.columns || []).map(c => ({ name: c.id, label: c.title }));
-    vars.unshift({ name: 'nombre', label: 'Nombre del item' });
-    const list = document.getElementById('varsList');
-    if (!vars.length) { list.innerHTML = '<div style="font-size:11px;color:var(--text2);text-align:center;padding:10px">Sin variables</div>'; return; }
-    list.innerHTML = vars.map(v =>
-      '<div class="var-chip" onclick="insertVar(\'{{' + v.name + '}}\')">{{' + v.name + '}} <span>' + v.label + '</span></div>'
-    ).join('');
-    showToast(vars.length + ' variables cargadas', 'success');
+    const cols = data.columns || [];
+
+    // type icons
+    const TYPE_ICON = {
+      text: '𝐓', long_text: '¶', email: '@', phone: '☎', numbers: '#',
+      date: '📅', status: '●', dropdown: '▾', people: '👤', timeline: '⇔',
+      checkbox: '☑', link: '🔗', location: '📍', file: '📎', rating: '★',
+      color: '🎨', mirror: '↗', formula: 'ƒ', auto_number: '№',
+    };
+
+    if (!cols.length) {
+      list.innerHTML = '<div style="font-size:10px;color:var(--text2);padding:6px 0">No se encontraron columnas.</div>';
+      return;
+    }
+
+    list.innerHTML =
+      // "nombre" del item always first
+      '<div class="var-chip" onclick="insertVar(\'{{nombre}}\')">{{nombre}} <span>nombre del item</span></div>' +
+      cols.map(col => {
+        const icon = TYPE_ICON[col.type] || '·';
+        return '<div class="var-chip" onclick="insertVar(\'{{' + col.variable + '}}\')">{{' + col.variable + '}} <span>' + icon + ' ' + col.title + '</span></div>';
+      }).join('');
+
+    showToast(cols.length + ' columnas del tablero "' + (data.board_name || boardId) + '"', 'success');
   } catch(e) {
-    showToast('Error cargando variables', 'error');
+    list.innerHTML = '<div style="font-size:10px;color:var(--danger);padding:6px 0">Error al cargar columnas: ' + e.message + '</div>';
   }
 }
 

@@ -9,7 +9,7 @@ const { logDocumentEvent } = require('../services/audit.service');
 module.exports = function makeDocumentsRouter(deps) {
   const {
     pool, requireAuth, logger, parsePagination,
-    getMondayItem, GRAPHQL_COLUMN_FRAGMENT, toVarName, extractColumnValue,
+    getMondayItem, mondayQuery, GRAPHQL_COLUMN_FRAGMENT, toVarName, extractColumnValue,
     calcularTotales, injectGlobalSettings, createDocxtemplater, convertDocxToPdf,
     checkSubscription, incrementDocsUsed, checkDocLimit, docGenRateLimit,
     logError, outputsDir,
@@ -433,6 +433,49 @@ module.exports = function makeDocumentsRouter(deps) {
       res.json({ variables, item_name: item.name });
     } catch (error) {
       res.status(500).json({ error: 'Error al obtener variables', details: error.message });
+    }
+  });
+
+  // ── GET /board-columns — columnas del tablero mapeadas a variables {{...}} ──
+  // Usado por el editor para mostrar las variables disponibles del tablero instalado.
+  router.post('/board-columns', requireAuth, async (req, res) => {
+    const boardId = req.body.board_id || req.query.board_id;
+    if (!boardId) return res.status(400).json({ error: 'board_id requerido' });
+
+    try {
+      const query = `
+        query GetBoardColumns($ids: [ID!]!) {
+          boards(ids: $ids) {
+            id
+            name
+            columns {
+              id
+              title
+              type
+            }
+          }
+        }
+      `;
+      const data = await mondayQuery(req.accessToken, query, { ids: [String(boardId)] });
+      const board = data?.boards?.[0];
+      if (!board) return res.status(404).json({ error: 'Tablero no encontrado' });
+
+      // Exclude system/internal column types that don't carry useful text values
+      const SKIP_TYPES = new Set(['subtasks', 'button', 'dependency', 'board_relation']);
+
+      const columns = (board.columns || [])
+        .filter(col => !SKIP_TYPES.has(col.type))
+        .map(col => ({
+          id:       col.id,
+          title:    col.title,
+          type:     col.type,
+          variable: toVarName(col.title),   // exact name used in {{...}} at generation time
+        }));
+
+      res.json({ board_id: boardId, board_name: board.name, columns });
+    } catch (e) {
+      logger.error({ err: e.message, boardId }, 'board-columns error');
+      res.status(500).json({ error: e.message });
     }
   });
 
