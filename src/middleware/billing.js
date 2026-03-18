@@ -8,7 +8,7 @@ async function requireSubscription(req, res, next) {
     const accountId = req.accountId;
     if (!accountId) return next(); // Sin accountId, dejar pasar (manejado por requireAuth)
     const { pool } = require('../services/db.service');
-    const r = await pool.query("SELECT * FROM subscriptions WHERE account_id=$1 AND status IN ('active','trial') ORDER BY created_at DESC LIMIT 1", [accountId]);
+    const r = await pool.query("SELECT * FROM subscriptions WHERE account_id=$1 AND status IN ('active','trial') ORDER BY subscribed_at DESC LIMIT 1", [accountId]);
     if (!r.rows.length) {
       return res.status(402).json({
         error: 'subscription_required',

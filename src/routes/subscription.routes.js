@@ -131,7 +131,7 @@ module.exports = function makeSubscriptionRouter(deps) {
   // Endpoint: obtener uso y plan actual
   router.get('/billing/usage', requireAuth, async (req, res) => {
     try {
-      const sub = await pool.query("SELECT * FROM subscriptions WHERE account_id=$1 AND status IN ('active','trial') ORDER BY created_at DESC LIMIT 1", [req.accountId]);
+      const sub = await pool.query("SELECT * FROM subscriptions WHERE account_id=$1 AND status IN ('active','trial') ORDER BY subscribed_at DESC LIMIT 1", [req.accountId]);
       const limits = await getAccountPlanLimits(req.accountId);
       const usage = await getMonthlyUsage(req.accountId);
       const planId = sub.rows[0]?.plan_id || 'none';

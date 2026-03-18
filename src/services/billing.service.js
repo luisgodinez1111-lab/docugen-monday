@@ -32,7 +32,7 @@ async function checkSubscription(accountId) {
     if (cached) return cached;
 
     const result = await pool.query(
-      "SELECT * FROM subscriptions WHERE account_id=$1 AND status IN ('active','trial') ORDER BY created_at DESC LIMIT 1",
+      "SELECT * FROM subscriptions WHERE account_id=$1 AND status IN ('active','trial') ORDER BY subscribed_at DESC LIMIT 1",
       [accountId]
     );
 
@@ -90,7 +90,7 @@ async function getAccountPlanLimits(accountId) {
   if (cached) return cached;
 
   const r = await pool.query(
-    "SELECT plan_id FROM subscriptions WHERE account_id=$1 AND status IN ('active','trial') ORDER BY created_at DESC LIMIT 1",
+    "SELECT plan_id FROM subscriptions WHERE account_id=$1 AND status IN ('active','trial') ORDER BY subscribed_at DESC LIMIT 1",
     [accountId]
   );
   if (!r.rows.length) return null;
