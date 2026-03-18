@@ -94,6 +94,7 @@ module.exports = function createApp(deps) {
   app.use('/', require('./routes/automations.routes')(deps));
   app.use('/', require('./routes/workflows.routes')(deps));
   app.use('/', require('./routes/admin.routes')(deps));
+  app.use('/', require('./routes/template-library.routes')(deps));
 
   // ── STATIC HTML VIEWS ──
   app.get('/view', (req, res) => { res.sendFile(path.join(__dirname, '..', 'public', 'view.html')); });
