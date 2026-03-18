@@ -227,6 +227,73 @@
     ::-webkit-scrollbar-track { background:transparent; }
     ::-webkit-scrollbar-thumb { background:rgba(0,0,0,0.15); border-radius:2px; }
   
+    /* ── TOAST NOTIFICATIONS ── */
+    .toast-container { position:fixed; top:16px; right:16px; z-index:9999; display:flex; flex-direction:column; gap:8px; pointer-events:none; }
+    .toast-notif { display:flex; align-items:center; gap:10px; padding:12px 16px; border-radius:12px; font-size:13px; font-weight:500; max-width:320px; pointer-events:all; box-shadow:0 4px 20px rgba(0,0,0,0.15); transform:translateX(110%); transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1),opacity 0.3s; opacity:0; backdrop-filter:blur(8px); }
+    .toast-notif.show { transform:translateX(0); opacity:1; }
+    .toast-notif.toast-success { background:rgba(52,199,89,0.95); color:white; }
+    .toast-notif.toast-error { background:rgba(255,59,48,0.95); color:white; }
+    .toast-notif.toast-info { background:rgba(0,122,255,0.95); color:white; }
+    .toast-notif.toast-warning { background:rgba(255,149,0,0.95); color:white; }
+    .toast-notif.toast-default { background:var(--surface); color:var(--text); border:1px solid var(--border); }
+    .toast-icon { font-size:16px; flex-shrink:0; }
+    .toast-msg { flex:1; line-height:1.3; }
+
+    /* ── CONFIRM DIALOG ── */
+    .confirm-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.4); backdrop-filter:blur(4px); z-index:10000; display:flex; align-items:center; justify-content:center; padding:20px; }
+    .confirm-box { background:var(--surface); border-radius:16px; padding:24px; max-width:360px; width:100%; box-shadow:0 20px 60px rgba(0,0,0,0.2); text-align:center; }
+    .confirm-icon { font-size:32px; margin-bottom:12px; }
+    .confirm-title { font-size:16px; font-weight:700; margin-bottom:8px; color:var(--text); }
+    .confirm-msg { font-size:14px; color:var(--muted); margin-bottom:24px; line-height:1.5; }
+    .confirm-btns { display:flex; gap:10px; }
+    .confirm-btn { flex:1; padding:11px 16px; border:none; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer; font-family:var(--sans); transition:all 0.15s; }
+    .confirm-btn-cancel { background:rgba(120,120,128,0.12); color:var(--text); }
+    .confirm-btn-cancel:hover { background:rgba(120,120,128,0.2); }
+    .confirm-btn-ok { background:var(--red); color:white; }
+    .confirm-btn-ok:hover { background:#CC2200; }
+    .confirm-btn-ok.blue { background:var(--accent); }
+    .confirm-btn-ok.blue:hover { background:#0066CC; }
+
+    /* ── PROMPT DIALOG ── */
+    .prompt-box { background:var(--surface); border-radius:16px; padding:24px; max-width:380px; width:100%; box-shadow:0 20px 60px rgba(0,0,0,0.2); }
+    .prompt-title { font-size:15px; font-weight:700; margin-bottom:16px; color:var(--text); }
+    .prompt-input { width:100%; padding:10px 14px; border:1.5px solid var(--border2); border-radius:10px; background:var(--surface); color:var(--text); font-size:14px; font-family:var(--sans); outline:none; transition:border-color 0.2s; margin-bottom:16px; }
+    .prompt-input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(0,122,255,0.15); }
+
+    /* ── USAGE BAR ── */
+    .usage-bar-wrap { margin:0 20px 8px; }
+    .usage-bar-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:5px; }
+    .usage-bar-label { font-size:11px; color:var(--muted); }
+    .usage-bar-pct { font-size:11px; font-weight:600; }
+    .usage-bar-track { height:4px; background:rgba(120,120,128,0.15); border-radius:2px; overflow:hidden; }
+    .usage-bar-fill { height:100%; border-radius:2px; transition:width 0.4s ease; background:var(--accent); }
+    .usage-bar-fill.warn { background:var(--orange); }
+    .usage-bar-fill.critical { background:var(--red); }
+
+    /* ── PILL COLORS ── */
+    .pill-green { background:var(--green-light); color:var(--green); }
+    .pill-yellow { background:var(--orange-light); color:var(--orange); }
+    .pill-red { background:var(--red-light); color:var(--red); }
+
+    /* ── ENHANCED BUTTONS ── */
+    .btn { border-radius:10px; }
+    .btn-primary { border-radius:20px; }
+    .btn-primary:active:not(:disabled) { transform:scale(0.97); }
+    .btn-green { border-radius:20px; }
+    .btn-green:active:not(:disabled) { transform:scale(0.97); }
+    .btn-red { border-radius:20px; }
+    .btn-red:active:not(:disabled) { transform:scale(0.97); }
+    .btn-purple { border-radius:20px; }
+    .btn-purple:active:not(:disabled) { transform:scale(0.97); }
+
+    /* ── SKELETON LOADING ── */
+    @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+    .skeleton { background:linear-gradient(90deg,var(--surface2) 25%,var(--border) 37%,var(--surface2) 63%); background-size:200% 100%; animation:shimmer 1.4s ease infinite; border-radius:6px; }
+
+    /* ── SCROLL ANIMATIONS ── */
+    .panel.active { animation:panelFadeIn 0.2s ease; }
+    @keyframes panelFadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+
     @media (prefers-color-scheme: dark) {
       :root {
         --bg: #1C1C1E;
@@ -326,6 +393,17 @@
         <span class="pill pill-gray" id="account-badge"></span>
         <span class="pill pill-blue" id="board-badge" style="display:none"></span>
         <span class="pill pill-green" id="usage-badge" style="display:none" title="Documentos usados este período"></span>
+      </div>
+    </div>
+
+    <!-- USAGE BAR -->
+    <div class="usage-bar-wrap" id="usage-bar-wrap" style="display:none">
+      <div class="usage-bar-row">
+        <span class="usage-bar-label" id="usage-bar-label">0 / 0 documentos</span>
+        <span class="usage-bar-pct" id="usage-bar-pct" style="color:var(--accent)">0%</span>
+      </div>
+      <div class="usage-bar-track">
+        <div class="usage-bar-fill" id="usage-bar-fill" style="width:0%"></div>
       </div>
     </div>
 
@@ -830,7 +908,73 @@
   </div>
 </div>
 
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toast-container"></div>
+
 <script>
+  // ── TOAST SYSTEM ──
+  function toast(msg, type = 'success') {
+    const icons = { success:'✓', error:'✕', info:'ℹ', warning:'⚠', default:'·' };
+    const container = document.getElementById('toast-container');
+    const t = document.createElement('div');
+    t.className = 'toast-notif toast-' + type;
+    t.innerHTML = '<span class="toast-icon">' + (icons[type]||'·') + '</span><span class="toast-msg">' + msg + '</span>';
+    container.appendChild(t);
+    requestAnimationFrame(() => { requestAnimationFrame(() => t.classList.add('show')); });
+    setTimeout(() => {
+      t.classList.remove('show');
+      setTimeout(() => t.remove(), 350);
+    }, 3200);
+  }
+
+  // ── CONFIRM DIALOG (replaces browser confirm) ──
+  function showConfirm(msg, title, okLabel, okClass) {
+    return new Promise(resolve => {
+      const overlay = document.createElement('div');
+      overlay.className = 'confirm-overlay';
+      const icon = okClass === 'blue' ? '❓' : '🗑';
+      overlay.innerHTML = '<div class="confirm-box">' +
+        '<div class="confirm-icon">' + icon + '</div>' +
+        '<div class="confirm-title">' + (title || 'Confirmar') + '</div>' +
+        '<div class="confirm-msg">' + msg + '</div>' +
+        '<div class="confirm-btns">' +
+        '<button class="confirm-btn confirm-btn-cancel">Cancelar</button>' +
+        '<button class="confirm-btn confirm-btn-ok ' + (okClass||'') + '">' + (okLabel||'Aceptar') + '</button>' +
+        '</div></div>';
+      const cancel = overlay.querySelector('.confirm-btn-cancel');
+      const ok = overlay.querySelector('.confirm-btn-ok');
+      cancel.onclick = () => { overlay.remove(); resolve(false); };
+      ok.onclick = () => { overlay.remove(); resolve(true); };
+      overlay.onclick = (e) => { if (e.target === overlay) { overlay.remove(); resolve(false); } };
+      document.body.appendChild(overlay);
+      ok.focus();
+    });
+  }
+
+  // ── PROMPT DIALOG (replaces browser prompt) ──
+  function showPrompt(title, defaultVal) {
+    return new Promise(resolve => {
+      const overlay = document.createElement('div');
+      overlay.className = 'confirm-overlay';
+      overlay.innerHTML = '<div class="confirm-box prompt-box">' +
+        '<div class="prompt-title">' + title + '</div>' +
+        '<input class="prompt-input" value="' + (defaultVal||'') + '" type="text">' +
+        '<div class="confirm-btns">' +
+        '<button class="confirm-btn confirm-btn-cancel">Cancelar</button>' +
+        '<button class="confirm-btn confirm-btn-ok blue">Aceptar</button>' +
+        '</div></div>';
+      const inp = overlay.querySelector('.prompt-input');
+      const cancel = overlay.querySelector('.confirm-btn-cancel');
+      const ok = overlay.querySelector('.confirm-btn-ok');
+      cancel.onclick = () => { overlay.remove(); resolve(null); };
+      ok.onclick = () => { const v = inp.value.trim(); overlay.remove(); resolve(v || null); };
+      inp.onkeydown = (e) => { if (e.key === 'Enter') ok.click(); if (e.key === 'Escape') cancel.click(); };
+      overlay.onclick = (e) => { if (e.target === overlay) { overlay.remove(); resolve(null); } };
+      document.body.appendChild(overlay);
+      setTimeout(() => { inp.focus(); inp.select(); }, 50);
+    });
+  }
+
   // ── WELCOME PAGE ──
   function showWelcomePage() {
     document.getElementById('welcome-page').style.display = 'block';
@@ -1225,7 +1369,7 @@
     try {
       const r = await fetch(API + '/templates/' + encodeURIComponent(name) + '/versions', { headers: { 'x-account-id': accountId } });
       const data = await r.json();
-      if (!r.ok) { alert('Error: ' + (data.error || 'No se pudo obtener versiones')); return; }
+      if (!r.ok) { toast('Error: ' + (data.error || 'No se pudo obtener versiones'), 'error'); return; }
       const versions = data.versions || [];
       let modalHtml = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px" id="versions-modal" onclick="if(event.target.id===\'versions-modal\')document.getElementById(\'versions-modal\').remove()">' +
         '<div style="background:var(--surface);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.3);width:100%;max-width:460px;max-height:80vh;overflow-y:auto">' +
@@ -1257,7 +1401,7 @@
       const existing = document.getElementById('versions-modal');
       if (existing) existing.remove();
       document.body.insertAdjacentHTML('beforeend', modalHtml);
-    } catch(e) { alert('Error al cargar versiones'); }
+    } catch(e) { toast('Error al cargar versiones', 'error'); }
   }
 
   let colMappingOpen = false;
@@ -1294,34 +1438,34 @@
   }
 
   async function renameTemplate(filename) {
-    const newName = prompt('Nuevo nombre:', filename.replace('.docx',''));
+    const newName = await showPrompt('Nuevo nombre para la plantilla:', filename.replace('.docx',''));
     if (!newName || newName + '.docx' === filename) return;
     const res = await fetch(API + '/templates/' + encodeURIComponent(filename) + '/rename', {
       method:'POST', headers:{'Content-Type':'application/json','x-account-id':accountId},
       body:JSON.stringify({newName})
     });
     const data = await res.json();
-    if (data.success) await loadTemplates(); else alert('Error: ' + data.error);
+    if (data.success) { toast('Plantilla renombrada', 'success'); await loadTemplates(); } else toast('Error: ' + data.error, 'error');
   }
 
   async function duplicateTemplate(filename) {
-    const newName = prompt('Nombre para la copia:', filename.replace('.docx','') + '_copia');
+    const newName = await showPrompt('Nombre para la copia:', filename.replace('.docx','') + '_copia');
     if (!newName) return;
     const res = await fetch(API + '/templates/' + encodeURIComponent(filename) + '/duplicate', {
       method:'POST', headers:{'Content-Type':'application/json','x-account-id':accountId},
       body:JSON.stringify({newName})
     });
     const data = await res.json();
-    if (data.success) await loadTemplates(); else alert('Error: ' + data.error);
+    if (data.success) { toast('Plantilla duplicada', 'success'); await loadTemplates(); } else toast('Error: ' + data.error, 'error');
   }
 
   async function deleteTemplate(filename) {
-    if (!confirm('¿Eliminar plantilla ' + filename + '?')) return;
+    if (!await showConfirm('¿Eliminar la plantilla <strong>' + filename + '</strong>? Esta acción no se puede deshacer.', 'Eliminar plantilla', 'Eliminar')) return;
     const res = await fetch(API + '/templates/' + encodeURIComponent(filename), {
       method:'DELETE', headers:{'x-account-id':accountId}
     });
     const data = await res.json();
-    if (data.success) await loadTemplates(); else alert('Error: ' + data.error);
+    if (data.success) { toast('Plantilla eliminada', 'success'); await loadTemplates(); } else toast('Error: ' + data.error, 'error');
   }
 
   async function handleFileUpload(e) {
@@ -1500,15 +1644,16 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = selectedItem.name + '.xlsx'; a.click();
       URL.revokeObjectURL(url);
-    } catch(e) { alert('Error: ' + e.message); }
+      toast('Excel descargado', 'success');
+    } catch(e) { toast('Error: ' + e.message, 'error'); }
     finally { btn.innerHTML = '⬇ Excel'; btn.disabled = false; }
   }
 
   /* ── SIGNATURES ── */
   async function requestSignature() {
     const signerName = document.getElementById('signerName').value;
-    if (!signerName) { alert('Ingresa el nombre del firmante'); return; }
-    if (!selectedTemplate) { alert('Selecciona una plantilla primero'); return; }
+    if (!signerName) { toast('Ingresa el nombre del firmante', 'warning'); return; }
+    if (!selectedTemplate) { toast('Selecciona una plantilla primero', 'warning'); return; }
     const signerEmail = document.getElementById('signerEmail').value;
     try {
       const res = await fetch(API + '/signatures/request', {
@@ -1531,29 +1676,29 @@
   }
 
   async function sendReminder(token) {
-  if (!confirm('¿Enviar recordatorio de firma al firmante?')) return;
+  if (!await showConfirm('¿Enviar recordatorio de firma al firmante?', 'Enviar recordatorio', 'Enviar', 'blue')) return;
   try {
     const r = await fetch(API + '/sign/' + token + '/remind', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + sessionToken }
     });
     const d = await r.json();
-    if (d.success) alert('Recordatorio enviado a ' + d.sent_to);
-    else alert('Error: ' + (d.error || 'No se pudo enviar'));
-  } catch(e) { alert('Error de conexión'); }
+    if (d.success) toast('Recordatorio enviado a ' + d.sent_to, 'success');
+    else toast('Error: ' + (d.error || 'No se pudo enviar'), 'error');
+  } catch(e) { toast('Error de conexión', 'error'); }
 }
 
 async function cancelSignature(token) {
-  if (!confirm('¿Cancelar esta solicitud de firma? El firmante ya no podrá firmar el documento.')) return;
+  if (!await showConfirm('¿Cancelar esta solicitud de firma? El firmante ya no podrá firmar el documento.', 'Cancelar firma', 'Cancelar firma')) return;
   try {
     const r = await fetch(API + '/signatures/' + token + '/cancel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-account-id': accountId }
     });
     const d = await r.json();
-    if (d.success) { alert('Solicitud cancelada'); await loadSignatures(); }
-    else alert('Error: ' + (d.error || 'No se pudo cancelar'));
-  } catch(e) { alert('Error de conexión'); }
+    if (d.success) { toast('Solicitud cancelada', 'info'); await loadSignatures(); }
+    else toast('Error: ' + (d.error || 'No se pudo cancelar'), 'error');
+  } catch(e) { toast('Error de conexión', 'error'); }
 }
 
 async function loadSignatures() {
@@ -1606,21 +1751,21 @@ async function loadSignatures() {
 
   // H2: extendSignature function
   async function extendSignature(token) {
-    if (!confirm('¿Renovar esta solicitud de firma por 7 días más?')) return;
+    if (!await showConfirm('¿Renovar esta solicitud de firma por 7 días más?', 'Renovar firma', 'Renovar', 'blue')) return;
     try {
       const r = await fetch(API + '/signatures/' + token + '/extend', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'x-account-id': accountId }
       });
       const d = await r.json();
-      if (d.success) { alert('Solicitud renovada hasta ' + new Date(d.expires_at).toLocaleDateString('es-MX')); await loadSignatures(); }
-      else alert('Error: ' + (d.error || 'No se pudo renovar'));
-    } catch(e) { alert('Error de conexión'); }
+      if (d.success) { toast('Solicitud renovada hasta ' + new Date(d.expires_at).toLocaleDateString('es-MX'), 'success'); await loadSignatures(); }
+      else toast('Error: ' + (d.error || 'No se pudo renovar'), 'error');
+    } catch(e) { toast('Error de conexión', 'error'); }
   }
 
   /* ── AUTOMATION ── */
   async function generateBulk() {
-    if (!selectedTemplate) { alert('Selecciona una plantilla primero'); return; }
-    if (!confirm('¿Generar documentos para todos los items del board?')) return;
+    if (!selectedTemplate) { toast('Selecciona una plantilla primero', 'warning'); return; }
+    if (!await showConfirm('¿Generar documentos para todos los items del tablero?', 'Generación masiva', 'Generar todo', 'blue')) return;
     const btn = event.target; btn.textContent = 'Generando...'; btn.disabled = true;
     try {
       const itemsRes = await fetch(API + '/board-items', {
@@ -1629,7 +1774,7 @@ async function loadSignatures() {
       });
       const itemsData = await itemsRes.json();
       const itemIds = (itemsData.items || []).map(i => i.id);
-      if (!itemIds.length) { alert('No hay items en el board'); return; }
+      if (!itemIds.length) { toast('No hay items en el tablero', 'warning'); return; }
       const res = await fetch(API + '/generate-bulk', {
         method:'POST', headers:{'Content-Type':'application/json','x-account-id':accountId},
         body:JSON.stringify({board_id:boardId, item_ids:itemIds, template_name:selectedTemplate})
@@ -1644,14 +1789,14 @@ async function loadSignatures() {
   async function saveTrigger() {
     const columnId = document.getElementById('triggerColumnId').value;
     const triggerValue = document.getElementById('triggerValue').value;
-    if (!columnId || !triggerValue) { alert('Ingresa columna y valor'); return; }
-    if (!selectedTemplate) { alert('Selecciona una plantilla'); return; }
+    if (!columnId || !triggerValue) { toast('Ingresa columna y valor del trigger', 'warning'); return; }
+    if (!selectedTemplate) { toast('Selecciona una plantilla primero', 'warning'); return; }
     const res = await fetch(API + '/webhooks/triggers', {
       method:'POST', headers:{'Content-Type':'application/json','x-account-id':accountId},
       body:JSON.stringify({board_id:boardId, column_id:columnId, trigger_value:triggerValue, template_name:selectedTemplate})
     });
     const data = await res.json();
-    if (data.success) { await loadTriggers(); } else alert('Error: ' + data.error);
+    if (data.success) { toast('Trigger guardado', 'success'); await loadTriggers(); } else toast('Error: ' + data.error, 'error');
   }
 
   async function loadTriggers() {
@@ -1673,8 +1818,9 @@ async function loadSignatures() {
   }
 
   async function deleteTrigger(id) {
-    if (!confirm('¿Eliminar trigger?')) return;
+    if (!await showConfirm('¿Eliminar este trigger automático?', 'Eliminar trigger', 'Eliminar')) return;
     await fetch(API + '/webhooks/triggers/' + id, {method:'DELETE', headers:{'x-account-id':accountId}});
+    toast('Trigger eliminado', 'info');
     await loadTriggers();
   }
 
@@ -1683,14 +1829,14 @@ async function loadSignatures() {
     const cron = document.getElementById('autoCron').value;
     const condCol = document.getElementById('autoCondCol').value;
     const condVal = document.getElementById('autoCondVal').value;
-    if (!name) { alert('Ingresa un nombre'); return; }
-    if (!selectedTemplate) { alert('Selecciona una plantilla'); return; }
+    if (!name) { toast('Ingresa un nombre para la automatización', 'warning'); return; }
+    if (!selectedTemplate) { toast('Selecciona una plantilla primero', 'warning'); return; }
     const res = await fetch(API + '/scheduled-automations', {
       method:'POST', headers:{'Content-Type':'application/json','x-account-id':accountId},
       body:JSON.stringify({name, cron_expression:cron, board_id:boardId, template_name:selectedTemplate, condition_column:condCol, condition_value:condVal})
     });
     const data = await res.json();
-    if (data.success) { await loadScheduledAutos(); } else alert('Error: ' + data.error);
+    if (data.success) { toast('Automatización guardada', 'success'); await loadScheduledAutos(); } else toast('Error: ' + data.error, 'error');
   }
 
   async function loadScheduledAutos() {
@@ -1713,8 +1859,9 @@ async function loadSignatures() {
   }
 
   async function deleteScheduledAuto(id) {
-    if (!confirm('¿Eliminar automatización?')) return;
+    if (!await showConfirm('¿Eliminar esta automatización programada?', 'Eliminar automatización', 'Eliminar')) return;
     await fetch(API + '/scheduled-automations/' + id, {method:'DELETE', headers:{'x-account-id':accountId}});
+    toast('Automatización eliminada', 'info');
     await loadScheduledAutos();
   }
 
@@ -1783,7 +1930,7 @@ async function loadSignatures() {
   async function batchDeleteDocs() {
     const checked = [...document.querySelectorAll('#historial-list input[type=checkbox]:checked')];
     if (!checked.length) return;
-    if (!confirm('¿Eliminar ' + checked.length + ' documento(s)? Esta acción no se puede deshacer.')) return;
+    if (!await showConfirm('¿Eliminar ' + checked.length + ' documento(s)? Esta acción no se puede deshacer.', 'Eliminar documentos', 'Eliminar')) return;
     const ids = checked.map(cb => parseInt(cb.dataset.id, 10));
     try {
       const r = await fetch(API + '/documents/batch', {
@@ -1792,9 +1939,9 @@ async function loadSignatures() {
         body: JSON.stringify({ ids })
       });
       const d = await r.json();
-      if (d.success) { await loadHistorial(); document.getElementById('batch-delete-btn').style.display = 'none'; }
-      else alert('Error: ' + (d.error || 'No se pudo eliminar'));
-    } catch(e) { alert('Error de conexión'); }
+      if (d.success) { toast('Documentos eliminados', 'success'); await loadHistorial(); document.getElementById('batch-delete-btn').style.display = 'none'; }
+      else toast('Error: ' + (d.error || 'No se pudo eliminar'), 'error');
+    } catch(e) { toast('Error de conexión', 'error'); }
   }
 
   /* ── AJUSTES ── */
@@ -1881,7 +2028,7 @@ async function loadSignatures() {
   async function saveCustomField() {
     const key = document.getElementById('new-field-key').value.trim().replace(/\s+/g,'_').toLowerCase();
     const value = document.getElementById('new-field-value').value.trim();
-    if (!key) { alert('Ingresa un nombre'); return; }
+    if (!key) { toast('Ingresa un nombre para el campo', 'warning'); return; }
     customFields.push({key, value});
     document.getElementById('new-field-key').value = '';
     document.getElementById('new-field-value').value = '';
@@ -1904,7 +2051,7 @@ async function loadSignatures() {
   }
 
   async function deleteLogo() {
-    if (!confirm('¿Eliminar el logo?')) return;
+    if (!await showConfirm('¿Eliminar el logo del portal de firmas?', 'Eliminar logo', 'Eliminar')) return;
     try {
       await fetch(API + '/logo/delete', { method: 'DELETE', headers: { 'x-account-id': accountId } });
       document.getElementById('logo-preview').style.display = 'none';
@@ -1912,9 +2059,8 @@ async function loadSignatures() {
       document.getElementById('logo-upload-area').style.display = '';
       document.getElementById('logo-upload-area').classList.remove('has-file');
       document.getElementById('logo-filename').textContent = '';
-      document.getElementById('logo-status').textContent = '✅ Logo eliminado';
-      setTimeout(() => document.getElementById('logo-status').textContent = '', 2000);
-    } catch(e) { alert('Error al eliminar logo'); }
+      toast('Logo eliminado', 'info');
+    } catch(e) { toast('Error al eliminar logo', 'error'); }
   }
 
   async function handleLogoUpload(e) {
@@ -1975,6 +2121,18 @@ async function loadSignatures() {
       else badge.classList.add('pill-red');
 
       badge.style.display = 'inline-flex';
+
+      // Update usage bar
+      const barWrap = document.getElementById('usage-bar-wrap');
+      if (barWrap && limit < 999999) {
+        barWrap.style.display = 'block';
+        document.getElementById('usage-bar-label').textContent = used + ' / ' + limit + ' documentos';
+        document.getElementById('usage-bar-pct').textContent = pct + '%';
+        const fill = document.getElementById('usage-bar-fill');
+        fill.style.width = pct + '%';
+        fill.className = 'usage-bar-fill' + (pct >= 90 ? ' critical' : pct >= 70 ? ' warn' : '');
+        document.getElementById('usage-bar-pct').style.color = pct >= 90 ? 'var(--red)' : pct >= 70 ? 'var(--orange)' : 'var(--accent)';
+      }
 
       if (!sub.allowed && sub.reason) {
         badge.title = sub.reason === 'trial_expired'
@@ -2096,7 +2254,7 @@ async function loadSignatures() {
         document.getElementById('preview-canvas').style.height = (680 * scale) + 'px';
       });
     } catch(e) {
-      alert('Error al cargar vista previa: ' + e.message);
+      toast('Error al cargar vista previa: ' + e.message, 'error');
     }
   }
 
@@ -2362,14 +2520,15 @@ async function loadSignatures() {
         headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
         body: JSON.stringify({ ids })
       });
-      if (!r.ok) { const d = await r.json(); alert('Error: ' + (d.error || 'No se pudo generar el ZIP')); return; }
+      if (!r.ok) { const d = await r.json(); toast('Error: ' + (d.error || 'No se pudo generar el ZIP'), 'error'); return; }
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = 'docugen_export_' + new Date().toISOString().split('T')[0] + '.zip';
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch(e) { alert('Error de conexión'); }
+      toast('ZIP descargado', 'success');
+    } catch(e) { toast('Error de conexión', 'error'); }
     finally { zipBtn.textContent = '📦 ZIP (' + ids.length + ')'; zipBtn.disabled = false; }
   }
 

@@ -12,6 +12,18 @@ module.exports = function createApp(deps) {
   const { HTTP_REQUEST_TIMEOUT_MS } = require('./utils/config');
 
   const app = express();
+
+  // ── HEALTHZ — must be first, before any middleware that could fail ──
+  // Railway health check hits this endpoint. Returns 200 immediately.
+  app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok', uptime: process.uptime() }));
+  app.get('/', (req, res, next) => {
+    // Return 200 for root health checks; pass through for static file requests
+    if (req.headers['user-agent']?.includes('Railway') || req.headers['x-railway-healthcheck']) {
+      return res.status(200).json({ status: 'ok' });
+    }
+    next();
+  });
+
   app.use(helmet.hsts({ maxAge: 31536000, includeSubDomains: true, preload: true }));
 
   // P3-1: CORS restringido a orígenes de Monday.com y la propia app
