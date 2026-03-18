@@ -329,27 +329,27 @@
       </div>
     </div>
 
-    <!-- TAB BAR -->
-    <div class="tab-bar">
-      <button class="tab active" onclick="switchTab('generate')" id="tab-generate">
+    <!-- TAB BAR — FIX 17: ARIA tablist/tab roles -->
+    <div class="tab-bar" role="tablist" aria-label="Navegación principal">
+      <button class="tab active" onclick="switchTab('generate')" id="tab-generate" role="tab" aria-selected="true" aria-controls="panel-generate" tabindex="0" data-tab="generate">
         <span class="tab-icon">⚡</span> Generar
       </button>
-      <button class="tab" onclick="switchTab('firmas')" id="tab-firmas">
+      <button class="tab" onclick="switchTab('firmas')" id="tab-firmas" role="tab" aria-selected="false" aria-controls="panel-firmas" tabindex="-1" data-tab="firmas">
         <span class="tab-icon">✍️</span> Firmas
       </button>
-      <button class="tab" onclick="switchTab('auto')" id="tab-auto">
+      <button class="tab" onclick="switchTab('auto')" id="tab-auto" role="tab" aria-selected="false" aria-controls="panel-auto" tabindex="-1" data-tab="auto">
         <span class="tab-icon">🤖</span> Automático
       </button>
-      <button class="tab" onclick="switchTab('historial')" id="tab-historial">
+      <button class="tab" onclick="switchTab('historial')" id="tab-historial" role="tab" aria-selected="false" aria-controls="panel-historial" tabindex="-1" data-tab="historial">
         <span class="tab-icon">📁</span> Historial
       </button>
-      <button class="tab" onclick="switchTab('ajustes')" id="tab-ajustes">
+      <button class="tab" onclick="switchTab('ajustes')" id="tab-ajustes" role="tab" aria-selected="false" aria-controls="panel-ajustes" tabindex="-1" data-tab="ajustes">
         <span class="tab-icon">⚙️</span> Ajustes
       </button>
-      <button class="tab" onclick="switchTab('galeria')" id="tab-galeria">
+      <button class="tab" onclick="switchTab('galeria')" id="tab-galeria" role="tab" aria-selected="false" aria-controls="panel-galeria" tabindex="-1" data-tab="galeria">
         <span class="tab-icon">✨</span> Galería
       </button>
-      <button class="tab" onclick="switchTab('logs')" id="tab-logs">
+      <button class="tab" onclick="switchTab('logs')" id="tab-logs" role="tab" aria-selected="false" aria-controls="panel-logs" tabindex="-1" data-tab="logs">
         <span class="tab-icon">📊</span> Registros
       </button>
     </div>
@@ -1048,8 +1048,37 @@
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
     document.getElementById('tab-' + name).classList.add('active');
-    document.getElementById('panel-' + name).classList.add('active');
+    const panelEl = document.getElementById('panel-' + name);
+    if (panelEl) panelEl.classList.add('active');
+    // FIX 17 — update ARIA attributes on tab switch
+    document.querySelectorAll('[role="tab"]').forEach(t => {
+      const isActive = t.dataset.tab === name;
+      t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      t.setAttribute('tabindex', isActive ? '0' : '-1');
+    });
   }
+
+  // FIX 17 — keyboard navigation for tabs (ArrowLeft/ArrowRight/Enter/Space)
+  document.addEventListener('keydown', function(e) {
+    const tabs = [...document.querySelectorAll('[role="tab"]')];
+    const focused = document.activeElement;
+    const idx = tabs.indexOf(focused);
+    if (idx === -1) return;
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      const next = tabs[(idx + 1) % tabs.length];
+      next.focus();
+      switchTab(next.dataset.tab);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const prev = tabs[(idx - 1 + tabs.length) % tabs.length];
+      prev.focus();
+      switchTab(prev.dataset.tab);
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      switchTab(focused.dataset.tab);
+    }
+  });
 
   /* ── INIT ── */
   async function init() {
@@ -1158,19 +1187,28 @@
       const res = await fetch(API + '/templates?account_id=' + accountId);
       const data = await res.json();
       const list = document.getElementById('template-list');
-      const tpls = (data.templates || []).map(t => typeof t === 'string' ? t : t.filename);
-      if (!tpls.length) { list.innerHTML = '<div class="empty">No hay plantillas. Sube una.</div>'; return; }
-      list.innerHTML = tpls.map(t =>
-        '<div class="template-item" id="tpl-' + t.replace(/[\.\s]/g,'-') + '">' +
+      const tplObjs = (data.templates || []);
+      const tpls = tplObjs.map(t => typeof t === 'string' ? t : t.filename);
+      // FIX 16 — empty state with guidance
+      if (!tpls.length) {
+        list.innerHTML = '<div class="empty-state" style="text-align:center;padding:2rem;color:var(--muted)"><p style="font-size:2rem">📄</p><p><strong>Sin plantillas</strong></p><p>Sube un archivo .docx para comenzar</p></div>';
+        return;
+      }
+      list.innerHTML = tpls.map((t, i) => {
+        const tplObj = tplObjs[i];
+        const varsCount = Array.isArray(tplObj && tplObj.variables) ? tplObj.variables.length : 0;
+        const version = (tplObj && tplObj.version) ? ' v' + tplObj.version : '';
+        return '<div class="template-item" id="tpl-' + t.replace(/[\.\s]/g,'-') + '">' +
         '<span style="font-size:15px">📄</span>' +
-        '<span class="template-name" onclick="selectTemplate(\'' + t + '\')" style="cursor:pointer">' + t + '</span>' +
+        '<span class="template-name" onclick="selectTemplate(\'' + t + '\')" style="cursor:pointer" title="' + (varsCount ? varsCount + ' variables' : '') + '">' + t + (version ? '<span style="font-size:10px;color:var(--muted);margin-left:4px">' + version + '</span>' : '') + '</span>' +
         '<div class="template-actions">' +
+        '<button class="icon-btn" onclick="event.stopPropagation();showTemplateVersions(\'' + t.replace(/'/g, "\\'") + '\')" title="Ver versiones">📋</button>' +
         '<button class="icon-btn" onclick="event.stopPropagation();renameTemplate(\'' + t + '\')" title="Renombrar">✎</button>' +
         '<button class="icon-btn" onclick="event.stopPropagation();duplicateTemplate(\'' + t + '\')" title="Duplicar">⧉</button>' +
         '<a class="icon-btn" href="' + API + '/templates/' + encodeURIComponent(t) + '/export?account_id=' + accountId + '" download="' + t + '" onclick="event.stopPropagation()" title="Exportar .docx">⬇</a>' +
         '<button class="icon-btn danger" onclick="event.stopPropagation();deleteTemplate(\'' + t + '\')" title="Eliminar">🗑</button>' +
-        '</div></div>'
-      ).join('');
+        '</div></div>';
+      }).join('');
     } catch(e) { document.getElementById('template-list').innerHTML = '<div class="empty">Error al cargar</div>'; }
   }
 
@@ -1180,6 +1218,46 @@
     const el = document.getElementById('tpl-' + name.replace(/[\.\s]/g,'-'));
     if (el) el.classList.add('selected');
     checkReady();
+  }
+
+  // FIX 20 — template version history modal
+  async function showTemplateVersions(name) {
+    try {
+      const r = await fetch(API + '/templates/' + encodeURIComponent(name) + '/versions', { headers: { 'x-account-id': accountId } });
+      const data = await r.json();
+      if (!r.ok) { alert('Error: ' + (data.error || 'No se pudo obtener versiones')); return; }
+      const versions = data.versions || [];
+      let modalHtml = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px" id="versions-modal" onclick="if(event.target.id===\'versions-modal\')document.getElementById(\'versions-modal\').remove()">' +
+        '<div style="background:var(--surface);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.3);width:100%;max-width:460px;max-height:80vh;overflow-y:auto">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--border)">' +
+        '<strong style="font-size:15px">📋 Versiones de ' + name + '</strong>' +
+        '<button onclick="document.getElementById(\'versions-modal\').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted);padding:4px">×</button>' +
+        '</div>' +
+        '<div style="padding:16px">' +
+        '<p style="font-size:13px;margin-bottom:12px">Versión actual: <strong>v' + (data.current_version || 1) + '</strong></p>';
+      if (versions.length === 0) {
+        modalHtml += '<p style="color:var(--muted);font-size:13px">No hay versiones anteriores guardadas.</p>';
+      } else {
+        modalHtml += '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+          '<thead><tr style="background:var(--surface2)">' +
+          '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid var(--border)">Versión</th>' +
+          '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid var(--border)">Archivado</th>' +
+          '</tr></thead><tbody>';
+        versions.forEach(v => {
+          const archivedAt = v.archived_at ? new Date(v.archived_at).toLocaleString('es-MX') : '—';
+          modalHtml += '<tr style="border-bottom:1px solid var(--border)">' +
+            '<td style="padding:6px 10px">v' + v.version + '</td>' +
+            '<td style="padding:6px 10px">' + archivedAt + '</td>' +
+            '</tr>';
+        });
+        modalHtml += '</tbody></table>';
+      }
+      modalHtml += '</div></div></div>';
+      // Remove any existing modal
+      const existing = document.getElementById('versions-modal');
+      if (existing) existing.remove();
+      document.body.insertAdjacentHTML('beforeend', modalHtml);
+    } catch(e) { alert('Error al cargar versiones'); }
   }
 
   let colMappingOpen = false;
@@ -1483,7 +1561,8 @@ async function loadSignatures() {
       const res = await fetch(API + '/signatures', {headers:{'x-account-id':accountId}});
       const data = await res.json();
       const list = document.getElementById('signaturesList');
-      if (!data.signatures || !data.signatures.length) { list.innerHTML = '<div class="empty">Sin solicitudes de firma</div>'; return; }
+      // FIX 16 — empty state for signatures
+      if (!data.signatures || !data.signatures.length) { list.innerHTML = '<div class="empty-state" style="text-align:center;padding:2rem;color:var(--muted)"><p style="font-size:2rem">✍️</p><p><strong>Sin solicitudes de firma</strong></p><p>Genera un documento y solicita una firma digital</p></div>'; return; }
       list.innerHTML = data.signatures.map(s => {
         const signed = s.status === 'signed';
         const expired = s.expires_at && new Date(s.expires_at) < new Date() && !signed;

@@ -56,10 +56,63 @@ function toVarName(title) {
 function extractColumnValue(col) {
   if (!col) return '';
   const val = col?.value;
-  if (col?.column && (col.column.type === 'mirror' || col.column.type === 'board_relation')) {
+  const type = col?.column?.type;
+  if (type === 'mirror' || type === 'board_relation') {
     return col.display_value || col.text || '';
   }
-  if (col?.column && col.column.type === 'location') {
+  // FIX 6 — handle additional Monday column types
+  if (val !== null && val !== undefined && val !== '') {
+    try {
+      switch (type) {
+        case 'link': {
+          const parsed = JSON.parse(val);
+          return parsed?.url || val;
+        }
+        case 'file': {
+          const parsed = JSON.parse(val);
+          const files = parsed?.files;
+          if (Array.isArray(files)) return files.map(f => f.name || f.id || '').filter(Boolean).join(', ');
+          return '';
+        }
+        case 'timeline': {
+          const t = JSON.parse(val);
+          if (t && t.from && t.to) return `${t.from} → ${t.to}`;
+          return col.text || '';
+        }
+        case 'priority':
+        case 'color': {
+          const parsed = JSON.parse(val);
+          return parsed?.label?.text || parsed?.label || col.text || val;
+        }
+        case 'rating': {
+          const parsed = JSON.parse(val);
+          return String(parsed?.rating !== undefined ? parsed.rating : col.text || val);
+        }
+        case 'location': {
+          if (col.text) return col.text;
+          const parsed = JSON.parse(val);
+          return parsed?.formatted_address || parsed?.address || '';
+        }
+        case 'email': {
+          const parsed = JSON.parse(val);
+          return parsed?.email || col.text || val;
+        }
+        case 'phone': {
+          const parsed = JSON.parse(val);
+          return parsed?.phone || col.text || val;
+        }
+        case 'country': {
+          const parsed = JSON.parse(val);
+          return parsed?.countryName || col.text || val;
+        }
+        default:
+          break;
+      }
+    } catch (_) {
+      // malformed JSON — fall through to text
+    }
+  }
+  if (type === 'location') {
     if (col.text) return col.text;
     try { const parsed = JSON.parse(val || '{}'); return parsed.address || ''; } catch(e) { return ''; }
   }

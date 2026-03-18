@@ -69,13 +69,22 @@ async function executeAutomation(accountId, itemId, boardId, templateName, acces
 }
 
 // ── PROCESS PENDING TRIGGERS ──
-// Fixed: max 3 attempts, concurrent processing, structured logging
-const MAX_ATTEMPTS = MAX_AUTOMATION_ATTEMPTS;
+// FIX 4: exponential backoff — 5 attempts max, increasing delays
+const MAX_ATTEMPTS = 5; // override config — backoff requires 5 attempts
+
+// Exponential backoff delays per attempt number (1-based):
+// attempt 1 → retry after 1 min, 2 → 5 min, 3 → 30 min, 4 → 2 hours, 5 → fail permanently
+const BACKOFF_MS = [0, 60_000, 300_000, 1_800_000, 7_200_000];
+
+function nextRetryAt(attemptNumber) {
+  const delayMs = BACKOFF_MS[attemptNumber] || 7_200_000;
+  return new Date(Date.now() + delayMs);
+}
 
 async function processPendingTriggers() {
   try {
     const pending = await pool.query(
-      "SELECT * FROM webhook_events WHERE event_type='trigger_fired' AND column_value='pending' AND attempts < $1 LIMIT 10",
+      "SELECT * FROM webhook_events WHERE event_type='trigger_fired' AND column_value='pending' AND attempts < $1 AND (next_retry_at IS NULL OR next_retry_at <= NOW()) LIMIT 10",
       [MAX_ATTEMPTS]
     );
     if (!pending.rows.length) return;
@@ -116,19 +125,55 @@ async function _processOneTrigger(evt) {
   }
 
   const result = await executeAutomation(evt.account_id, evt.item_id, evt.board_id, evt.column_id, accessToken);
+  const newAttempts = (evt.attempts || 0) + 1;
 
   if (result.success) {
-    await pool.query("UPDATE webhook_events SET column_value='done' WHERE id=$1", [evt.id]);
+    await pool.query("UPDATE webhook_events SET column_value='done', next_retry_at=NULL WHERE id=$1", [evt.id]);
     logger.info({ itemId: evt.item_id, accountId: evt.account_id }, 'Trigger processed successfully');
   } else {
-    const isFinal = (evt.attempts + 1) >= MAX_ATTEMPTS;
-    await pool.query(
-      "UPDATE webhook_events SET column_value=$1, last_error=$2 WHERE id=$3",
-      [isFinal ? 'failed' : 'pending', result.error, evt.id]
-    );
+    const isFinal = newAttempts >= MAX_ATTEMPTS;
     if (isFinal) {
-      logger.warn({ itemId: evt.item_id, accountId: evt.account_id, error: result.error }, 'Trigger permanently failed after max attempts');
+      await pool.query(
+        "UPDATE webhook_events SET column_value='failed', last_error=$1, next_retry_at=NULL WHERE id=$2",
+        [result.error, evt.id]
+      );
+      logger.warn({ itemId: evt.item_id, accountId: evt.account_id, error: result.error, attempts: newAttempts }, 'Trigger permanently failed after max attempts');
+    } else {
+      const retryAt = nextRetryAt(newAttempts);
+      await pool.query(
+        "UPDATE webhook_events SET column_value='pending', last_error=$1, next_retry_at=$2 WHERE id=$3",
+        [result.error, retryAt, evt.id]
+      );
+      logger.warn({ itemId: evt.item_id, accountId: evt.account_id, attempts: newAttempts, retryAt }, 'Trigger failed — scheduled for retry with backoff');
     }
+  }
+}
+
+// ── TIMEZONE HELPER — FIX 13 ──
+/**
+ * Returns the "hour" in a given timezone using Intl.
+ * @param {Date} utcNow
+ * @param {string} timezone  IANA timezone string, e.g. "America/Mexico_City"
+ * @returns {{ hour: number, day: number, date: number }}
+ */
+function getTimeParts(utcNow, timezone) {
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: 'numeric', day: 'numeric', weekday: 'short',
+      hour12: false,
+    });
+    const parts = fmt.formatToParts(utcNow);
+    const getPart = (type) => parseInt(parts.find(p => p.type === type)?.value || '0', 10);
+    const weekdayStr = parts.find(p => p.type === 'weekday')?.value || 'Mon';
+    const weekdays = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    return {
+      hour: getPart('hour'),
+      day:  weekdays[weekdayStr] ?? 1,
+      date: getPart('day'),
+    };
+  } catch {
+    return { hour: utcNow.getHours(), day: utcNow.getDay(), date: utcNow.getDate() };
   }
 }
 
@@ -143,10 +188,22 @@ async function runScheduledAutomations() {
       .catch(() => ({ rows: [] }));
 
     for (const auto of autos.rows) {
+      // FIX 13: get account timezone from settings, default UTC
+      let timezone = 'UTC';
+      try {
+        const settingsRow = await pool.query('SELECT settings FROM account_settings WHERE account_id=$1', [auto.account_id]);
+        if (settingsRow.rows.length) {
+          const tz = settingsRow.rows[0].settings?.timezone;
+          if (tz && typeof tz === 'string' && tz.length > 0) timezone = tz;
+        }
+      } catch { /* use UTC */ }
+
+      const { hour, day, date } = getTimeParts(now, timezone);
+
       let shouldRun = false;
-      if      (auto.cron_expression === 'daily')   shouldRun = now.getHours() === 8;
-      else if (auto.cron_expression === 'weekly')  shouldRun = now.getDay() === 1 && now.getHours() === 8;
-      else if (auto.cron_expression === 'monthly') shouldRun = now.getDate() === 1 && now.getHours() === 8;
+      if      (auto.cron_expression === 'daily')   shouldRun = hour === 8;
+      else if (auto.cron_expression === 'weekly')  shouldRun = day === 1 && hour === 8;
+      else if (auto.cron_expression === 'monthly') shouldRun = date === 1 && hour === 8;
       if (!shouldRun) continue;
 
       const tokenData = await getToken(auto.account_id);

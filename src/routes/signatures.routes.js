@@ -6,7 +6,7 @@ const fs = require('fs');
 const PizZip = require('pizzip');
 // P3-5: multer moved to module top level (was inside factory function)
 const multer = require('multer');
-const { makeRateLimiter } = require('../middleware/rateLimit');
+const { makeRateLimiter, RATE_LIMITS } = require('../middleware/rateLimit');
 
 module.exports = function makeSignaturesRouter(deps) {
   const {
@@ -22,6 +22,8 @@ module.exports = function makeSignaturesRouter(deps) {
 
   // B1: Rate limiter for public sign endpoints (30 req/min per account/IP)
   const signRateLimit = makeRateLimiter(30, 60_000);
+  // FIX 3 — named preset rate limiter for signature operations
+  const sigRateLimit = makeRateLimiter(RATE_LIMITS.signature.max, RATE_LIMITS.signature.windowMs);
 
   // FIX-9: XML escape helper for OOXML injection prevention
   function xmlEscape(s) {
@@ -45,7 +47,7 @@ module.exports = function makeSignaturesRouter(deps) {
 
   // ─── FIRMA DIGITAL ────────────────────────────────────────
   // FIX-11: All ALTER TABLE statements removed — they are in initDB()
-  router.post('/signatures/request', requireAuth, checkSigLimit, async (req, res) => {
+  router.post('/signatures/request', requireAuth, checkSigLimit, sigRateLimit, async (req, res) => {
     const { document_filename, signer_name, signer_email, item_id, board_id, doc_type } = req.body;
     if (!document_filename || !signer_name) return res.status(400).json({ error: 'Faltan datos' });
     if (signer_name.length > 255) return res.status(400).json({ error: 'Nombre demasiado largo (máx 255 caracteres)' });
@@ -127,7 +129,7 @@ module.exports = function makeSignaturesRouter(deps) {
         adminsNotified = admins.length;
         res.json({ success: true, token, sign_url: signUrl, status: 'pending_approval', admins_notified: adminsNotified });
       } else {
-        // #6 Email queue: send via BullMQ when Redis available, direct Resend otherwise
+        // #6 Email queue + FIX 10 email tracking
         if (signer_email) {
           sendEmail({
             to:      signer_email,
@@ -136,7 +138,12 @@ module.exports = function makeSignaturesRouter(deps) {
             type:    'sign_request',
             accountId: req.accountId,
             token,
-          }).catch(emailErr => logger.error({ err: emailErr.message }, 'Email error'));
+          }).then(() => {
+            pool.query("UPDATE signature_requests SET email_status='sent', email_sent_at=NOW() WHERE token=$1", [token]).catch(() => {});
+          }).catch(emailErr => {
+            logger.error({ err: emailErr.message }, 'Email error');
+            pool.query("UPDATE signature_requests SET email_status='failed' WHERE token=$1", [token]).catch(() => {});
+          });
         }
         res.json({ success: true, token, sign_url: signUrl });
       }
@@ -230,9 +237,10 @@ module.exports = function makeSignaturesRouter(deps) {
   // Enviar OTP al firmante
   router.post('/sign/:token/send-otp', signRateLimit, async (req, res) => {
     try {
-      const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1 AND status=$2', [req.params.token, 'pending']);
-      if (!r.rows.length) return res.status(404).json({ error: 'Link no válido' });
+      const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
+      if (!r.rows.length) return res.status(404).json({ error: 'Enlace de firma no encontrado o expirado', error_code: 'TOKEN_NOT_FOUND' });
       const sig = r.rows[0];
+      if (sig.status !== 'pending') return res.status(400).json({ error: 'Este enlace ya no está disponible', error_code: 'UNAVAILABLE' });
       if (!sig.signer_email) return res.status(400).json({ error: 'No hay email registrado para este firmante' });
 
       // P2-2: crypto.randomInt — criptográficamente seguro (no Math.random)
@@ -240,9 +248,11 @@ module.exports = function makeSignaturesRouter(deps) {
       const otp = generateOtp();
       const otpHash = hashOtp(otp, req.params.token);
 
+      // FIX 8 — set OTP expiry (15 minutes from now)
+      const otpExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
       await pool.query(
-        'UPDATE signature_requests SET otp_code=$1, otp_verified=FALSE, otp_attempts=0 WHERE token=$2',
-        [otpHash, req.params.token]
+        'UPDATE signature_requests SET otp_code=$1, otp_verified=FALSE, otp_attempts=0, otp_expires_at=$2 WHERE token=$3',
+        [otpHash, otpExpiresAt, req.params.token]
       );
 
       // #6 Enviar OTP vía sendEmail (queue-first, direct-send fallback)
@@ -287,6 +297,11 @@ module.exports = function makeSignaturesRouter(deps) {
       // P2-3: máximo 3 intentos (más conservador que los 5 anteriores)
       if (sig.otp_attempts >= 3) {
         return res.status(400).json({ error: 'Demasiados intentos fallidos. Solicita un nuevo código OTP.' });
+      }
+
+      // FIX 8 — check OTP expiry
+      if (sig.otp_expires_at && new Date() > new Date(sig.otp_expires_at)) {
+        return res.status(400).json({ error: 'Código expirado. Solicita uno nuevo.', error_code: 'OTP_EXPIRED' });
       }
 
       // P2-2/P2-3: verifyOtp usa hashOtp + timingSafeEqual (sin comparación de string directo)
@@ -497,10 +512,17 @@ module.exports = function makeSignaturesRouter(deps) {
       return res.status(400).json({ error: 'Firma demasiado grande' });
     }
     try {
-      const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1 AND status=$2', [req.params.token, 'pending']);
-      if (!r.rows.length) return res.status(404).json({ error: 'Link no válido o ya firmado' });
-      const sig = r.rows[0];
-      if (sig.expires_at && new Date() > new Date(sig.expires_at)) return res.status(400).json({ error: 'Link expirado' });
+      // FIX 18 — specific error messages
+      const rAll = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
+      if (!rAll.rows.length) return res.status(404).json({ error: 'Enlace de firma no encontrado o expirado', error_code: 'TOKEN_NOT_FOUND' });
+      const sigCheck = rAll.rows[0];
+      if (sigCheck.status === 'signed')    return res.status(409).json({ error: 'Este documento ya fue firmado', error_code: 'ALREADY_SIGNED', signed_at: sigCheck.signed_at });
+      if (sigCheck.status === 'cancelled') return res.status(410).json({ error: 'Esta solicitud de firma fue cancelada', error_code: 'CANCELLED' });
+      if (sigCheck.status === 'rejected')  return res.status(410).json({ error: 'Esta solicitud de firma fue rechazada', error_code: 'REJECTED' });
+      if (sigCheck.expires_at && new Date() > new Date(sigCheck.expires_at)) return res.status(410).json({ error: 'El enlace de firma ha expirado', error_code: 'EXPIRED', expired_at: sigCheck.expires_at });
+      if (sigCheck.status !== 'pending')   return res.status(400).json({ error: 'Esta solicitud no está disponible para firmar', error_code: 'UNAVAILABLE' });
+      const r = { rows: [sigCheck] };
+      const sig = sigCheck;
 
       const signerIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
       const userAgent = req.headers['user-agent'] || '';
@@ -718,7 +740,7 @@ module.exports = function makeSignaturesRouter(deps) {
       const { page, limit, offset } = parsePagination(req.query, 20, 100);
       const [r, countResult] = await Promise.all([
         pool.query(
-          'SELECT id, document_filename, signer_name, signer_email, status, signed_at, created_at, token FROM signature_requests WHERE account_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+          'SELECT id, document_filename, signer_name, signer_email, status, signed_at, created_at, token, email_status, email_sent_at FROM signature_requests WHERE account_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
           [req.accountId, limit, offset]
         ),
         pool.query('SELECT COUNT(*)::int AS total FROM signature_requests WHERE account_id=$1', [req.accountId]),
@@ -1115,6 +1137,86 @@ module.exports = function makeSignaturesRouter(deps) {
       );
       res.json({ approvals: r.rows, total: count.rows[0].total });
     } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
+  });
+
+  // FIX 15 — Signature rejection endpoint (public, rate limited)
+  router.post('/sign/:token/reject', signRateLimit, async (req, res) => {
+    try {
+      const { rejection_reason } = req.body;
+      if (rejection_reason && rejection_reason.length > 500) {
+        return res.status(400).json({ error: 'Motivo de rechazo demasiado largo (máx 500 caracteres)' });
+      }
+      const r = await pool.query('SELECT * FROM signature_requests WHERE token=$1', [req.params.token]);
+      if (!r.rows.length) return res.status(404).json({ error: 'Enlace de firma no encontrado o expirado', error_code: 'TOKEN_NOT_FOUND' });
+      const sig = r.rows[0];
+      if (sig.status !== 'pending') {
+        return res.status(400).json({ error: 'Esta solicitud ya no está en estado pendiente', error_code: 'UNAVAILABLE' });
+      }
+      await pool.query(
+        "UPDATE signature_requests SET status='rejected', rejected_at=NOW(), rejection_reason=$1 WHERE token=$2",
+        [rejection_reason || null, req.params.token]
+      );
+      try { require('../services/logger.service').info({ token: req.params.token.slice(0,8) }, 'Signature request rejected'); } catch {}
+      res.json({ success: true, message: 'Solicitud de firma rechazada' });
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
+  });
+
+  // FIX 7 — Batch signature requests
+  router.post('/signatures/batch-send', requireAuth, sigRateLimit, async (req, res) => {
+    const { document_id, signers } = req.body;
+    if (!document_id) return res.status(400).json({ error: 'document_id requerido' });
+    if (!Array.isArray(signers) || signers.length === 0) return res.status(400).json({ error: 'signers debe ser un array no vacío' });
+    if (signers.length > 10) return res.status(400).json({ error: 'Máximo 10 firmantes por lote' });
+
+    // Validate each signer
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    for (const [i, s] of signers.entries()) {
+      if (!s.signer_name || typeof s.signer_name !== 'string') return res.status(400).json({ error: `signers[${i}].signer_name requerido` });
+      if (s.signer_name.length > 255) return res.status(400).json({ error: `signers[${i}].signer_name demasiado largo (máx 255)` });
+      if (!s.signer_email || !emailRegex.test(s.signer_email)) return res.status(400).json({ error: `signers[${i}].signer_email inválido` });
+    }
+
+    // Look up document
+    try {
+      const docR = await pool.query('SELECT filename FROM documents WHERE id=$1 AND account_id=$2 AND deleted_at IS NULL', [document_id, req.accountId]);
+      if (!docR.rows.length) return res.status(404).json({ error: 'Documento no encontrado' });
+      const document_filename = docR.rows[0].filename;
+
+      const sent = [];
+      const failed = [];
+
+      // Process sequentially to avoid overwhelming the email queue
+      for (const signer of signers) {
+        try {
+          const token = require('crypto').randomBytes(32).toString('hex');
+          const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+          const signUrl = process.env.APP_URL + '/sign/' + token;
+          await pool.query(
+            'INSERT INTO signature_requests (token, account_id, document_filename, signer_name, signer_email, expires_at) VALUES ($1,$2,$3,$4,$5,$6)',
+            [token, req.accountId, document_filename, signer.signer_name, signer.signer_email, expiresAt]
+          );
+          sendEmail({
+            to:      signer.signer_email,
+            subject: signer.message || ('Documento pendiente de tu firma — ' + escapeHtml(document_filename)),
+            html:    emailSignRequest(escapeHtml(signer.signer_name), escapeHtml(document_filename), signUrl, expiresAt),
+            type:    'sign_request',
+            accountId: req.accountId,
+            token,
+          }).then(() => {
+            pool.query("UPDATE signature_requests SET email_status='sent', email_sent_at=NOW() WHERE token=$1", [token]).catch(() => {});
+          }).catch(() => {
+            pool.query("UPDATE signature_requests SET email_status='failed' WHERE token=$1", [token]).catch(() => {});
+          });
+          sent.push({ signer_name: signer.signer_name, signer_email: signer.signer_email, token, sign_url: signUrl });
+        } catch(e) {
+          failed.push({ signer_name: signer.signer_name, signer_email: signer.signer_email, error: e.message });
+        }
+      }
+
+      res.json({ sent, failed, total: signers.length, sent_count: sent.length, failed_count: failed.length });
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'batch-send error'); } catch {}
       res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 

@@ -5,6 +5,7 @@ const fs = require('fs');
 const PizZip = require('pizzip');
 const storageService = require('../services/storage.service');
 const { logDocumentEvent } = require('../services/audit.service');
+const { makeRateLimiter, RATE_LIMITS } = require('../middleware/rateLimit');
 
 module.exports = function makeDocumentsRouter(deps) {
   const {
@@ -15,6 +16,10 @@ module.exports = function makeDocumentsRouter(deps) {
     logError, outputsDir,
   } = deps;
   const router = Router();
+
+  // FIX 3 — stricter rate limiters for expensive endpoints
+  const pdfRateLimit    = makeRateLimiter(RATE_LIMITS.pdf.max,    RATE_LIMITS.pdf.windowMs);
+  const exportRateLimit = makeRateLimiter(RATE_LIMITS.export.max, RATE_LIMITS.export.windowMs);
 
   router.post('/generate-from-monday', requireAuth, checkDocLimit, docGenRateLimit, async (req, res) => {
     // FIX-14: Use req.accountId from auth — not req.body.account_id (prevents billing bypass)
@@ -62,7 +67,21 @@ module.exports = function makeDocumentsRouter(deps) {
       const storageKey = 'outputs/' + outputFilename;
       await storageService.uploadFile(storageKey, outputBuffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
 
-      const insertResult = await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id', [req.accountId, board_id, item_id, item.name, template_name, outputFilename, outputBuffer]);
+      // FIX 11 — deduplication check
+      const docHash = require('crypto').createHash('md5')
+        .update(`${req.accountId}:${item_id}:${template_name}:${new Date().toISOString().split('T')[0]}`)
+        .digest('hex');
+      if (req.query.skip_if_exists === 'true') {
+        const existing = await pool.query(
+          "SELECT id, item_name, filename, created_at FROM documents WHERE account_id=$1 AND doc_hash=$2 AND deleted_at IS NULL AND created_at > NOW() - INTERVAL '24 hours'",
+          [req.accountId, docHash]
+        );
+        if (existing.rows.length) {
+          return res.json({ ...existing.rows[0], existing: true, download_url: '/download/' + existing.rows[0].filename });
+        }
+      }
+
+      const insertResult = await pool.query('INSERT INTO documents (account_id, board_id, item_id, item_name, template_name, filename, doc_data, doc_hash) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id', [req.accountId, board_id, item_id, item.name, template_name, outputFilename, outputBuffer, docHash]);
       logDocumentEvent(pool, { documentId: insertResult.rows[0].id, eventType: 'created', actorId: req.accountId }).catch(err => { try { require('../services/logger.service').warn({ err: err.message }, 'audit/email fire-and-forget failed'); } catch {} });
 
       await incrementDocsUsed(_accountId); // billing
@@ -74,24 +93,76 @@ module.exports = function makeDocumentsRouter(deps) {
     }
   });
 
+  // FIX 5 — CSV export — MUST be before /:id to avoid param conflict
+  router.get('/documents/export/csv', requireAuth, async (req, res) => {
+    try {
+      const filters = ['d.account_id=$1', 'd.deleted_at IS NULL'];
+      const params = [req.accountId];
+      let idx = 2;
+      if (req.query.search)    { filters.push(`d.document_name ILIKE $${idx++}`);  params.push(`%${req.query.search}%`); }
+      if (req.query.template)  { filters.push(`d.template_name=$${idx++}`);         params.push(req.query.template); }
+      if (req.query.date_from) { filters.push(`d.created_at >= $${idx++}`);         params.push(new Date(req.query.date_from)); }
+      if (req.query.date_to)   { filters.push(`d.created_at <= $${idx++}`);         params.push(new Date(req.query.date_to)); }
+      const where = filters.join(' AND ');
+      const docsResult = await pool.query(
+        `SELECT d.id, d.item_name, d.template_name, d.created_at, d.filename FROM documents d WHERE ${where} ORDER BY d.created_at DESC`,
+        params
+      );
+      const docs = docsResult.rows;
+      const headers = ['ID', 'Nombre', 'Plantilla', 'Creado', 'Archivo'];
+      const rows = docs.map(d => [
+        d.id,
+        `"${(d.item_name || '').replace(/"/g, '""')}"`,
+        `"${(d.template_name || '').replace(/"/g, '""')}"`,
+        d.created_at ? d.created_at.toISOString() : '',
+        `"${(d.filename || '').replace(/"/g, '""')}"`,
+      ]);
+      const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="documentos_${new Date().toISOString().split('T')[0]}.csv"`);
+      res.send(csv);
+    } catch (err) {
+      try { require('../services/logger.service').error({ err: err.message }, 'csv-export error'); } catch {}
+      res.status(500).json({ error: 'Error al exportar CSV' });
+    }
+  });
+
+  // FIX 1 — search/filter with dynamic WHERE + pagination
   router.get('/documents', requireAuth, async (req, res) => {
     try {
-      const { page, limit, offset } = parsePagination(req.query);
+      const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+      const page  = Math.max(parseInt(req.query.page) || 1, 1);
+      const offset = (page - 1) * limit;
       const includeDeleted = req.query.include_deleted === 'true';
-      const deletedFilter = includeDeleted ? '' : 'AND deleted_at IS NULL';
+
+      const filters = ['d.account_id=$1'];
+      const params = [req.accountId];
+      let idx = 2;
+      if (!includeDeleted) { filters.push('d.deleted_at IS NULL'); }
+      if (req.query.search)    { filters.push(`d.item_name ILIKE $${idx++}`);  params.push(`%${req.query.search}%`); }
+      if (req.query.template)  { filters.push(`d.template_name=$${idx++}`);    params.push(req.query.template); }
+      if (req.query.date_from) { filters.push(`d.created_at >= $${idx++}`);    params.push(new Date(req.query.date_from)); }
+      if (req.query.date_to)   { filters.push(`d.created_at <= $${idx++}`);    params.push(new Date(req.query.date_to)); }
+      if (req.query.status)    { filters.push(`d.status=$${idx++}`);           params.push(req.query.status); }
+      const where = filters.join(' AND ');
+
       const [result, countResult] = await Promise.all([
         pool.query(
-          `SELECT id, item_name, template_name, filename, created_at, deleted_at FROM documents WHERE account_id = $1 ${deletedFilter} ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
-          [req.accountId, limit, offset]
+          `SELECT d.id, d.item_name, d.template_name, d.filename, d.created_at, d.deleted_at FROM documents d WHERE ${where} ORDER BY d.created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+          [...params, limit, offset]
         ),
-        pool.query(`SELECT COUNT(*)::int AS total FROM documents WHERE account_id = $1 ${deletedFilter}`, [req.accountId]),
+        pool.query(`SELECT COUNT(*)::int AS total FROM documents d WHERE ${where}`, params),
       ]);
       const total = countResult.rows[0].total;
       res.json({
         documents:  result.rows,
+        total,
+        page,
+        limit,
         pagination: { page, limit, total, total_pages: Math.ceil(total / limit) },
       });
     } catch (err) {
+      try { require('../services/logger.service').error({ err: err.message }, 'documents list error'); } catch {}
       res.status(500).json({ error: 'Error al obtener historial' });
     }
   });
@@ -148,7 +219,7 @@ module.exports = function makeDocumentsRouter(deps) {
   });
 
   // Generar documento desde monday en formato PDF o DOCX
-  router.post('/generate-from-monday-pdf', requireAuth, checkDocLimit, docGenRateLimit, async (req, res) => {
+  router.post('/generate-from-monday-pdf', requireAuth, checkDocLimit, docGenRateLimit, pdfRateLimit, async (req, res) => {
     // FIX-14: Use req.accountId from auth — not req.body.account_id (prevents billing bypass)
     const _accountId = req.accountId;
     const _subCheck = await checkSubscription(_accountId);
@@ -214,7 +285,7 @@ module.exports = function makeDocumentsRouter(deps) {
   });
 
   // Jobs PDF en PostgreSQL
-  router.post('/generate-pdf-async', requireAuth, checkDocLimit, docGenRateLimit, async (req, res) => {
+  router.post('/generate-pdf-async', requireAuth, checkDocLimit, docGenRateLimit, pdfRateLimit, async (req, res) => {
     // FIX-14: Use req.accountId from auth — not req.body.account_id (prevents billing bypass)
     const _accountId = req.accountId;
     const _subCheck = await checkSubscription(_accountId);
@@ -558,7 +629,7 @@ module.exports = function makeDocumentsRouter(deps) {
   });
 
   // ─── ZIP EXPORT — download multiple documents as a single ZIP ──
-  router.post('/export/zip', requireAuth, async (req, res) => {
+  router.post('/export/zip', requireAuth, exportRateLimit, async (req, res) => {
     const { ids } = req.body;
     if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids debe ser un array no vacío' });
     if (ids.length > 50) return res.status(400).json({ error: 'Máximo 50 documentos por ZIP' });

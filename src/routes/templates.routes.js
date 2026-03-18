@@ -23,12 +23,47 @@ module.exports = function makeTemplatesRouter(deps) {
     const accountId = req.accountId; // from requireAuth — never trust body/query
     // P2-6: Sanitize filename to prevent path traversal and special character injection
     const safeName = path.basename(req.file.originalname).replace(/[^a-zA-Z0-9._\-]/g, '_');
+
+    // FIX 9 — extract template variables from DOCX
+    let templateVars = [];
     try {
-      await pool.query(`INSERT INTO templates (account_id, filename, data) VALUES ($1, $2, $3) ON CONFLICT (account_id, filename) DO UPDATE SET data = $3, updated_at = NOW()`, [accountId, safeName, req.file.buffer]);
+      const PizZip = require('pizzip');
+      const Docxtemplater = require('docxtemplater');
+      const zip = new PizZip(buf);
+      const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+      const fullText = doc.getFullText();
+      templateVars = [...new Set([...fullText.matchAll(/\{\{([^}]+)\}\}/g)].map(m => m[1].trim()))];
+    } catch (_) { templateVars = []; }
+
+    try {
+      // FIX 2 — versioning: if template already exists, preserve previous version
+      const existing = await pool.query(
+        'SELECT version, previous_versions, data FROM templates WHERE account_id=$1 AND filename=$2',
+        [accountId, safeName]
+      );
+      if (existing.rows.length) {
+        const old = existing.rows[0];
+        const prevVersions = Array.isArray(old.previous_versions) ? old.previous_versions : [];
+        prevVersions.push({
+          version: old.version || 1,
+          filename: safeName,
+          archived_at: new Date().toISOString(),
+        });
+        const newVersion = (old.version || 1) + 1;
+        await pool.query(
+          'UPDATE templates SET data=$1, version=$2, previous_versions=$3, variables=$4, updated_at=NOW() WHERE account_id=$5 AND filename=$6',
+          [buf, newVersion, JSON.stringify(prevVersions), JSON.stringify(templateVars), accountId, safeName]
+        );
+      } else {
+        await pool.query(
+          'INSERT INTO templates (account_id, filename, data, version, previous_versions, variables) VALUES ($1,$2,$3,$4,$5,$6)',
+          [accountId, safeName, buf, 1, '[]', JSON.stringify(templateVars)]
+        );
+      }
       // I3: Audit log for template upload
       pool.query('INSERT INTO audit_log (account_id, action, details) VALUES ($1,$2,$3)',
-        [accountId, 'template.upload', JSON.stringify({ filename: safeName })]).catch(err => { try { require('../services/logger.service').warn({ err: err.message }, 'audit/email fire-and-forget failed'); } catch {} });
-      res.json({ success: true, filename: safeName });
+        [accountId, 'template.upload', JSON.stringify({ filename: safeName, variables: templateVars.length })]).catch(err => { try { require('../services/logger.service').warn({ err: err.message }, 'audit/email fire-and-forget failed'); } catch {} });
+      res.json({ success: true, filename: safeName, variables: templateVars, variables_found: templateVars.length });
     } catch (err) {
       try { require('../services/logger.service').error({ err: err.message }, 'request error'); } catch {}
       res.status(500).json({ error: 'Error interno del servidor' });
@@ -42,13 +77,29 @@ module.exports = function makeTemplatesRouter(deps) {
       const { limit, page, offset } = parsePagination(req.query);
       const [countRes, result] = await Promise.all([
         pool.query('SELECT COUNT(*) FROM templates WHERE account_id=$1', [accountId]),
-        pool.query('SELECT filename, created_at, updated_at, (canvas_json IS NOT NULL) as has_editor FROM templates WHERE account_id=$1 ORDER BY COALESCE(updated_at, created_at) DESC LIMIT $2 OFFSET $3', [accountId, limit, offset]),
+        pool.query('SELECT filename, created_at, updated_at, (canvas_json IS NOT NULL) as has_editor, version, variables FROM templates WHERE account_id=$1 ORDER BY COALESCE(updated_at, created_at) DESC LIMIT $2 OFFSET $3', [accountId, limit, offset]),
       ]);
       const total = parseInt(countRes.rows[0].count, 10);
       res.json({ templates: result.rows, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
     } catch (err) {
       res.status(500).json({ error: 'Error al listar plantillas' });
     }
+  });
+
+  // FIX 2 — template version history endpoint — MUST be before /:filename routes
+  router.get('/templates/:filename/versions', requireAuth, async (req, res) => {
+    try {
+      const filename = path.basename(req.params.filename);
+      const r = await pool.query(
+        'SELECT version, previous_versions FROM templates WHERE account_id=$1 AND filename=$2',
+        [req.accountId, filename]
+      );
+      if (!r.rows.length) return res.status(404).json({ error: 'Plantilla no encontrada' });
+      const row = r.rows[0];
+      const versions = Array.isArray(row.previous_versions) ? row.previous_versions : [];
+      res.json({ filename, current_version: row.version || 1, versions });
+    } catch(e) { try { require('../services/logger.service').error({ err: e.message }, 'request error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
   // Subir logo de cuenta

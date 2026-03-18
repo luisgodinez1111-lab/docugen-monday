@@ -109,6 +109,27 @@ module.exports = function makeAutomationsRouter(deps) {
     } catch(e) { res.status(500).json({ error: e.message }); }
   });
 
+  // FIX 19 — Paginated webhook events list
+  router.get('/webhooks/events', requireAuth, async (req, res) => {
+    try {
+      const limit  = Math.min(parseInt(req.query.limit) || 20, 100);
+      const page   = Math.max(parseInt(req.query.page) || 1, 1);
+      const offset = (page - 1) * limit;
+      const [countRes, r] = await Promise.all([
+        pool.query('SELECT COUNT(*) FROM webhook_events WHERE account_id=$1', [req.accountId]),
+        pool.query(
+          'SELECT id, event_type, item_id, board_id, column_id, column_value, attempts, last_error, next_retry_at, created_at FROM webhook_events WHERE account_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+          [req.accountId, limit, offset]
+        ),
+      ]);
+      const total = parseInt(countRes.rows[0].count, 10);
+      res.json({ items: r.rows, total, page, limit, pages: Math.ceil(total / limit) });
+    } catch(e) {
+      try { require('../services/logger.service').error({ err: e.message }, 'webhooks events error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
+  });
+
   // ─── GENERACIÓN MASIVA ────────────────────────────────────
   router.post('/generate-bulk', requireAuth, checkDocLimit, docGenRateLimit, async (req, res) => {
     // P0-5: Use req.accountId from auth — never trust req.body/query account_id (prevents billing bypass)

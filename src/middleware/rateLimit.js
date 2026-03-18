@@ -107,4 +107,14 @@ function makeRateLimiter(maxRequests, windowMs) {
   };
 }
 
-module.exports = { makeRateLimiter };
+// ── Named rate limiter presets ──────────────────────────────────────────────
+const RATE_LIMITS = {
+  pdf:       { max: 10,  windowMs: 60_000 }, // PDF generation — expensive
+  generate:  { max: 30,  windowMs: 60_000 }, // Document generation
+  signature: { max: 20,  windowMs: 60_000 }, // Signature operations
+  templates: { max: 50,  windowMs: 60_000 }, // Template CRUD
+  api:       { max: 100, windowMs: 60_000 }, // General API
+  export:    { max: 5,   windowMs: 60_000 }, // ZIP/CSV export
+};
+
+module.exports = { makeRateLimiter, RATE_LIMITS };

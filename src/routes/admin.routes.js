@@ -227,6 +227,58 @@ module.exports = function makeAdminRouter(deps) {
       res.status(500).json({ error: 'Error interno del servidor' }); }
   });
 
+  // FIX 12 — Billing usage dashboard
+  router.get('/usage-stats', requireAuth, async (req, res) => {
+    try {
+      const [sub, daily, monthly] = await Promise.all([
+        pool.query("SELECT * FROM subscriptions WHERE account_id=$1 AND status IN ('active','trial') LIMIT 1", [req.accountId]),
+        pool.query("SELECT DATE(created_at) as day, COUNT(*) as docs FROM documents WHERE account_id=$1 AND created_at > NOW() - INTERVAL '30 days' AND deleted_at IS NULL GROUP BY DATE(created_at) ORDER BY day", [req.accountId]),
+        pool.query("SELECT DATE_TRUNC('month', created_at) as month, COUNT(*) as docs FROM documents WHERE account_id=$1 AND created_at > NOW() - INTERVAL '6 months' AND deleted_at IS NULL GROUP BY 1 ORDER BY 1", [req.accountId]),
+      ]);
+      res.json({
+        subscription:  sub.rows[0] || null,
+        daily_usage:   daily.rows,
+        monthly_usage: monthly.rows,
+      });
+    } catch(e) {
+      try { require('../services/logger.service').error({ err: e.message }, 'usage-stats error'); } catch {}
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
+  });
+
+  // FIX 14 — Prometheus metrics endpoint (admin secret required)
+  router.get('/metrics/prometheus', requireAdminSecret, async (req, res) => {
+    try {
+      const [docs, sigs, tpls, pendingSigs, failedJobs] = await Promise.all([
+        pool.query('SELECT COUNT(*) FROM documents WHERE account_id=$1 AND deleted_at IS NULL', [req.query.account_id || 'global']).catch(() => ({ rows: [{ count: 0 }] })),
+        pool.query("SELECT COUNT(*) FROM signature_requests WHERE status='pending'").catch(() => ({ rows: [{ count: 0 }] })),
+        pool.query('SELECT COUNT(*) FROM templates').catch(() => ({ rows: [{ count: 0 }] })),
+        pool.query("SELECT COUNT(*) FROM signature_requests WHERE status='pending'").catch(() => ({ rows: [{ count: 0 }] })),
+        pool.query("SELECT COUNT(*) FROM webhook_events WHERE column_value='failed'").catch(() => ({ rows: [{ count: 0 }] })),
+      ]);
+      const uptime = process.uptime();
+      const mem = process.memoryUsage();
+      const lines = [
+        '# HELP docugen_uptime_seconds Process uptime in seconds',
+        '# TYPE docugen_uptime_seconds gauge',
+        `docugen_uptime_seconds ${uptime.toFixed(2)}`,
+        '# HELP docugen_memory_heap_bytes Heap memory used',
+        '# TYPE docugen_memory_heap_bytes gauge',
+        `docugen_memory_heap_bytes ${mem.heapUsed}`,
+        '# HELP docugen_signatures_pending Pending signature requests',
+        '# TYPE docugen_signatures_pending gauge',
+        `docugen_signatures_pending ${pendingSigs.rows[0].count}`,
+        '# HELP docugen_webhook_events_failed Failed webhook events',
+        '# TYPE docugen_webhook_events_failed gauge',
+        `docugen_webhook_events_failed ${failedJobs.rows[0].count}`,
+      ];
+      res.setHeader('Content-Type', 'text/plain; version=0.0.4');
+      res.send(lines.join('\n') + '\n');
+    } catch(e) {
+      res.status(500).send('# error fetching metrics\n');
+    }
+  });
+
   router.post('/migrate', async (req, res) => {
     // FIX-24: Timing-safe comparison to prevent timing attacks
     const adminSecret = process.env.ADMIN_MIGRATE_SECRET;
