@@ -494,6 +494,13 @@ module.exports = function makeTemplateLibraryRouter(deps) {
     });
   });
 
+  // GET /template-library/:id — full template detail including canvas_json (for editor)
+  router.get('/template-library/:id', requireAuth, (req, res) => {
+    const tpl = LIBRARY.find(t => t.id === req.params.id);
+    if (!tpl) return res.status(404).json({ error: 'Plantilla no encontrada' });
+    res.json({ template: tpl });
+  });
+
   // POST /template-library/:id/import — copy template to user's account
   router.post('/template-library/:id/import', requireAuth, async (req, res) => {
     const tpl = LIBRARY.find(t => t.id === req.params.id);
