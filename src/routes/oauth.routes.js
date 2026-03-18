@@ -129,8 +129,9 @@ module.exports = function makeOauthRouter(deps) {
       // P2-5: Redirigir solo a rutas internas conocidas
       res.redirect('/view?account_id=' + encodeURIComponent(accountId));
     } catch (error) {
-      logger.error('Error OAuth:', error.response?.data || error.message);
-      res.status(500).json({ error: 'Error OAuth', details: error.response?.data });
+      const details = error.response?.data || null;
+      logger.error({ err: error.message, details }, 'OAuth callback error');
+      res.status(500).json({ error: 'Error OAuth', message: error.message, details });
     }
   });
 
