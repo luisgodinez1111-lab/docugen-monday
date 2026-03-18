@@ -1641,10 +1641,10 @@ async function loadSignatures() {
     const statusEl = document.getElementById('gallery-status');
     statusEl.innerHTML = '<div class="status info">Importando <b>' + name + '</b>…</div>';
     try {
-      const res = await fetch(API + '/template-library/' + id + '/import', {
+      const res = await fetch(API + '/template-library/' + id + '/import?account_id=' + accountId, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account_id: accountId })
+        body: JSON.stringify({})
       });
       const data = await res.json();
       if (res.ok && data.success) {
